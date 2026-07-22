@@ -1,0 +1,16 @@
+/home/demo
+>- docs                                                  -
+ + src                                                   -
+ m a very long file name that keeps going and going~   88B
+ t app.tsx                                            5.0K
+ z archive.tar.gz                                     1.0M
+ s build.sh                                           256B
+ L Cargo.lock                                          50K
+ R Cargo.toml                                         734B
+ { data.json                                          8.0K
+ * deploy                                              15K
+ h index.html                                         1.0K
+ r main.rs                                            2.0K
+ m notes.md                                           1.5K
+ BROWSER
+| q quit | : cmd | ? help | t tag | T tags

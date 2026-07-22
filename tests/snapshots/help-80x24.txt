@@ -1,0 +1,24 @@
+/home/demo
+ dir docs                                        - drwxr-xr-x 2023-11-14 19:43
++ HELP ------------------------------------------------------------------------+
+|j / Down          move down            q                 quit                 |
+|k / Up            move up              :copy <dest>      copy selection       |
+|h / Left          parent directory     :move <dest>      move selection       |
+|l / Right / Enter enter directory or ~ :rename <name>    rename entry         |
+|g g               first entry          :delete           delete selection (c~ |
+|G                 last entry           :tag <name>       assign tag           |
+|Ctrl-u / Ctrl-d   half page up / down  :untag <name>     remove tag           |
+|PageUp / PageDown full page up / down  :tags             open tag picker      |
+|Space             toggle entry select~ :open             open entry           |
+|v                 visual multi-select~ :cd <path>        change directory     |
+|.                 toggle hidden files  :quit             quit                 |
+|t                 toggle last used tag :help             this help            |
+|T                 tag picker and mana~ mouse left        select row, legend,~ |
+|:                 command mode         mouse double      enter directory or ~ |
+|Esc               cancel mode or modal mouse right       context menu         |
+|?                 this help            mouse wheel       scroll list          |
+|                                                                              |
++------------------------------------------------------------------------------+
+
+ HELP
+| Esc close

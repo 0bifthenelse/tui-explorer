@@ -1,0 +1,24 @@
+/home/demo
+>opn docs                                        - drwxr-xr-x 2023-11-14 19:43
+ dir src                                         - drwxr-xr-x 2023-11-14 22:06
+ md a very long file name that keeps going~   88B -rw-r--r-- 2023-11-14 21:23
+ ts app.tsx                                  5.0K -rw-r--r-- 2023-11-14 22:08
+ zip archive.tar.gz                           1.0M -rw-r--r-- 2023-11-14 16:40
+ sh build.sh                                 256B -rwxr-xr-x 2023-11-14 22:05
+ clk Cargo.lock                                50K -rw-r--r-- 2023-11-14 22:11
+ cgo Cargo.toml                               734B -rw-r--r-- 2023-11-14 22:11
+ jsn data.json                                8.0K -rw-r--r-- 2023-11-14 22:05
+ exe deploy                                    15K -rwxr-xr-x 2023-11-14 21:56
+ htm index.html                               1.0K -rw-r--r-- 2023-11-14 22:01
+ rs main.rs                                  2.0K -rw-r--r-- 2023-11-14 22:08
+ md notes.md                                 1.5K -rw-r--r-- 2023-11-14 20:33
+ pkg package.json                             412B -rw-r--r-- 2023-11-14 22:10
+ img photo.png                                2.0M -rw-r--r-- 2023-11-14 11:06
+ lnk README link                                9B lrwxrwxrwx 2023-11-14 21:56
+ aud song.mp3                                 5.0M -rw-r--r-- 2023-11-14 13:53
+ css style.css                                2.5K -rw-r--r-- 2023-11-14 22:01
+
+
+
+ BROWSER  unknown command: bogus
+| q quit | : cmd | ? help | v sel | . hid | t tag | T tags | Enter open

@@ -1,0 +1,24 @@
+/home/demo
+(empty directory)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ BROWSER
+| q quit | : cmd | ? help | v sel | . hid | t tag | T tags | Enter open

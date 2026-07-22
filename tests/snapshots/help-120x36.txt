@@ -1,0 +1,36 @@
+/home/demo
+ dir docs                                - drwxr-xr-x 2023-11-14 19:43  |+--------+
+ dir src                                 - drwxr-xr-x 2023-11-14 22:06  ||        |
+ md a very long file name that kee~   88B -rw-r--r-- 2023-11-14 21:23   || FOLDER |
+ ts app.ts+ HELP --------------------------------------------------------------------------------------------+
+ zip archi|j / Down          move down                      q                 quit                           |
+ sh build.|k / Up            move up                        :copy <dest>      copy selection                 |
+ clk Cargo|h / Left          parent directory               :move <dest>      move selection                 |
+ cgo Cargo|l / Right / Enter enter directory or open file   :rename <name>    rename entry                   |
+ jsn data.|g g               first entry                    :delete           delete selection (confirmed)   |
+ exe deplo|G                 last entry                     :tag <name>       assign tag                     |
+ htm index|Ctrl-u / Ctrl-d   half page up / down            :untag <name>     remove tag                     |
+ rs main.r|PageUp / PageDown full page up / down            :tags             open tag picker                |
+ md notes.|Space             toggle entry selection         :open             open entry                     |
+ pkg packa|v                 visual multi-selection mode    :cd <path>        change directory               |
+ img photo|.                 toggle hidden files            :quit             quit                           |
+ lnk READM|t                 toggle last used tag           :help             this help                      |
+ aud song.|T                 tag picker and manager         mouse left        select row, legend, breadcrumb |
+ css style|:                 command mode                   mouse double      enter directory or open file   |
+          |Esc               cancel mode or modal           mouse right       context menu                   |
+          |?                 this help                      mouse wheel       scroll list                    |
+          |                                                                                                  |
+          |                                                                                                  |
+          |                                                                                                  |
+          |                                                                                                  |
+          |                                                                                                  |
+          |                                                                                                  |
+          |                                                                                                  |
+          |                                                                                                  |
+          |                                                                                                  |
+          |                                                                                                  |
+          +--------------------------------------------------------------------------------------------------+
+                                                                        |
+                                                                        |
+ HELP
+| Esc close

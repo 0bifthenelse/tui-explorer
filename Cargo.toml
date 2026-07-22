@@ -1,0 +1,28 @@
+[package]
+name = "tui-explorer"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "Fast terminal file explorer for Linux with mouse support, Vim-style controls, ASCII icons, and persistent tags"
+license = "MIT"
+repository = "https://github.com/0bifthenelse/tui-explorer"
+homepage = "https://github.com/0bifthenelse/tui-explorer"
+keywords = ["tui", "file-manager", "terminal", "file-explorer", "vim"]
+categories = ["command-line-utilities"]
+
+[features]
+default = ["bundled-sqlite"]
+bundled-sqlite = ["rusqlite/bundled"]
+system-sqlite = []
+
+[dependencies]
+ratatui = "0.29"
+crossterm = "0.28"
+rusqlite = "0.32"
+thiserror = "2"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+
+[profile.release]
+lto = true
+codegen-units = 1

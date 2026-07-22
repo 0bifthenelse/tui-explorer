@@ -1,0 +1,12 @@
+/home/demo
+>- docs
+ + src
+ m a very long file name that keeps go~
+ t app.tsx
+ z archive.tar.gz
+ s build.sh
+ L Cargo.lock
+ R Cargo.toml
+ { data.json
+ BROWSER
+| q quit | : cmd | ? help | t tag

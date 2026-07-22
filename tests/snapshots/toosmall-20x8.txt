@@ -1,0 +1,5 @@
+
+
+
+ terminal too small
+ resize or q to quit

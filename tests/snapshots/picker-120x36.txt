@@ -1,0 +1,36 @@
+/home/demo
+ dir docs                      [fav]     - drwxr-xr-x 2023-11-14 19:43  |+--------+
+ dir src                                 - drwxr-xr-x 2023-11-14 22:06  ||        |
+ md a very long file name that kee~   88B -rw-r--r-- 2023-11-14 21:23   || FOLDER |
+ ts app.tsx                          5.0K -rw-r--r-- 2023-11-14 22:08   ||        |
+ zip archive.tar.gz                   1.0M -rw-r--r-- 2023-11-14 16:40  |+--------+
+ sh build.sh                         256B -rwxr-xr-x 2023-11-14 22:05   |
+ clk Cargo.lock                        50K -rw-r--r-- 2023-11-14 22:11  |docs
+ cgo Cargo.toml                       734B -rw-r--r-- 2023-11-14 22:11  |type: directory
+ jsn data.json                        8.0K -rw-r--r-- 2023-11-14 22:05  |mode: drwxr-xr-x
+ exe deploy                            15K -rwxr-xr-x 2023-11-14 21:56  |mtime: 2023-11-14 19:43
+ htm index.html                       1.0K -rw-r--r-- 2023-11-14 22:01  |tags:
+ rs main.rs                          2.0K -rw-r--r-- 2023-11-14 22:08   |  [fav]
+ md notes.md                         1+ TAGS ------------------------------------+
+ pkg package.json                     |targets: 1                                |
+ img photo.png                        |>[x] fav             [fav]                |
+ lnk README link                      |                                          |
+ aud song.mp3                         | [n] new  [d] delete  [Esc] close         |
+ css style.css                        |                                          |
+                                      |                                          |
+                                      |                                          |
+                                      +------------------------------------------+
+                                                                        |
+                                                                        |
+                                                                        |
+                                                                        |
+                                                                        |
+                                                                        |
+                                                                        |
+                                                                        |
+                                                                        |
+                                                                        |
+                                                                        |
+                                                                        |
+ TAGS  tagged 1 entry with [fav]
+| Enter toggle | n new | d delete | Esc close
