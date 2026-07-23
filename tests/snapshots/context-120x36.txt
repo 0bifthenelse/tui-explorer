@@ -1,36 +1,36 @@
-/home/demo
- dir docs                                - drwxr-xr-x 2023-11-14 19:43  |+--------+
- dir src                                 - drwxr-xr-x 2023-11-14 22:06  ||  ts    |
- md a very long file name that kee~   88B -rw-r--r-- 2023-11-14 21:23   ||  TYP   |
- +--------------+                    5.0K -rw-r--r-- 2023-11-14 22:08   ||  ESCR  |
- |Open          |gz                   1.0M -rw-r--r-- 2023-11-14 16:40  |+--------+
- |Rename        |                    256B -rwxr-xr-x 2023-11-14 22:05   |
- |Copy          |                      50K -rw-r--r-- 2023-11-14 22:11  |app.tsx
- |Move          |                     734B -rw-r--r-- 2023-11-14 22:11  |type: file
- |Delete        |                     8.0K -rw-r--r-- 2023-11-14 22:05  |size: 5.0K
- |Tags          |                      15K -rwxr-xr-x 2023-11-14 21:56  |mode: -rw-r--r--
- +--------------+                     1.0K -rw-r--r-- 2023-11-14 22:01  |mtime: 2023-11-14 22:08
- rs main.rs                          2.0K -rw-r--r-- 2023-11-14 22:08   |tags:
- md notes.md                         1.5K -rw-r--r-- 2023-11-14 20:33   |  (none)
- pkg package.json                     412B -rw-r--r-- 2023-11-14 22:10  |
- img photo.png                        2.0M -rw-r--r-- 2023-11-14 11:06  |
- lnk README link                        9B lrwxrwxrwx 2023-11-14 21:56  |
- aud song.mp3                         5.0M -rw-r--r-- 2023-11-14 13:53  |
- css style.css                        2.5K -rw-r--r-- 2023-11-14 22:01  |
-                                                                        |
-                                                                        |
-                                                                        |
-                                                                        |
-                                                                        |
-                                                                        |
-                                                                        |
-                                                                        |
-                                                                        |
-                                                                        |
-                                                                        |
-                                                                        |
-                                                                        |
-                                                                        |
-                                                                        |
- MENU
+ tui-explorer 0.1.0                             tui-explorer is awesome!                               Press ? for help
+ Path: [ / ]>[ home ]>[ demo ]
+PLACES ----------------|18 items (2 dirs, 16 files)  Sort: name (asc)
+ Root                  |    ______        ______      .--------.   +--------------+--------.    .--------.
+MOUNTS ----------------|   /______/_     /______/_    | .--'   |   |Open          | .--'   |    | .--'   |
+(no device mounts)     |  |        |    |        |    | TXT    |   |Rename        | GZ     |    | SH     |
+TAGS ------------------|  |        |    |        |    | ------ |   |Copy          | ------ |    | ------ |
+(no tags yet)          |  +--------+    +--------+    '--------'   |Move          |--------'    '--------'
+BOOKMARKS -------------| docs          src           a very long~  |Delete        |chive.tar~  build.sh
+(B to bookmark cwd)    | dir           dir           88B           |Tags          |0M          256B
+                       |  .--------.    .--------.    .--------.   +--------------+--------.    .--------.
+                       |  | .--'   |    | .--'   |    | .--'   |    | .--'   |    | .--'   |    | .--'   |
+                       |  | LOCK   |    | TOML   |    | JSON   |    | EXE>   |    | HTML   |    | RS     |
+                       |  | ------ |    | ------ |    | ------ |    | ------ |    | ------ |    | ------ |
+                       |  '--------'    '--------'    '--------'    '--------'    '--------'    '--------'
+                       | Cargo.lock    Cargo.toml    data.json     deploy        index.html    main.rs
+                       | 50K           734B          8.0K          15K           1.0K          2.0K
+                       |  .--------.    .--------.    .--------.    .--------.    .--------.    .--------.
+                       |  | .--'   |    | .--'   |    | .--'   |    | .--'   |    | .--'   |    | .--'   |
+                       |  | MD     |    | JSON   |    | PNG    |    | LNK>   |    | MP3    |    | CSS    |
+                       |  | ------ |    | ------ |    | ------ |    | ------ |    | ------ |    | ------ |
+                       |  '--------'    '--------'    '--------'    '--------'    '--------'    '--------'
+                       | notes.md      package.json  photo.png     README link   song.mp3      style.css
+                       | 1.5K          412B          2.0M          9B            5.0M          2.5K
+                       |
+                       |
+                       |
+                       |
+                       |
+                       |
+                       |
+                       |
+                       |
+ MENU                                                                                                   5.0K  22%  4/18
 | Enter choose | Esc close
+TIP  Esc goes back

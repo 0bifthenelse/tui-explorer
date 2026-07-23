@@ -88,7 +88,18 @@ fn command_actions(input: &str) -> Vec<Action> {
     actions
 }
 
-const SIZES: &[(u16, u16)] = &[(20, 8), (40, 12), (60, 16), (80, 24), (120, 36), (200, 60)];
+// Includes the four target release sizes: 160x48, 120x36, 90x28, 70x22.
+const SIZES: &[(u16, u16)] = &[
+    (20, 8),
+    (40, 12),
+    (60, 16),
+    (70, 22),
+    (80, 24),
+    (90, 28),
+    (120, 36),
+    (160, 48),
+    (200, 60),
+];
 
 #[test]
 fn main_state_all_sizes() {
@@ -261,11 +272,11 @@ fn context_menu() {
 
 #[test]
 fn symlinks_and_executables_render() {
-    let (state, _) = loaded(80, 24);
+    let (state, _) = loaded(160, 48);
     let mut state = state;
-    let text = render(&mut state, 80, 24);
-    assert!(text.contains("lnk"), "symlink icon present");
-    assert!(text.contains("exe"), "executable icon present");
+    let text = render(&mut state, 160, 48);
+    assert!(text.contains("LNK>"), "symlink tile badge present");
+    assert!(text.contains("EXE>"), "executable tile badge present");
     assert!(text.contains("build.sh"));
     assert!(text.contains("README link"));
 }
@@ -356,10 +367,10 @@ fn tags_identifiable_without_color() {
 
 #[test]
 fn wide_layout_has_details_panel() {
-    let (mut state, _) = loaded(120, 36);
-    let text = render(&mut state, 120, 36);
-    assert!(text.contains("type:"), "details panel visible");
-    assert!(text.contains("tags:"), "details tags visible");
+    let (mut state, _) = loaded(160, 48);
+    let text = render(&mut state, 160, 48);
+    assert!(text.contains("Type:"), "details panel visible");
+    assert!(text.contains("Tags:"), "details tags visible");
     let tag_hits = state
         .hit_map
         .regions
@@ -480,7 +491,8 @@ fn mouse_scroll_moves_list() {
             y: row_rect.y,
         }],
     );
-    assert_eq!(state.browser.selected, 3);
+    // Grid at 40x12 has 2 columns; one scroll tick moves one row down.
+    assert_eq!(state.browser.selected, 2);
 }
 
 #[test]

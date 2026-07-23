@@ -3,13 +3,13 @@
 PLACES ----------------|18 items (2 dirs, 16 files)  Sort: name (asc)
  Root                  |    ______        ______      .--------.    .--------.    .--------.    .--------.
 MOUNTS ---+ HELP --------------------------------------------------------------------------------------------+
-(no device|j / Down          next row of tiles              t                 toggle last used tag           |
-TAGS -----|k / Up            previous row of tiles          T                 tag picker and manager         |
-(no tags y|h / Left          tile left                      :                 command mode                   |
-BOOKMARKS |l / Right         tile right                     Esc               cancel mode or modal           |
-(B to book|Backspace         parent directory               ?                 this help                      |
-          |e / Enter         open: enter folder or open fi~ q                 quit                           |
-          |double left click open: enter folder or open fi~ :copy <dest>      copy selection                 |
+/ ext4  81|j / Down          next row of tiles              t                 toggle last used tag           |
+/home/ifth|k / Up            previous row of tiles          T                 tag picker and manager         |
+/home/ifth|h / Left          tile left                      :                 command mode                   |
+TAGS -----|l / Right         tile right                     Esc               cancel mode or modal           |
+(no tags y|Backspace         parent directory               ?                 this help                      |
+BOOKMARKS |e / Enter         open: enter folder or open fi~ q                 quit                           |
+(B to book|double left click open: enter folder or open fi~ :copy <dest>      copy selection                 |
           |single left click select and focus (never opens) :move <dest>      move selection                 |
           |g g               first entry                    :rename <name>    rename entry                   |
           |G                 last entry                     :delete           delete selection (confirmed)   |

@@ -1,24 +1,24 @@
-/home/demo
- dir docs                                        - drwxr-xr-x 2023-11-14 19:43
+ tui-explorer 0.1.0         tui-explorer is awesome!           Press ? for help
+ Path: [ / ]>[ home ]>[ demo ]
 + HELP ------------------------------------------------------------------------+
-|j / Down          move down            q                 quit                 |
-|k / Up            move up              :copy <dest>      copy selection       |
-|h / Left          parent directory     :move <dest>      move selection       |
-|l / Right / Enter enter directory or ~ :rename <name>    rename entry         |
-|g g               first entry          :delete           delete selection (c~ |
-|G                 last entry           :tag <name>       assign tag           |
-|Ctrl-u / Ctrl-d   half page up / down  :untag <name>     remove tag           |
-|PageUp / PageDown full page up / down  :tags             open tag picker      |
-|Space             toggle entry select~ :open             open entry           |
-|v                 visual multi-select~ :cd <path>        change directory     |
-|.                 toggle hidden files  :quit             quit                 |
-|t                 toggle last used tag :help             this help            |
-|T                 tag picker and mana~ mouse left        select row, legend,~ |
-|:                 command mode         mouse double      enter directory or ~ |
-|Esc               cancel mode or modal mouse right       context menu         |
-|?                 this help            mouse wheel       scroll list          |
-|                                                                              |
+|j / Down          next row of tiles    t                 toggle last used tag |
+|k / Up            previous row of til~ T                 tag picker and mana~ |
+|h / Left          tile left            :                 command mode         |
+|l / Right         tile right           Esc               cancel mode or modal |
+|Backspace         parent directory     ?                 this help            |
+|e / Enter         open: enter folder ~ q                 quit                 |
+|double left click open: enter folder ~ :copy <dest>      copy selection       |
+|single left click select and focus (n~ :move <dest>      move selection       |
+|g g               first entry          :rename <name>    rename entry         |
+|G                 last entry           :delete           delete selection (c~ |
+|Ctrl-u / Ctrl-d   half page up / down  :tag <name>       assign tag           |
+|PageUp / PageDown full page up / down  :untag <name>     remove tag           |
+|Space             toggle entry select~ :tags             open tag picker      |
+|v                 visual multi-select~ :open             open entry           |
+|.                 toggle hidden files  :cd <path>        change directory     |
+|X                 encrypt / decrypt f~ :quit             quit                 |
+|b                 toggle sidebar       :help             this help            |
 +------------------------------------------------------------------------------+
-
- HELP
+ HELP                                                                  5%  1/18
 | Esc close
+TIP  Esc goes back

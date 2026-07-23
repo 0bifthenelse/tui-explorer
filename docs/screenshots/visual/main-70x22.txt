@@ -1,6 +1,6 @@
- tui-explorer 0.1.0         tui-explorer is awesome!           Press ? for help
+ tui-explorer 0.1.0    tui-explorer is awesome!      Press ? for help
  Path: [ / ]>[ home ]>[ demo ]
-19 items (2 dirs, 17 files)  Sort: name (asc)
+18 items (2 dirs, 16 files)  Sort: name (asc)
     ______        ______      .--------.    .--------.    .--------.
    /______/_     /______/_    | .--'   |    | .--'   |    | .--'   |
   |        |    |        |    | TXT    |    | TSX    |    | GZ     |
@@ -10,15 +10,13 @@
  dir           dir           88B           5.0K          1.0M
   .--------.    .--------.    .--------.    .--------.    .--------.
   | .--'   |    | .--'   |    | .--'   |    | .--'   |    | .--'   |
-  | BIN    |    | SH     |    | LOCK   |    | TOML   |    | JSON   |
+  | SH     |    | LOCK   |    | TOML   |    | JSON   |    | EXE>   |
   | ------ |    | ------ |    | ------ |    | ------ |    | ------ |
   '--------'    '--------'    '--------'    '--------'    '--------'
- bad-�-name.~  build.sh      Cargo.lock    Cargo.toml    data.json
- 64B           256B          50K           734B          8.0K
+ build.sh      Cargo.lock    Cargo.toml    data.json     deploy
+ 256B          50K           734B          8.0K          15K
 
 
-
-
- BROWSER                                                               5%  1/19
-| e/Enter Open | X Crypt | Bsp Up | v Visual | t Tag | : Command | ? Help
-TIP  Double-click or Enter/e to open * Right-click for menu * Mouse wheel to sc~
+ BROWSER                                                     5%  1/18
+| e/Enter Open | X Crypt | Bsp Up | v Visual | t Tag | : Command
+TIP  Double-click or Enter/e to open * Right-click for menu * Mouse w~

@@ -1,21 +1,54 @@
 use std::path::{Path, PathBuf};
+use std::time::Instant;
 
 use crate::app::action::{Action, ConflictDecision, DirectorySnapshot, MouseKind};
 use crate::app::effects::Effect;
 use crate::app::state::{
     AppState, ConfirmAction, ConfirmState, ConflictState, ContextItem, ContextMenuState, Mode,
-    OperationState, StatusMessage, TagPickerState,
+    OperationState, Password, PasswordPurpose, PasswordState, PreviewContent, StatusMessage,
+    TagPickerState,
 };
+use crate::crypto::CryptoKind;
 use crate::filesystem::EntryKind;
 use crate::input::command::{self, Command};
 use crate::operations::{
     ConflictPolicy, OpOutcome, OperationKind, OperationPlan, OperationReport, validate,
     validate_rename,
 };
+use crate::sidebar::SidebarItem;
 use crate::tags::validate_name;
 use crate::ui::hit::{HitTarget, LegendAction};
 
 pub fn reduce(state: &mut AppState, action: Action) -> Vec<Effect> {
+    let mut effects = reduce_inner(state, action);
+    if let Some(effect) = preview_followup(state) {
+        effects.push(effect);
+    }
+    effects
+}
+
+/// When the preview panel is visible and the focused entry changed (or its
+/// modification metadata changed), ask for fresh preview content.
+fn preview_followup(state: &AppState) -> Option<Effect> {
+    if !crate::ui::preview_visible(state.width, state.height, state.show_preview) {
+        return None;
+    }
+    if state.mode.is_overlay() {
+        return None;
+    }
+    let key = state.focused_preview_key()?;
+    if state.preview.key.as_ref() == Some(&key) {
+        return None;
+    }
+    let view = state.browser.focused()?;
+    Some(Effect::LoadPreview {
+        key,
+        name: view.entry.display_name(),
+        is_dir: view.entry.kind.is_dir(),
+    })
+}
+
+fn reduce_inner(state: &mut AppState, action: Action) -> Vec<Effect> {
     let was_pending_g = state.pending_g;
     state.pending_g = false;
     match action {
@@ -29,33 +62,43 @@ pub fn reduce(state: &mut AppState, action: Action) -> Vec<Effect> {
             Vec::new()
         }
         Action::MoveDown => browser_only(state, |s| {
-            let vp = s.list_viewport;
-            s.browser.move_down(vp);
+            let (c, r) = grid_dims(s);
+            s.browser.grid_move(c as isize, c, r);
         }),
         Action::MoveUp => browser_only(state, |s| {
-            let vp = s.list_viewport;
-            s.browser.move_up(vp);
+            let (c, r) = grid_dims(s);
+            s.browser.grid_move(-(c as isize), c, r);
+        }),
+        Action::MoveLeft => browser_only(state, |s| {
+            let (c, r) = grid_dims(s);
+            s.browser.grid_move(-1, c, r);
+        }),
+        Action::MoveRight => browser_only(state, |s| {
+            let (c, r) = grid_dims(s);
+            s.browser.grid_move(1, c, r);
         }),
         Action::PageDown => browser_only(state, |s| {
-            let vp = s.list_viewport;
-            s.browser.page_down(vp);
+            let (c, r) = grid_dims(s);
+            s.browser.grid_move((c * r) as isize, c, r);
         }),
         Action::PageUp => browser_only(state, |s| {
-            let vp = s.list_viewport;
-            s.browser.page_up(vp);
+            let (c, r) = grid_dims(s);
+            s.browser.grid_move(-((c * r) as isize), c, r);
         }),
         Action::HalfPageDown => browser_only(state, |s| {
-            let vp = s.list_viewport;
-            s.browser.half_page_down(vp);
+            let (c, r) = grid_dims(s);
+            s.browser.grid_move((c * r / 2).max(1) as isize, c, r);
         }),
         Action::HalfPageUp => browser_only(state, |s| {
-            let vp = s.list_viewport;
-            s.browser.half_page_up(vp);
+            let (c, r) = grid_dims(s);
+            s.browser.grid_move(-((c * r / 2).max(1) as isize), c, r);
         }),
-        Action::GotoFirst => browser_only(state, |s| s.browser.goto_first()),
+        Action::GotoFirst => browser_only(state, |s| {
+            s.browser.goto_first();
+        }),
         Action::GotoLast => browser_only(state, |s| {
-            let vp = s.list_viewport;
-            s.browser.goto_last(vp);
+            let (c, r) = grid_dims(s);
+            s.browser.goto_last_grid(c, r);
         }),
         Action::OpenFocused => open_focused(state),
         Action::OpenParent => browser_only_fx(state, |s| {
@@ -77,6 +120,91 @@ pub fn reduce(state: &mut AppState, action: Action) -> Vec<Effect> {
             }
         }),
         Action::ToggleHidden => browser_only(state, |s| s.browser.toggle_hidden()),
+        Action::ToggleSidebar => {
+            if matches!(state.mode, Mode::Browser) {
+                let now = crate::ui::sidebar_visible(state.width, state.height, state.show_sidebar);
+                state.show_sidebar = Some(!now);
+            }
+            Vec::new()
+        }
+        Action::TogglePreview => {
+            if matches!(state.mode, Mode::Browser) {
+                let now = crate::ui::preview_visible(state.width, state.height, state.show_preview);
+                state.show_preview = Some(!now);
+                if now {
+                    state.preview.key = None;
+                    state.preview.content = None;
+                }
+            }
+            Vec::new()
+        }
+        Action::ToggleBookmark => {
+            if matches!(state.mode, Mode::Browser) {
+                let cwd = state.browser.cwd.clone();
+                return vec![Effect::ToggleBookmark(cwd)];
+            }
+            Vec::new()
+        }
+        Action::BookmarksChanged { bookmarks, message } => {
+            state.bookmarks = bookmarks;
+            state.message = Some(StatusMessage::info(message));
+            Vec::new()
+        }
+        Action::EncryptToggle => encrypt_toggle(state),
+        Action::PasswordChar(c) => {
+            if let Mode::Password(p) = &mut state.mode {
+                p.input.push(c);
+            }
+            Vec::new()
+        }
+        Action::PasswordBackspace => {
+            if let Mode::Password(p) = &mut state.mode {
+                p.input.pop();
+            }
+            Vec::new()
+        }
+        Action::PasswordSubmit => password_submit(state),
+        Action::CryptoFinished { done, failed } => {
+            state.operation = None;
+            let message = if failed.is_empty() {
+                StatusMessage::info(format!(
+                    "{} entr{} processed",
+                    done.len(),
+                    if done.len() == 1 { "y" } else { "ies" }
+                ))
+            } else {
+                let (path, err) = &failed[0];
+                StatusMessage::error(format!(
+                    "{}/{} failed: {}: {}",
+                    failed.len(),
+                    done.len() + failed.len(),
+                    path.display(),
+                    err
+                ))
+            };
+            state.message = Some(message);
+            vec![Effect::LoadDirectory(state.browser.cwd.clone())]
+        }
+        Action::PreviewLoaded { key, result } => {
+            if state.focused_preview_key().as_ref() == Some(&key) {
+                state.preview.key = Some(key);
+                state.preview.content = Some(match result {
+                    crate::preview::PreviewLoaded::Text { lines, truncated } => {
+                        PreviewContent::Text { lines, truncated }
+                    }
+                    crate::preview::PreviewLoaded::Image(img) => {
+                        PreviewContent::Image(Box::new(state.picker.new_resize_protocol(img)))
+                    }
+                    crate::preview::PreviewLoaded::Directory(names) => {
+                        PreviewContent::Directory(names)
+                    }
+                    crate::preview::PreviewLoaded::Unavailable(msg) => {
+                        PreviewContent::Unavailable(msg)
+                    }
+                });
+            }
+            Vec::new()
+        }
         Action::QuickTag => quick_tag(state),
         Action::OpenTagPicker => open_picker(state),
         Action::EnterCommand => {
@@ -233,6 +361,93 @@ pub fn reduce(state: &mut AppState, action: Action) -> Vec<Effect> {
             vec![Effect::LoadDirectory(state.browser.cwd.clone())]
         }
     }
+}
+
+/// (columns, rows) of the current grid layout, as recorded by the renderer.
+fn grid_dims(state: &AppState) -> (usize, usize) {
+    let cols = state.grid_cols.max(1);
+    let rows = (state.list_viewport / cols).max(1);
+    (cols, rows)
+}
+
+/// `X` on the focused entry: encrypted outputs decrypt, everything else
+/// encrypts. Opens the masked password dialog.
+fn encrypt_toggle(state: &mut AppState) -> Vec<Effect> {
+    if !matches!(state.mode, Mode::Browser) {
+        return Vec::new();
+    }
+    let Some(view) = state.browser.focused() else {
+        state.message = Some(StatusMessage::info("no entry focused"));
+        return Vec::new();
+    };
+    let target = view.entry.path.clone();
+    let name = view.entry.display_name();
+    let purpose = if crate::crypto::is_encrypted_name(&name) {
+        PasswordPurpose::Decrypt
+    } else {
+        PasswordPurpose::Encrypt
+    };
+    state.mode = Mode::Password(Box::new(PasswordState {
+        purpose,
+        target,
+        input: String::new(),
+        first: None,
+    }));
+    Vec::new()
+}
+
+fn password_submit(state: &mut AppState) -> Vec<Effect> {
+    let Mode::Password(dialog) = &mut state.mode else {
+        return Vec::new();
+    };
+    match dialog.purpose {
+        PasswordPurpose::Encrypt => {
+            if dialog.input.is_empty() {
+                state.message = Some(StatusMessage::error("password cannot be empty"));
+                return Vec::new();
+            }
+            if let Some(first) = &dialog.first {
+                if *first != dialog.input {
+                    // Mismatched confirmation blocks encryption; start over.
+                    dialog.first = None;
+                    dialog.input.clear();
+                    state.message = Some(StatusMessage::error("passwords do not match, try again"));
+                    return Vec::new();
+                }
+                start_crypto(state, CryptoKind::Encrypt)
+            } else {
+                dialog.first = Some(std::mem::take(&mut dialog.input));
+                Vec::new()
+            }
+        }
+        PasswordPurpose::Decrypt => {
+            if dialog.input.is_empty() {
+                state.message = Some(StatusMessage::error("password cannot be empty"));
+                return Vec::new();
+            }
+            start_crypto(state, CryptoKind::Decrypt)
+        }
+    }
+}
+
+fn start_crypto(state: &mut AppState, kind: CryptoKind) -> Vec<Effect> {
+    let Mode::Password(dialog) = std::mem::replace(&mut state.mode, Mode::Browser) else {
+        return Vec::new();
+    };
+    state.operation = Some(OperationState {
+        kind: match kind {
+            CryptoKind::Encrypt => crate::operations::OperationKind::Encrypt,
+            CryptoKind::Decrypt => crate::operations::OperationKind::Decrypt,
+        },
+        current: dialog.target.clone(),
+        done: 0,
+        total: 1,
+    });
+    vec![Effect::Crypto {
+        kind,
+        target: dialog.target,
+        password: Password(dialog.input),
+    }]
 }
 
 fn browser_only(state: &mut AppState, f: impl FnOnce(&mut AppState)) -> Vec<Effect> {
@@ -637,6 +852,7 @@ fn cancel(state: &mut AppState) -> Vec<Effect> {
         | Mode::Conflict(_)
         | Mode::TagPicker(_)
         | Mode::ContextMenu(_)
+        | Mode::Password(_)
         | Mode::Help => {
             state.mode = Mode::Browser;
             state.command_input.clear();
@@ -727,26 +943,32 @@ fn mouse(state: &mut AppState, kind: MouseKind, x: u16, y: u16) -> Vec<Effect> {
         },
         HitTarget::Row(pos) => match kind {
             MouseKind::Left => {
-                if matches!(state.mode, Mode::Browser) {
-                    state.browser.selected = pos;
-                    let vp = state.list_viewport;
-                    state.browser.clamp_scroll(vp);
+                if !matches!(state.mode, Mode::Browser) {
+                    return Vec::new();
                 }
+                state.browser.selected = pos;
+                let (c, r) = grid_dims(state);
+                state.browser.clamp_scroll_grid(c, r);
+                // Double-click requires the same entry, left button, within
+                // the configured threshold; it is consumed once so one
+                // double click can never trigger duplicate opens.
+                let now = Instant::now();
+                let is_double = matches!(
+                    state.last_click,
+                    Some((when, prev)) if prev == pos && now.duration_since(when) <= state.double_click
+                );
+                if is_double {
+                    state.last_click = None;
+                    return open_focused(state);
+                }
+                state.last_click = Some((now, pos));
                 Vec::new()
-            }
-            MouseKind::DoubleLeft => {
-                if matches!(state.mode, Mode::Browser) {
-                    state.browser.selected = pos;
-                    let vp = state.list_viewport;
-                    state.browser.clamp_scroll(vp);
-                }
-                open_focused(state)
             }
             MouseKind::Right => {
                 if matches!(state.mode, Mode::Browser) {
                     state.browser.selected = pos;
-                    let vp = state.list_viewport;
-                    state.browser.clamp_scroll(vp);
+                    let (c, r) = grid_dims(state);
+                    state.browser.clamp_scroll_grid(c, r);
                     if let Some(view) = state.browser.focused() {
                         let target_path = view.entry.path.clone();
                         state.mode = Mode::ContextMenu(Box::new(ContextMenuState {
@@ -761,13 +983,28 @@ fn mouse(state: &mut AppState, kind: MouseKind, x: u16, y: u16) -> Vec<Effect> {
                 Vec::new()
             }
             MouseKind::ScrollUp => browser_only(state, |s| {
-                let vp = s.list_viewport;
-                s.browser.scroll_by(-3, vp);
+                let (c, r) = grid_dims(s);
+                s.browser.grid_move(-(c as isize), c, r);
             }),
             MouseKind::ScrollDown => browser_only(state, |s| {
-                let vp = s.list_viewport;
-                s.browser.scroll_by(3, vp);
+                let (c, r) = grid_dims(s);
+                s.browser.grid_move(c as isize, c, r);
             }),
+        },
+        HitTarget::Sidebar(idx) => match kind {
+            MouseKind::Left => {
+                if !matches!(state.mode, Mode::Browser) {
+                    return Vec::new();
+                }
+                match state.sidebar_items.get(idx).cloned() {
+                    Some(SidebarItem::Place { path, .. })
+                    | Some(SidebarItem::Mount { path, .. })
+                    | Some(SidebarItem::Bookmark { path }) => navigate(state, path),
+                    Some(SidebarItem::Tag { .. }) => open_picker(state),
+                    None => Vec::new(),
+                }
+            }
+            _ => Vec::new(),
         },
         HitTarget::Breadcrumb(idx) => match kind {
             MouseKind::Left => browser_only_fx(state, |s| breadcrumb_nav(s, idx)),
@@ -782,7 +1019,13 @@ fn mouse(state: &mut AppState, kind: MouseKind, x: u16, y: u16) -> Vec<Effect> {
             _ => Vec::new(),
         },
         HitTarget::ModalConfirm => match kind {
-            MouseKind::Left => confirm(state),
+            MouseKind::Left => {
+                if matches!(state.mode, Mode::Password(_)) {
+                    password_submit(state)
+                } else {
+                    confirm(state)
+                }
+            }
             _ => Vec::new(),
         },
         HitTarget::ModalCancel => match kind {
@@ -877,5 +1120,9 @@ fn legend_action(state: &mut AppState, action: LegendAction) -> Vec<Effect> {
         LegendAction::Open => reduce(state, Action::OpenFocused),
         LegendAction::Parent => reduce(state, Action::OpenParent),
         LegendAction::Cancel => reduce(state, Action::Cancel),
+        LegendAction::Encrypt => reduce(state, Action::EncryptToggle),
+        LegendAction::Sidebar => reduce(state, Action::ToggleSidebar),
+        LegendAction::Preview => reduce(state, Action::TogglePreview),
+        LegendAction::Bookmark => reduce(state, Action::ToggleBookmark),
     }
 }

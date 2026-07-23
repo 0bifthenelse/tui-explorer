@@ -1,26 +1,31 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="480" height="256" viewBox="0 0 480 256">
 <rect width="480" height="256" fill="#1a1b26"/>
-<rect x="0" y="16" width="464" height="16" fill="#414868"/>
-<rect x="0" y="224" width="72" height="16" fill="#7dcfff"/>
-<rect x="8" y="240" width="64" height="16" fill="#303030"/>
-<rect x="80" y="240" width="56" height="16" fill="#303030"/>
-<rect x="144" y="240" width="64" height="16" fill="#303030"/>
-<rect x="216" y="240" width="56" height="16" fill="#303030"/>
-<rect x="280" y="240" width="64" height="16" fill="#303030"/>
-<text x="0" y="12" font-family="monospace" font-size="14" xml:space="preserve"><tspan fill="#7aa2f7">/home</tspan><tspan fill="#7dcfff">/demo</tspan></text>
-<text x="0" y="28" font-family="monospace" font-size="14" xml:space="preserve"><tspan fill="#ffffff">&gt;- docs                                                  -</tspan></text>
-<text x="0" y="44" font-family="monospace" font-size="14" xml:space="preserve"><tspan fill="#414868">+ </tspan><tspan fill="#7dcfff">src                                         </tspan><tspan fill="#e0af68">[src]</tspan><tspan fill="#414868">     -</tspan></text>
-<text x="0" y="60" font-family="monospace" font-size="14" xml:space="preserve"><tspan fill="#414868">m </tspan><tspan fill="#a9b1d6">a very long file name that keeps going and going~</tspan><tspan fill="#414868">   88B</tspan></text>
-<text x="0" y="76" font-family="monospace" font-size="14" xml:space="preserve"><tspan fill="#414868">t </tspan><tspan fill="#a9b1d6">app.tsx                                          </tspan><tspan fill="#414868">  5.0K</tspan></text>
-<text x="0" y="92" font-family="monospace" font-size="14" xml:space="preserve"><tspan fill="#414868">z </tspan><tspan fill="#a9b1d6">archive.tar.gz                                   </tspan><tspan fill="#414868">  1.0M</tspan></text>
-<text x="0" y="108" font-family="monospace" font-size="14" xml:space="preserve"><tspan fill="#414868">s </tspan><tspan fill="#a9b1d6">build.sh                                         </tspan><tspan fill="#414868">  256B</tspan></text>
-<text x="0" y="124" font-family="monospace" font-size="14" xml:space="preserve"><tspan fill="#414868">L </tspan><tspan fill="#a9b1d6">Cargo.lock                                       </tspan><tspan fill="#414868">   50K</tspan></text>
-<text x="0" y="140" font-family="monospace" font-size="14" xml:space="preserve"><tspan fill="#414868">R </tspan><tspan fill="#a9b1d6">Cargo.toml                                       </tspan><tspan fill="#414868">  734B</tspan></text>
-<text x="0" y="156" font-family="monospace" font-size="14" xml:space="preserve"><tspan fill="#414868">{ </tspan><tspan fill="#a9b1d6">data.json                                        </tspan><tspan fill="#414868">  8.0K</tspan></text>
-<text x="0" y="172" font-family="monospace" font-size="14" xml:space="preserve"><tspan fill="#414868">* </tspan><tspan fill="#a9b1d6">deploy                                           </tspan><tspan fill="#414868">   15K</tspan></text>
-<text x="0" y="188" font-family="monospace" font-size="14" xml:space="preserve"><tspan fill="#414868">h </tspan><tspan fill="#a9b1d6">index.html                                       </tspan><tspan fill="#414868">  1.0K</tspan></text>
-<text x="0" y="204" font-family="monospace" font-size="14" xml:space="preserve"><tspan fill="#414868">r </tspan><tspan fill="#a9b1d6">main.rs                                </tspan><tspan fill="#e0af68">[fav][src]</tspan><tspan fill="#414868">  2.0K</tspan></text>
-<text x="0" y="220" font-family="monospace" font-size="14" xml:space="preserve"><tspan fill="#414868">m </tspan><tspan fill="#a9b1d6">notes.md                                         </tspan><tspan fill="#414868">  1.5K</tspan></text>
-<text x="0" y="236" font-family="monospace" font-size="14" xml:space="preserve"><tspan fill="#000000"> BROWSER </tspan></text>
-<text x="0" y="252" font-family="monospace" font-size="14" xml:space="preserve"><tspan fill="#414868">|</tspan><tspan fill="#ffffff"> q quit </tspan><tspan fill="#414868">|</tspan><tspan fill="#ffffff"> : cmd </tspan><tspan fill="#414868">|</tspan><tspan fill="#ffffff"> ? help </tspan><tspan fill="#414868">|</tspan><tspan fill="#ffffff"> t tag </tspan><tspan fill="#414868">|</tspan><tspan fill="#ffffff"> T tags </tspan></text>
+<rect x="184" y="16" width="48" height="16" fill="#7dcfff"/>
+<rect x="8" y="48" width="96" height="16" fill="#414868"/>
+<rect x="8" y="64" width="96" height="16" fill="#414868"/>
+<rect x="8" y="80" width="96" height="16" fill="#414868"/>
+<rect x="8" y="96" width="96" height="16" fill="#414868"/>
+<rect x="8" y="112" width="96" height="16" fill="#414868"/>
+<rect x="0" y="128" width="8" height="16" fill="#414868"/>
+<rect x="8" y="128" width="32" height="16" fill="#414868"/>
+<rect x="8" y="144" width="24" height="16" fill="#414868"/>
+<rect x="0" y="208" width="72" height="16" fill="#7dcfff"/>
+<rect x="80" y="224" width="40" height="16" fill="#303030"/>
+<rect x="152" y="224" width="48" height="16" fill="#303030"/>
+<rect x="248" y="224" width="24" height="16" fill="#303030"/>
+<rect x="304" y="224" width="56" height="16" fill="#303030"/>
+<rect x="392" y="224" width="32" height="16" fill="#303030"/>
+<text x="0" y="12" font-family="monospace" font-size="14" xml:space="preserve"><tspan fill="#7dcfff"> tui-explorer 0.1.0</tspan><tspan fill="#7dcfff">Press ? for help</tspan></text>
+<text x="0" y="28" font-family="monospace" font-size="14" xml:space="preserve"><tspan fill="#a9b1d6"> Path: </tspan><tspan fill="#414868">[</tspan><tspan fill="#7aa2f7"> / </tspan><tspan fill="#414868">]&gt;[</tspan><tspan fill="#7aa2f7"> home </tspan><tspan fill="#414868">]&gt;[</tspan><tspan fill="#000000"> demo </tspan><tspan fill="#414868">] </tspan></text>
+<text x="0" y="44" font-family="monospace" font-size="14" xml:space="preserve"><tspan fill="#a9b1d6">18 items (2 dirs, 16 files)</tspan><tspan fill="#414868">Sort: name (asc)</tspan></text>
+<text x="0" y="60" font-family="monospace" font-size="14" xml:space="preserve"><tspan fill="#7dcfff">   ______   </tspan><tspan fill="#7dcfff">   ______   </tspan><tspan fill="#ffffff"> .--------. </tspan><tspan fill="#ffffff"> .--------. </tspan></text>
+<text x="0" y="76" font-family="monospace" font-size="14" xml:space="preserve"><tspan fill="#7dcfff">  /______/_ </tspan><tspan fill="#7dcfff">  /______/_ </tspan><tspan fill="#ffffff"> | .--'   | </tspan><tspan fill="#ffffff"> | .--'   | </tspan></text>
+<text x="0" y="92" font-family="monospace" font-size="14" xml:space="preserve"><tspan fill="#7dcfff"> |        | </tspan><tspan fill="#7dcfff"> |        | </tspan><tspan fill="#ffffff"> | TXT    | </tspan><tspan fill="#ffffff"> | TSX    | </tspan></text>
+<text x="0" y="108" font-family="monospace" font-size="14" xml:space="preserve"><tspan fill="#7dcfff"> |      \ | </tspan><tspan fill="#7dcfff"> |        | </tspan><tspan fill="#ffffff"> | ------ | </tspan><tspan fill="#ffffff"> | ------ | </tspan></text>
+<text x="0" y="124" font-family="monospace" font-size="14" xml:space="preserve"><tspan fill="#7dcfff"> +-------\+ </tspan><tspan fill="#7dcfff"> +--------+ </tspan><tspan fill="#ffffff"> '--------' </tspan><tspan fill="#ffffff"> '--------' </tspan></text>
+<text x="0" y="140" font-family="monospace" font-size="14" xml:space="preserve"><tspan fill="#7dcfff">docs</tspan><tspan fill="#7dcfff">src</tspan><tspan fill="#a9b1d6">a very long~</tspan><tspan fill="#a9b1d6">app.tsx</tspan></text>
+<text x="0" y="156" font-family="monospace" font-size="14" xml:space="preserve"><tspan fill="#414868">dir</tspan><tspan fill="#414868">dir</tspan><tspan fill="#e0af68">[src]</tspan><tspan fill="#414868">88B</tspan><tspan fill="#414868">5.0K</tspan></text>
+<text x="0" y="220" font-family="monospace" font-size="14" xml:space="preserve"><tspan fill="#000000"> BROWSER </tspan><tspan fill="#414868">  5%  1/18</tspan></text>
+<text x="0" y="236" font-family="monospace" font-size="14" xml:space="preserve"><tspan fill="#414868">|</tspan><tspan fill="#7dcfff"> e/Enter </tspan><tspan fill="#ffffff">Open </tspan><tspan fill="#414868">|</tspan><tspan fill="#7dcfff"> X </tspan><tspan fill="#ffffff">Crypt </tspan><tspan fill="#414868">|</tspan><tspan fill="#7dcfff"> Bsp </tspan><tspan fill="#ffffff">Up </tspan><tspan fill="#414868">|</tspan><tspan fill="#7dcfff"> v </tspan><tspan fill="#ffffff">Visual </tspan><tspan fill="#414868">|</tspan><tspan fill="#7dcfff"> t </tspan><tspan fill="#ffffff">Tag </tspan></text>
+<text x="0" y="252" font-family="monospace" font-size="14" xml:space="preserve"><tspan fill="#414868">TIP  Double-click or Enter/e to open * Right-click for menu~</tspan></text>
 </svg>

@@ -1,8 +1,6 @@
-use std::time::{Duration, Instant};
-
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
-use crate::app::action::{Action, ConflictDecision, MouseKind};
+use crate::app::action::{Action, ConflictDecision};
 use crate::app::state::AppState;
 use crate::app::state::Mode;
 
@@ -58,6 +56,13 @@ pub fn map_key(key: KeyEvent, state: &AppState) -> Option<Action> {
             KeyCode::Esc | KeyCode::Char('q') => Some(Action::Cancel),
             _ => None,
         },
+        Mode::Password(_) => match key.code {
+            KeyCode::Enter => Some(Action::PasswordSubmit),
+            KeyCode::Esc => Some(Action::Cancel),
+            KeyCode::Backspace => Some(Action::PasswordBackspace),
+            KeyCode::Char(c) => Some(Action::PasswordChar(c)),
+            _ => None,
+        },
         Mode::Help => match key.code {
             KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('?') => Some(Action::Cancel),
             _ => None,
@@ -71,8 +76,11 @@ fn map_browser_key(key: KeyEvent) -> Option<Action> {
     match key.code {
         KeyCode::Char('j') | KeyCode::Down => Some(Action::MoveDown),
         KeyCode::Char('k') | KeyCode::Up => Some(Action::MoveUp),
-        KeyCode::Char('h') | KeyCode::Left => Some(Action::OpenParent),
-        KeyCode::Char('l') | KeyCode::Right | KeyCode::Enter => Some(Action::OpenFocused),
+        KeyCode::Char('h') | KeyCode::Left => Some(Action::MoveLeft),
+        KeyCode::Char('l') | KeyCode::Right => Some(Action::MoveRight),
+        KeyCode::Backspace => Some(Action::OpenParent),
+        // Opening happens only through Enter, `e`, or a double left click.
+        KeyCode::Enter | KeyCode::Char('e') => Some(Action::OpenFocused),
         KeyCode::Char('g') => Some(Action::KeyG),
         KeyCode::Char('G') => Some(Action::GotoLast),
         KeyCode::Char('u') if ctrl => Some(Action::HalfPageUp),
@@ -83,43 +91,16 @@ fn map_browser_key(key: KeyEvent) -> Option<Action> {
         KeyCode::Char('v') => Some(Action::ToggleVisual),
         KeyCode::Char('.') => Some(Action::ToggleHidden),
         KeyCode::Char('t') => Some(Action::QuickTag),
+        KeyCode::Char('X') => Some(Action::EncryptToggle),
+        KeyCode::Char('b') => Some(Action::ToggleSidebar),
+        KeyCode::Char('p') => Some(Action::TogglePreview),
+        KeyCode::Char('B') => Some(Action::ToggleBookmark),
         KeyCode::Char('T') => Some(Action::OpenTagPicker),
         KeyCode::Char(':') => Some(Action::EnterCommand),
         KeyCode::Esc => Some(Action::Cancel),
         KeyCode::Char('?') => Some(Action::ToggleHelp),
         KeyCode::Char('q') => Some(Action::Quit),
         _ => None,
-    }
-}
-
-pub struct ClickTracker {
-    last: Option<(Instant, u16, u16)>,
-    threshold: Duration,
-}
-
-impl ClickTracker {
-    pub fn new() -> Self {
-        ClickTracker {
-            last: None,
-            threshold: Duration::from_millis(500),
-        }
-    }
-
-    pub fn register(&mut self, now: Instant, x: u16, y: u16) -> MouseKind {
-        if let Some((when, lx, ly)) = self.last {
-            if lx == x && ly == y && now.duration_since(when) <= self.threshold {
-                self.last = None;
-                return MouseKind::DoubleLeft;
-            }
-        }
-        self.last = Some((now, x, y));
-        MouseKind::Left
-    }
-}
-
-impl Default for ClickTracker {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -151,7 +132,35 @@ mod tests {
         ));
         assert!(matches!(
             map_key(key(KeyCode::Char('h')), &s),
+            Some(Action::MoveLeft)
+        ));
+        assert!(matches!(
+            map_key(key(KeyCode::Char('l')), &s),
+            Some(Action::MoveRight)
+        ));
+        assert!(matches!(
+            map_key(key(KeyCode::Backspace), &s),
             Some(Action::OpenParent)
+        ));
+        assert!(matches!(
+            map_key(key(KeyCode::Char('e')), &s),
+            Some(Action::OpenFocused)
+        ));
+        assert!(matches!(
+            map_key(key(KeyCode::Char('X')), &s),
+            Some(Action::EncryptToggle)
+        ));
+        assert!(matches!(
+            map_key(key(KeyCode::Char('b')), &s),
+            Some(Action::ToggleSidebar)
+        ));
+        assert!(matches!(
+            map_key(key(KeyCode::Char('p')), &s),
+            Some(Action::TogglePreview)
+        ));
+        assert!(matches!(
+            map_key(key(KeyCode::Char('B')), &s),
+            Some(Action::ToggleBookmark)
         ));
         assert!(matches!(
             map_key(key(KeyCode::Enter), &s),
@@ -194,28 +203,5 @@ mod tests {
         let ctrl_d = KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL);
         assert!(matches!(map_key(ctrl_u, &s), Some(Action::HalfPageUp)));
         assert!(matches!(map_key(ctrl_d, &s), Some(Action::HalfPageDown)));
-    }
-
-    #[test]
-    fn click_tracker_detects_double() {
-        let mut tracker = ClickTracker::new();
-        let t0 = Instant::now();
-        assert_eq!(tracker.register(t0, 5, 5), MouseKind::Left);
-        assert_eq!(
-            tracker.register(t0 + Duration::from_millis(200), 5, 5),
-            MouseKind::DoubleLeft
-        );
-        assert_eq!(
-            tracker.register(t0 + Duration::from_millis(300), 5, 5),
-            MouseKind::Left
-        );
-        assert_eq!(
-            tracker.register(t0 + Duration::from_millis(900), 5, 5),
-            MouseKind::Left
-        );
-        assert_eq!(
-            tracker.register(t0 + Duration::from_millis(950), 6, 5),
-            MouseKind::Left
-        );
     }
 }

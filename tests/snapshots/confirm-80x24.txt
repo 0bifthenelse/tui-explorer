@@ -1,24 +1,24 @@
-/home/demo
- dir docs                                        - drwxr-xr-x 2023-11-14 19:43
- dir src                                         - drwxr-xr-x 2023-11-14 22:06
- md a very long file name that keeps going~   88B -rw-r--r-- 2023-11-14 21:23
- ts app.tsx                                  5.0K -rw-r--r-- 2023-11-14 22:08
- zip archive.tar.gz                           1.0M -rw-r--r-- 2023-11-14 16:40
- sh build.sh                                 256B -rwxr-xr-x 2023-11-14 22:05
- clk Cargo.lock                                50K -rw-r--r-- 2023-11-14 22:11
- cgo Cargo.t+ CONFIRM ---------------------------------------------+1-14 22:11
- jsn data.js|Delete 1 entry permanently?                           |1-14 22:05
- exe deploy |/home/demo/docs                                       |1-14 21:56
- htm index.h|                                                      |1-14 22:01
- rs main.rs | [y] delete forever    [n] cancel                     |-14 22:08
- md notes.md|                                                      |-14 20:33
- pkg package|                                                      |1-14 22:10
- img photo.p+------------------------------------------------------+1-14 11:06
- lnk README link                                9B lrwxrwxrwx 2023-11-14 21:56
- aud song.mp3                                 5.0M -rw-r--r-- 2023-11-14 13:53
- css style.css                                2.5K -rw-r--r-- 2023-11-14 22:01
+ tui-explorer 0.1.0         tui-explorer is awesome!           Press ? for help
+ Path: [ / ]>[ home ]>[ demo ]
+18 items (2 dirs, 16 files)  Sort: name (asc)
+    ______        ______      .--------.    .--------.    .--------.
+   /______/_     /______/_    | .--'   |    | .--'   |    | .--'   |
+  |        |    |        |    | TXT    |    | TSX    |    | GZ     |
+  |        |    |        |    | ------ |    | ------ |    | ------ |
+  +--------+    +--------+    '--------'    '--------'    '--------'
+ docs       + CONFIRM ---------------------------------------------+~
+ dir        |Delete 1 entry permanently?                           |
+  .--------.|/home/demo/docs                                       |
+  | .--'   ||                                                      |
+  | SH     || [y] delete forever    [n] cancel                     |
+  | ------ ||                                                      |
+  '--------'|                                                      |
+ build.sh   +------------------------------------------------------+
+ 256B          50K           734B          8.0K          15K
 
 
 
- CONFIRM
+
+ CONFIRM                                                               5%  1/18
 | y confirm | n cancel
+TIP  Esc goes back

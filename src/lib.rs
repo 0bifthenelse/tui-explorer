@@ -1,10 +1,13 @@
 pub mod app;
 pub mod browser;
 pub mod config;
+pub mod crypto;
 pub mod filesystem;
 pub mod icons;
 pub mod input;
 pub mod operations;
+pub mod preview;
+pub mod sidebar;
 pub mod tags;
 pub mod terminal;
 pub mod testing;

@@ -159,8 +159,54 @@ impl Browser {
         self.clamp_scroll(viewport);
     }
 
+    pub fn goto_last_grid(&mut self, cols: usize, rows: usize) {
+        let len = self.visible_len();
+        self.selected = len.saturating_sub(1);
+        self.clamp_scroll_grid(cols, rows);
+    }
+
     pub fn scroll_by(&mut self, delta: isize, viewport: usize) {
         self.step(delta, viewport);
+    }
+
+    /// Grid-aware movement: delta is in entries (e.g. +/-columns for
+    /// vertical movement), scrolling keeps tile rows aligned to columns.
+    pub fn grid_move(&mut self, delta: isize, cols: usize, rows: usize) {
+        let len = self.visible_len();
+        if len == 0 {
+            self.selected = 0;
+            self.scroll = 0;
+            return;
+        }
+        let next = (self.selected as isize + delta).clamp(0, len as isize - 1);
+        self.selected = next as usize;
+        self.clamp_scroll_grid(cols, rows);
+    }
+
+    /// Clamp `scroll` (entry index of the first visible tile) so the
+    /// selection is visible and tile rows stay aligned to `cols`.
+    pub fn clamp_scroll_grid(&mut self, cols: usize, rows: usize) {
+        let len = self.visible_len();
+        if len == 0 {
+            self.scroll = 0;
+            return;
+        }
+        let cols = cols.max(1);
+        let rows = rows.max(1);
+        let per = cols.saturating_mul(rows).max(1);
+        if self.selected < self.scroll {
+            self.scroll = self.selected - (self.selected % cols);
+        } else if self.selected >= self.scroll + per {
+            let row = self.selected / cols;
+            self.scroll = (row + 1 - rows) * cols;
+        }
+        if len <= per {
+            self.scroll = 0;
+            return;
+        }
+        let mut max_start = len.saturating_sub(per);
+        max_start -= max_start % cols;
+        self.scroll = self.scroll.min(max_start);
     }
 
     pub fn clamp_scroll(&mut self, viewport: usize) {

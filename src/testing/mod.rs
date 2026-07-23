@@ -151,6 +151,8 @@ pub struct SyncHandler {
     pub opened: Vec<PathBuf>,
     pub quit: bool,
     pub now: i64,
+    pub bookmarks: Vec<PathBuf>,
+    pub bookmark_store: crate::sidebar::MemoryBookmarks,
 }
 
 impl SyncHandler {
@@ -163,6 +165,8 @@ impl SyncHandler {
             opened: Vec::new(),
             quit: false,
             now: 1_700_000_000,
+            bookmarks: Vec::new(),
+            bookmark_store: crate::sidebar::MemoryBookmarks::default(),
         }
     }
 
@@ -221,6 +225,45 @@ impl EffectHandler for SyncHandler {
                 }
                 Err(err) => vec![Action::ErrorMessage(err)],
             },
+            Effect::LoadPreview { key, name, is_dir } => {
+                let result = crate::preview::load(&key.0, is_dir, &name);
+                vec![Action::PreviewLoaded { key, result }]
+            }
+            Effect::Crypto {
+                kind,
+                target,
+                password,
+            } => {
+                let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+                let secret = age::secrecy::SecretString::from(password.0.clone());
+                let (done, failed) = crate::crypto::run_job(
+                    kind,
+                    std::slice::from_ref(&target),
+                    &secret,
+                    &cancel,
+                    &mut |_, _, _| {},
+                );
+                vec![Action::CryptoFinished {
+                    done,
+                    failed: failed
+                        .into_iter()
+                        .map(|(p, e)| (p, e.to_string()))
+                        .collect(),
+                }]
+            }
+            Effect::ToggleBookmark(path) => {
+                let mut bookmarks = self.bookmarks.clone();
+                let added = self.bookmark_store.toggle(&mut bookmarks, &path);
+                self.bookmarks = bookmarks.clone();
+                vec![Action::BookmarksChanged {
+                    bookmarks,
+                    message: if added {
+                        format!("bookmarked {}", path.display())
+                    } else {
+                        format!("removed bookmark {}", path.display())
+                    },
+                }]
+            }
             Effect::OpenPath(path) => {
                 self.opened.push(path);
                 Vec::new()

@@ -33,6 +33,10 @@ pub fn database_path(dirs: &XdgDirs) -> PathBuf {
     dirs.data.join("tui-explorer").join("tags.sqlite3")
 }
 
+pub fn bookmarks_path(dirs: &XdgDirs) -> PathBuf {
+    dirs.data.join("tui-explorer").join("bookmarks.txt")
+}
+
 pub fn config_path(dirs: &XdgDirs) -> PathBuf {
     dirs.config.join("tui-explorer").join("config.toml")
 }

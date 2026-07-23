@@ -1,13 +1,14 @@
 use std::path::PathBuf;
 
 use crate::browser::EntryView;
+use crate::crypto::CryptoOutcome;
 use crate::operations::{OperationPlan, OperationReport};
+use crate::preview::PreviewLoaded;
 use crate::tags::TagDef;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MouseKind {
     Left,
-    DoubleLeft,
     Right,
     ScrollUp,
     ScrollDown,
@@ -32,6 +33,8 @@ pub enum Action {
     LoadInitial,
     MoveDown,
     MoveUp,
+    MoveLeft,
+    MoveRight,
     PageDown,
     PageUp,
     HalfPageDown,
@@ -41,6 +44,27 @@ pub enum Action {
     KeyG,
     OpenFocused,
     OpenParent,
+    ToggleSidebar,
+    TogglePreview,
+    ToggleBookmark,
+    /// `X`: start encryption, or decryption when the focused entry is a
+    /// recognized encrypted output (`*.age` / `*.tar.age`).
+    EncryptToggle,
+    PasswordChar(char),
+    PasswordBackspace,
+    PasswordSubmit,
+    CryptoFinished {
+        done: Vec<CryptoOutcome>,
+        failed: Vec<(PathBuf, String)>,
+    },
+    PreviewLoaded {
+        key: (PathBuf, i64, u64),
+        result: PreviewLoaded,
+    },
+    BookmarksChanged {
+        bookmarks: Vec<PathBuf>,
+        message: String,
+    },
     ToggleSelect,
     ToggleVisual,
     ToggleHidden,

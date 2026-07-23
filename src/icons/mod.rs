@@ -316,6 +316,114 @@ const EXACT_NAMES: &[(&str, IconKind)] = &[
 
 const SPECIAL_DIRS: &[(&str, IconKind)] = &[(".git", IconKind::Git)];
 
+/// Width of one grid tile's artwork in terminal cells.
+pub const TILE_ART_WIDTH: usize = 12;
+/// Height of one grid tile's artwork in terminal cells.
+pub const TILE_ART_HEIGHT: usize = 5;
+
+const TILE_FOLDER: [&str; TILE_ART_HEIGHT] = [
+    "   ______   ",
+    "  /______/_ ",
+    " |        | ",
+    " |        | ",
+    " +--------+ ",
+];
+
+const TILE_FOLDER_OPEN: [&str; TILE_ART_HEIGHT] = [
+    "   ______   ",
+    "  /______/_ ",
+    " |        | ",
+    " |      \\ | ",
+    " +-------\\+ ",
+];
+
+const TILE_FOLDER_HIDDEN: [&str; TILE_ART_HEIGHT] = [
+    "   ______   ",
+    "  /______/_ ",
+    " | . . .  | ",
+    " | . . .  | ",
+    " +--------+ ",
+];
+
+/// Build the 5-line tile artwork for an entry. File tiles carry a short
+/// badge (extension or type marker) inside a page outline, mirroring the
+/// reference design where each file icon shows its type.
+pub fn tile_art(kind: IconKind, entry: &DirEntry) -> [String; TILE_ART_HEIGHT] {
+    match kind {
+        IconKind::Folder | IconKind::Git => {
+            return TILE_FOLDER.map(|l| l.to_string());
+        }
+        IconKind::FolderOpen => return TILE_FOLDER_OPEN.map(|l| l.to_string()),
+        IconKind::FolderHidden => return TILE_FOLDER_HIDDEN.map(|l| l.to_string()),
+        _ => {}
+    }
+    let badge: String = match kind {
+        IconKind::Symlink => "LNK>".to_string(),
+        IconKind::Executable => "EXE>".to_string(),
+        IconKind::Socket => "SOCK".to_string(),
+        IconKind::Pipe => "PIPE".to_string(),
+        IconKind::Device => "DEV>".to_string(),
+        _ => {
+            let name = entry.name.to_string_lossy();
+            name.rsplit_once('.')
+                .filter(|(base, _)| !base.is_empty())
+                .map(|(_, ext)| ext.chars().take(4).collect::<String>().to_uppercase())
+                .unwrap_or_else(|| "FILE".to_string())
+        }
+    };
+    let badge = crate::ui::format::pad_right(&badge, 4);
+    [
+        " .--------. ".to_string(),
+        " | .--'   | ".to_string(),
+        format!(" | {badge}   | "),
+        " | ------ | ".to_string(),
+        " '--------' ".to_string(),
+    ]
+}
+
+#[cfg(test)]
+mod tile_tests {
+    use super::*;
+    use std::ffi::OsString;
+    use std::path::PathBuf;
+
+    fn entry(name: &str, kind: EntryKind) -> DirEntry {
+        DirEntry {
+            name: OsString::from(name),
+            path: PathBuf::from(format!("/x/{name}")),
+            kind,
+            size: 0,
+            mode: 0o644,
+            modified: 0,
+            executable: false,
+            hidden: name.starts_with('.'),
+            device: None,
+            inode: None,
+        }
+    }
+
+    #[test]
+    fn tiles_are_ascii_and_bounded() {
+        let resolver = IconResolver::default();
+        for name in ["src", "a.rs", "b.tar.gz", "plain", ".hid", "x.png"] {
+            let e = entry(name, EntryKind::File);
+            let kind = resolver.resolve(&e);
+            let art = tile_art(kind, &e);
+            assert_eq!(art.len(), TILE_ART_HEIGHT);
+            for line in &art {
+                assert!(line.is_ascii());
+                assert!(line.chars().count() <= TILE_ART_WIDTH);
+            }
+        }
+        let d = entry("dir", EntryKind::Directory);
+        let art = tile_art(IconKind::Folder, &d);
+        assert!(art[0].contains("______"));
+        let f = entry("run.sh", EntryKind::File);
+        let art = tile_art(IconKind::Shell, &f);
+        assert!(art[2].contains("SH"));
+    }
+}
+
 pub struct IconResolver {
     registry: IconRegistry,
 }

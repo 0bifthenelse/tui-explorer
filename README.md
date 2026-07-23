@@ -12,6 +12,9 @@ Named tags (such as `[src]` or `[fav]`) can be attached to any file or directory
 
 ## Features
 
+- Thunar-style layout: places/mounts/tags/bookmarks sidebar, clickable breadcrumb, responsive ASCII-art icon grid, metadata/preview panel, status and command bars
+- File and folder encryption with the `age` crate's passphrase API (`X`): files become `name.ext.age`, folders are tar-archived to `name.tar.age`; masked password dialog, atomic temp-file output, no source deletion, no silent overwrites, safe archive extraction (no `..` or absolute paths, symlinks never followed)
+- Image previews in the panel (PNG, JPEG, GIF first frame, WebP, BMP) via `ratatui-image` with Kitty/Sixel/iTerm2 protocol detection and a half-block fallback; decode happens off the render loop
 - Directory browsing with breadcrumb, metadata columns, and symlink, executable, hidden, socket, pipe, and device distinctions
 - Full Vim-style keyboard control plus complete mouse navigation; no operation requires a mouse
 - Multi-selection with visual mode
@@ -30,10 +33,16 @@ Named tags (such as `[src]` or `[fav]`) can be attached to any file or directory
 
 | Key | Action |
 | --- | --- |
-| `j` / Down | move selection down |
-| `k` / Up | move selection up |
-| `h` / Left | open parent directory |
-| `l` / Right / Enter | enter directory or open file |
+| `j` / Down | move selection one grid row down |
+| `k` / Up | move selection one grid row up |
+| `h` / Left | move one tile left |
+| `l` / Right | move one tile right |
+| Backspace | open parent directory |
+| `e` / Enter | enter directory or open file (the only keyboard open actions) |
+| `X` | encrypt / decrypt the focused entry (masked password dialog) |
+| `b` | toggle the sidebar |
+| `p` | toggle the preview panel |
+| `B` | bookmark the current directory |
 | `g g` | first entry |
 | `G` | last entry |
 | `Ctrl-u` / `Ctrl-d` | half page up / down |
@@ -50,14 +59,34 @@ Named tags (such as `[src]` or `[fav]`) can be attached to any file or directory
 
 Mouse controls:
 
-- Left click: select a row, activate a legend action, or navigate the breadcrumb
-- Double left click: enter a directory or open a file
+- Left click: select a tile, activate a legend action, navigate the breadcrumb or jump to a sidebar place/mount/bookmark (a single click never opens anything)
+- Double left click on the same entry: enter a directory or open a file
 - Right click: context menu for the focused entry
 - Mouse wheel: scroll the list
 - Click a tag badge in the details panel: open the tag picker
 - Click outside a modal: dismiss it (only when safe, destructive confirmations always cancel)
 
 ![command mode](docs/screenshots/command-mode.svg)
+
+## Encryption
+
+Press `X` on any entry. Regular files and folders are encrypted with the maintained `age` crate's passphrase API; a recognized encrypted output (`*.age`, `*.tar.age`) is decrypted instead. The password dialog masks input, requires confirmation for encryption, never logs or persists secrets, and `Esc` cancels without touching the filesystem.
+
+- File `report.txt` encrypts to `report.txt.age`
+- Folder `photos` is serialized to a portable tar stream (relative paths, empty directories preserved, symlinks stored but never followed) and encrypted to `photos.tar.age`
+- Output is written to a temporary file, finalized, flushed, then atomically renamed; existing destinations are never overwritten and sources are never deleted automatically
+- Decryption rejects archive entries with absolute paths or `..` components so malicious archives cannot escape the destination
+
+## Configuration
+
+- `TUI_EXPLORER_OPENER` / `EDITOR`: program used to open files (falls back to `xdg-open`)
+- `TUI_EXPLORER_DOUBLE_CLICK_MS`: double-click threshold in milliseconds (default 500)
+- `TUI_EXPLORER_IMAGE_PROTOCOL`: force image preview protocol (`kitty`, `sixel`, `iterm2`, `halfblocks`); by default the terminal is detected from `TERM`/`TERM_PROGRAM` and unknown terminals get the safe half-block fallback
+- Bookmarks are stored in `$XDG_DATA_HOME/tui-explorer/bookmarks.txt`, tags in `tags.sqlite3` alongside it
+
+## Headless visual verification
+
+The real binary is tested end-to-end without a display server: `tests/headless.rs` runs it in a pseudo-terminal at 160x48, 120x36, 90x28 and 70x22, sends keystrokes, and replays the escape stream through a `vt100` parser to assert the rendered screen. `cargo run --bin visual` renders deterministic text and SVG frames of key scenarios into `docs/screenshots/visual/`.
 
 ## Command mode
 

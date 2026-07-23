@@ -1,4 +1,6 @@
-/home/demo
+ tui-explorer 0.1.0         tui-explorer is awesome!           Press ? for help
+ Path: [ / ]>[ home ]>[ demo ]
+0 items (0 dirs, 0 files)  Sort: name (asc)
 (empty directory)
 
 
@@ -17,8 +19,6 @@
 
 
 
-
-
-
- BROWSER
-| q quit | : cmd | ? help | v sel | . hid | t tag | T tags | Enter open
+ BROWSER                                                                0%  0/0
+| e/Enter Open | X Crypt | Bsp Up | v Visual | t Tag | : Command | ? Help
+TIP  Double-click or Enter/e to open * Right-click for menu * Mouse wheel to sc~

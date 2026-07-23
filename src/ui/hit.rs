@@ -12,12 +12,17 @@ pub enum LegendAction {
     Open,
     Parent,
     Cancel,
+    Encrypt,
+    Sidebar,
+    Preview,
+    Bookmark,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HitTarget {
     Row(usize),
     Breadcrumb(usize),
+    Sidebar(usize),
     Legend(LegendAction),
     TagBadge,
     ModalConfirm,

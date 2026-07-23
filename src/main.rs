@@ -2,7 +2,7 @@ use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::mpsc::{Receiver, SyncSender, sync_channel};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use crossterm::event::{self, Event, MouseButton, MouseEventKind};
 use ratatui::Terminal;
@@ -16,7 +16,7 @@ use tui_explorer::browser::EntryView;
 use tui_explorer::config;
 use tui_explorer::filesystem::real::{RealFileSystem, RealMutations};
 use tui_explorer::filesystem::{FileSystem, MutationBackend};
-use tui_explorer::input::keymap::{ClickTracker, map_key};
+use tui_explorer::input::keymap::map_key;
 use tui_explorer::operations::{ConflictPolicy, find_conflicts, run_operation, run_rename};
 use tui_explorer::tags::TagStore;
 use tui_explorer::terminal::{self, TerminalSession, crossterm_driver::CrosstermTty};
@@ -39,7 +39,12 @@ OPTIONS:
 
 KEYS:
     j/k or arrows    move selection
-    h/l, Enter       parent / enter or open
+    h/l              move between tiles
+    Backspace        parent directory
+    e, Enter         enter folder or open file
+    X                encrypt / decrypt focused entry
+    b, p             toggle sidebar / preview panel
+    B                bookmark current directory
     g g, G           first / last entry
     Ctrl-u/Ctrl-d    half page up/down
     Space, v         select, visual mode
@@ -50,7 +55,8 @@ KEYS:
     q                quit
 
 MOUSE:
-    click select, double click open, right click menu, wheel scroll, breadcrumb navigates
+    click selects, double click (or e/Enter) opens, right click menu, wheel scrolls,
+    breadcrumb and sidebar navigate
 
 DATA:
     tags database: $XDG_DATA_HOME/tui-explorer/tags.sqlite3
@@ -61,6 +67,7 @@ struct ProdHandler {
     fs: RealFileSystem,
     mutations: RealMutations,
     tags: Option<TagStore>,
+    bookmarks: tui_explorer::sidebar::BookmarkStore,
     sender: SyncSender<Action>,
 }
 
@@ -151,6 +158,57 @@ impl EffectHandler for ProdHandler {
                 });
                 Vec::new()
             }
+            Effect::LoadPreview { key, name, is_dir } => {
+                // Decode/resize off the render loop; the reducer drops stale results.
+                let sender = self.sender.clone();
+                std::thread::spawn(move || {
+                    let result = tui_explorer::preview::load(&key.0, is_dir, &name);
+                    let _ = sender.send(Action::PreviewLoaded { key, result });
+                });
+                Vec::new()
+            }
+            Effect::Crypto {
+                kind,
+                target,
+                password,
+            } => {
+                let sender = self.sender.clone();
+                std::thread::spawn(move || {
+                    let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+                    let secret = age::secrecy::SecretString::from(password.0.clone());
+                    let (done, failed) = tui_explorer::crypto::run_job(
+                        kind,
+                        std::slice::from_ref(&target),
+                        &secret,
+                        &cancel,
+                        &mut |_, _, _| {},
+                    );
+                    let _ = sender.send(Action::CryptoFinished {
+                        done,
+                        failed: failed
+                            .into_iter()
+                            .map(|(p, e)| (p, e.to_string()))
+                            .collect(),
+                    });
+                });
+                Vec::new()
+            }
+            Effect::ToggleBookmark(path) => {
+                let mut bookmarks = self.bookmarks.load();
+                match self.bookmarks.toggle(&mut bookmarks, &path) {
+                    Ok(added) => vec![Action::BookmarksChanged {
+                        bookmarks,
+                        message: if added {
+                            format!("bookmarked {}", path.display())
+                        } else {
+                            format!("removed bookmark {}", path.display())
+                        },
+                    }],
+                    Err(e) => vec![Action::ErrorMessage(format!(
+                        "could not save bookmarks: {e}"
+                    ))],
+                }
+            }
             Effect::OpenPath(_) => Vec::new(),
             Effect::TagAssign {
                 name,
@@ -236,6 +294,50 @@ impl EffectHandler for ProdHandler {
     }
 }
 
+/// Non-blocking terminal graphics detection.
+///
+/// `Picker::from_query_stdio` performs an interactive stdin/stdout query
+/// that can stall the UI on terminals (or multiplexers) that never answer,
+/// so detection here is environment-based and conservative: unknown
+/// terminals get the half-block cell fallback, which works everywhere.
+fn detect_picker() -> ratatui_image::picker::Picker {
+    use ratatui_image::picker::{Picker, ProtocolType};
+    let mut picker = Picker::from_fontsize((8, 16));
+    let term = std::env::var("TERM").unwrap_or_default().to_lowercase();
+    let program = std::env::var("TERM_PROGRAM")
+        .unwrap_or_default()
+        .to_lowercase();
+    let forced = std::env::var("TUI_EXPLORER_IMAGE_PROTOCOL")
+        .unwrap_or_default()
+        .to_lowercase();
+    let protocol = match forced.as_str() {
+        "kitty" => Some(ProtocolType::Kitty),
+        "sixel" => Some(ProtocolType::Sixel),
+        "iterm2" => Some(ProtocolType::Iterm2),
+        "halfblocks" => Some(ProtocolType::Halfblocks),
+        _ => None,
+    }
+    .or_else(|| {
+        if term.contains("kitty") || program.contains("kitty") || program.contains("wezterm") {
+            Some(ProtocolType::Kitty)
+        } else if program.contains("iterm") {
+            Some(ProtocolType::Iterm2)
+        } else if term.contains("sixel")
+            || term.contains("foot")
+            || term.contains("mlterm")
+            || term.contains("yaft")
+        {
+            Some(ProtocolType::Sixel)
+        } else {
+            None
+        }
+    });
+    if let Some(protocol) = protocol {
+        picker.set_protocol_type(protocol);
+    }
+    picker
+}
+
 fn open_external(session: &mut TerminalSession<CrosstermTty>, path: &Path) -> Option<Action> {
     let opener = std::env::var("TUI_EXPLORER_OPENER")
         .ok()
@@ -269,9 +371,11 @@ fn open_external(session: &mut TerminalSession<CrosstermTty>, path: &Path) -> Op
     }
 }
 
-fn map_mouse(kind: MouseEventKind, x: u16, y: u16, tracker: &mut ClickTracker) -> Option<Action> {
+fn map_mouse(kind: MouseEventKind, x: u16, y: u16) -> Option<Action> {
+    // Double-click detection lives in the reducer so it can require the same
+    // entry (not just the same cell) and use the configured threshold.
     let kind = match kind {
-        MouseEventKind::Down(MouseButton::Left) => tracker.register(Instant::now(), x, y),
+        MouseEventKind::Down(MouseButton::Left) => MouseKind::Left,
         MouseEventKind::Down(MouseButton::Right) => MouseKind::Right,
         MouseEventKind::ScrollUp => MouseKind::ScrollUp,
         MouseEventKind::ScrollDown => MouseKind::ScrollDown,
@@ -361,18 +465,34 @@ fn run(start: PathBuf) -> std::io::Result<()> {
     terminal::install_panic_hook();
     let backend = CrosstermBackend::new(std::io::stdout());
     let mut term = Terminal::new(backend)?;
+    // Detect terminal graphics capabilities without blocking: environment
+    // detection is deterministic and never emits protocol data into
+    // terminals that do not support it. `TUI_EXPLORER_IMAGE_PROTOCOL`
+    // (kitty|sixel|iterm2|halfblocks) overrides detection.
+    let picker = detect_picker();
     let (sender, receiver) = sync_channel::<Action>(64);
+    let bookmark_store = tui_explorer::sidebar::BookmarkStore::new(config::bookmarks_path(&dirs));
+    let bookmarks = bookmark_store.load();
     let mut handler = ProdHandler {
         fs: RealFileSystem::new(),
         mutations: RealMutations::new(),
         tags,
+        bookmarks: bookmark_store,
         sender,
     };
     let mut state = AppState::new(start, home);
+    state.picker = picker;
+    state.bookmarks = bookmarks;
+    state.mounts = tui_explorer::sidebar::read_mounts();
+    if let Some(ms) = std::env::var("TUI_EXPLORER_DOUBLE_CLICK_MS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+    {
+        state.double_click = Duration::from_millis(ms);
+    }
     if let Some(err) = startup_error {
         state.message = Some(tui_explorer::app::state::StatusMessage::error(err));
     }
-    let mut tracker = ClickTracker::new();
     let mut pending: VecDeque<Action> = VecDeque::new();
     pending.push_back(Action::LoadInitial);
     loop {
@@ -387,9 +507,7 @@ fn run(start: PathBuf) -> std::io::Result<()> {
                         }
                     }
                     Event::Mouse(mouse) => {
-                        if let Some(action) =
-                            map_mouse(mouse.kind, mouse.column, mouse.row, &mut tracker)
-                        {
+                        if let Some(action) = map_mouse(mouse.kind, mouse.column, mouse.row) {
                             pending.push_back(action);
                         }
                     }

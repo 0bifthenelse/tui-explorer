@@ -8,6 +8,8 @@ pub enum OperationKind {
     Copy,
     Move,
     Delete,
+    Encrypt,
+    Decrypt,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -66,6 +68,7 @@ pub fn destination_for(plan: &OperationPlan, source: &Path) -> Result<PathBuf, O
             Ok(dir.join(name))
         }
         OperationKind::Delete => Ok(source.to_path_buf()),
+        OperationKind::Encrypt | OperationKind::Decrypt => Ok(source.to_path_buf()),
     }
 }
 
@@ -104,6 +107,7 @@ pub fn validate(plan: &OperationPlan) -> Result<(), OpError> {
             Ok(())
         }
         OperationKind::Delete => Ok(()),
+        OperationKind::Encrypt | OperationKind::Decrypt => Ok(()),
     }
 }
 
@@ -192,6 +196,9 @@ pub fn run_operation(
     for (idx, src) in plan.sources.iter().enumerate() {
         progress(src.clone(), idx, total);
         let outcome = match plan.kind {
+            OperationKind::Encrypt | OperationKind::Decrypt => {
+                unreachable!("crypto jobs never run through run_operation")
+            }
             OperationKind::Delete => match mutations.delete_entry(src, true) {
                 Ok(()) => OpOutcome::Done,
                 Err(e) => OpOutcome::Failed(e.to_string()),

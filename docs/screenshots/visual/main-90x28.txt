@@ -1,0 +1,28 @@
+ tui-explorer 0.1.0              tui-explorer is awesome!                Press ? for help
+ Path: [ / ]>[ home ]>[ demo ]
+18 items (2 dirs, 16 files)  Sort: name (asc)
+    ______        ______      .--------.    .--------.    .--------.    .--------.
+   /______/_     /______/_    | .--'   |    | .--'   |    | .--'   |    | .--'   |
+  |        |    |        |    | TXT    |    | TSX    |    | GZ     |    | SH     |
+  |      \ |    |        |    | ------ |    | ------ |    | ------ |    | ------ |
+  +-------\+    +--------+    '--------'    '--------'    '--------'    '--------'
+ docs          src           a very long~  app.tsx       archive.tar~  build.sh
+ dir           dir           88B           5.0K          1.0M          256B
+  .--------.    .--------.    .--------.    .--------.    .--------.    .--------.
+  | .--'   |    | .--'   |    | .--'   |    | .--'   |    | .--'   |    | .--'   |
+  | LOCK   |    | TOML   |    | JSON   |    | EXE>   |    | HTML   |    | RS     |
+  | ------ |    | ------ |    | ------ |    | ------ |    | ------ |    | ------ |
+  '--------'    '--------'    '--------'    '--------'    '--------'    '--------'
+ Cargo.lock    Cargo.toml    data.json     deploy        index.html    main.rs
+ 50K           734B          8.0K          15K           1.0K          2.0K
+  .--------.    .--------.    .--------.    .--------.    .--------.    .--------.
+  | .--'   |    | .--'   |    | .--'   |    | .--'   |    | .--'   |    | .--'   |
+  | MD     |    | JSON   |    | PNG    |    | LNK>   |    | MP3    |    | CSS    |
+  | ------ |    | ------ |    | ------ |    | ------ |    | ------ |    | ------ |
+  '--------'    '--------'    '--------'    '--------'    '--------'    '--------'
+ notes.md      package.json  photo.png     README link   song.mp3      style.css
+ 1.5K          412B          2.0M          9B            5.0M          2.5K
+
+ BROWSER                                                                         5%  1/18
+| e/Enter Open | X Crypt | Bsp Up | v Visual | t Tag | : Command | ? Help | b Sidebar
+TIP  Double-click or Enter/e to open * Right-click for menu * Mouse wheel to scroll

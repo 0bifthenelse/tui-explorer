@@ -1,12 +1,12 @@
-/home/demo
->- docs
- + src
- m a very long file name that keeps go~
- t app.tsx
- z archive.tar.gz
- s build.sh
- L Cargo.lock
- R Cargo.toml
- { data.json
- BROWSER
-| q quit | : cmd | ? help | t tag
+ tui-explorer 0.1.0    Press ? for help
+ Path: [ / ]>[ home ]>[ demo ]
+18 items (2 dirs, 16 files)  Sort: name
+    ______        ______
+   /______/_     /______/_
+  |        |    |        |
+  |      \ |    |        |
+  +-------\+    +--------+
+ docs          src
+ BROWSER                       5%  1/18
+| e/Enter Open | X Crypt | Bsp Up
+TIP  Double-click or Enter/e to open * ~
