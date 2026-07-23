@@ -7,6 +7,24 @@ const FONT_SIZE: u32 = 14;
 const BG: &str = "#1a1b26";
 const FG: &str = "#c0caf5";
 
+/// Geometry used to rasterize a terminal buffer into an SVG frame.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SvgStyle {
+    pub cell_w: u32,
+    pub cell_h: u32,
+    pub font_size: u32,
+}
+
+impl Default for SvgStyle {
+    fn default() -> Self {
+        SvgStyle {
+            cell_w: CELL_W,
+            cell_h: CELL_H,
+            font_size: FONT_SIZE,
+        }
+    }
+}
+
 fn named_color(color: Color) -> Option<String> {
     let hex = match color {
         Color::Black => "#000000",
@@ -78,9 +96,16 @@ struct Run {
 }
 
 pub fn buffer_to_svg(buffer: &Buffer) -> String {
+    buffer_to_svg_styled(buffer, SvgStyle::default())
+}
+
+pub fn buffer_to_svg_styled(buffer: &Buffer, style: SvgStyle) -> String {
+    let cell_w = style.cell_w;
+    let cell_h = style.cell_h;
+    let font_size = style.font_size;
     let area = buffer.area;
-    let width_px = u32::from(area.width) * CELL_W;
-    let height_px = u32::from(area.height) * CELL_H;
+    let width_px = u32::from(area.width) * cell_w;
+    let height_px = u32::from(area.height) * cell_h;
     let mut out = String::new();
     out.push_str(&format!(
         "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{width_px}\" height=\"{height_px}\" viewBox=\"0 0 {width_px} {height_px}\">\n"
@@ -109,26 +134,34 @@ pub fn buffer_to_svg(buffer: &Buffer) -> String {
         let mut cursor_x = 0u32;
         let mut spans = String::new();
         for run in &runs {
-            let run_width = run.text.chars().count() as u32 * CELL_W;
+            let run_width = run.text.chars().count() as u32 * cell_w;
             if let Some(bg) = &run.bg {
                 backgrounds.push_str(&format!(
-                    "<rect x=\"{cursor_x}\" y=\"{}\" width=\"{run_width}\" height=\"{CELL_H}\" fill=\"{bg}\"/>\n",
-                    u32::from(y) * CELL_H
+                    "<rect x=\"{cursor_x}\" y=\"{}\" width=\"{run_width}\" height=\"{cell_h}\" fill=\"{bg}\"/>\n",
+                    u32::from(y) * cell_h
                 ));
             }
-            if !run.text.trim().is_empty() {
-                let fill = run.fg.clone().unwrap_or_else(|| FG.to_string());
-                spans.push_str(&format!(
-                    "<tspan fill=\"{fill}\">{}</tspan>",
-                    xml_escape(&run.text)
-                ));
+            // Every glyph carries an explicit x position: relying on text
+            // flow lets any font whose advance differs from the cell width
+            // drift and misalign the whole row. Per-character anchoring
+            // keeps the raster faithful to the terminal grid.
+            let fill = run.fg.clone().unwrap_or_else(|| FG.to_string());
+            let mut char_x = cursor_x;
+            for ch in run.text.chars() {
+                if ch != ' ' {
+                    spans.push_str(&format!(
+                        "<tspan x=\"{char_x}\" fill=\"{fill}\">{}</tspan>",
+                        xml_escape(&ch.to_string())
+                    ));
+                }
+                char_x += cell_w;
             }
             cursor_x += run_width;
         }
         if !spans.is_empty() {
             texts.push_str(&format!(
-                "<text x=\"0\" y=\"{}\" font-family=\"monospace\" font-size=\"{FONT_SIZE}\" xml:space=\"preserve\">{spans}</text>\n",
-                u32::from(y) * CELL_H + FONT_SIZE - 2
+                "<text x=\"0\" y=\"{}\" font-family=\"monospace\" font-size=\"{font_size}\" xml:space=\"preserve\">{spans}</text>\n",
+                u32::from(y) * cell_h + font_size - 2
             ));
         }
     }
@@ -156,7 +189,12 @@ mod tests {
         let first = buffer_to_svg(terminal.backend().buffer());
         let second = buffer_to_svg(terminal.backend().buffer());
         assert_eq!(first, second);
-        assert!(first.contains("a&lt;&amp;&gt;b"));
+        // Glyphs are emitted one tspan per cell, so escaping is asserted per
+        // character rather than as a contiguous string.
+        assert!(first.contains("&lt;"));
+        assert!(first.contains("&amp;"));
+        assert!(first.contains("&gt;"));
+        assert!(!first.contains("a<&>b"));
         assert!(first.starts_with("<svg"));
         assert!(first.ends_with("</svg>\n"));
         assert!(!first.contains("202"));

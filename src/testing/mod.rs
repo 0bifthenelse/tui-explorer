@@ -460,6 +460,177 @@ pub mod builders {
         fs
     }
 
+    /// Larger deterministic filesystem used for the full-frame 1920x1080
+    /// README screenshots: enough varied entries to fill a 240x60 grid.
+    pub fn demo_fs_showcase() -> MemoryFileSystem {
+        let root = demo_root();
+        let mut fs = MemoryFileSystem::new();
+        fs.add_dir(&root);
+        fs.add_dir(&root.join("src"));
+        let t = FIXED_TIME;
+        let dirs = [
+            "src", "docs", "assets", "media", "scripts", "tests", "backups", ".git",
+        ];
+        for (i, d) in dirs.iter().enumerate() {
+            fs.add_entry(
+                &root,
+                entry(
+                    &root,
+                    d,
+                    EntryKind::Directory,
+                    4096,
+                    0o755,
+                    t - 400 * (i as i64 + 1),
+                ),
+            );
+        }
+        let files: &[(&str, u64, u32)] = &[
+            ("Cargo.toml", 734, 0o644),
+            ("Cargo.lock", 51_204, 0o644),
+            ("Makefile", 312, 0o644),
+            ("Dockerfile", 540, 0o644),
+            ("package.json", 412, 0o644),
+            ("README.md", 4_608, 0o644),
+            ("CHANGELOG.md", 2_048, 0o644),
+            ("main.rs", 2_048, 0o644),
+            ("lib.rs", 8_192, 0o644),
+            ("reduce.rs", 12_288, 0o644),
+            ("state.rs", 9_216, 0o644),
+            ("keymap.rs", 3_584, 0o644),
+            ("app.tsx", 5_120, 0o644),
+            ("index.ts", 1_024, 0o644),
+            ("worker.js", 2_560, 0o644),
+            ("main.c", 6_144, 0o644),
+            ("vector.cpp", 4_096, 0o644),
+            ("demo.py", 1_792, 0o644),
+            ("build.sh", 256, 0o755),
+            ("deploy.sh", 512, 0o755),
+            ("index.html", 1_024, 0o644),
+            ("style.css", 2_560, 0o644),
+            ("data.json", 8_192, 0o644),
+            ("config.toml", 640, 0o644),
+            ("settings.yml", 896, 0o644),
+            ("notes.md", 1_536, 0o644),
+            ("archive.tar.gz", 1_048_576, 0o644),
+            ("backup.zip", 2_097_152, 0o644),
+            ("report.pdf", 524_288, 0o644),
+            ("tags.sqlite3", 131_072, 0o644),
+            ("photo.png", 2_097_152, 0o644),
+            ("banner.jpg", 1_572_864, 0o644),
+            ("icon.bmp", 262_144, 0o644),
+            ("clip.gif", 786_432, 0o644),
+            ("wallpaper.webp", 917_504, 0o644),
+            ("song.mp3", 5_242_880, 0o644),
+            ("voice.flac", 8_388_608, 0o644),
+            ("screencast.mp4", 16_777_216, 0o644),
+            ("talk.mkv", 33_554_432, 0o644),
+            ("deploy", 15_360, 0o755),
+            ("release.bin", 4_194_304, 0o755),
+            ("report.txt", 12_288, 0o644),
+            ("report.txt.age", 13_312, 0o600),
+            ("photos.tar.age", 52_428_800, 0o600),
+            ("quarterly figures 2023.csv", 20_480, 0o644),
+            (
+                "a very long file name that keeps going and going.txt",
+                88,
+                0o644,
+            ),
+            ("actions.rs", 7_680, 0o644),
+            ("effects.rs", 3_072, 0o644),
+            ("browser.rs", 11_264, 0o644),
+            ("render.rs", 18_432, 0o644),
+            ("icons.rs", 6_656, 0o644),
+            ("tags.rs", 5_632, 0o644),
+            ("crypto.rs", 4_608, 0o644),
+            ("preview.rs", 3_328, 0o644),
+            ("sidebar.rs", 4_096, 0o644),
+            ("terminal.rs", 2_816, 0o644),
+            ("config.rs", 1_792, 0o644),
+            ("operations.rs", 9_728, 0o644),
+            ("filesystem.rs", 5_120, 0o644),
+            ("input.rs", 3_584, 0o644),
+            ("util_test.rs", 2_048, 0o644),
+            ("replay.rs", 6_144, 0o644),
+            ("headless.rs", 4_608, 0o644),
+            ("visual.rs", 3_072, 0o644),
+            ("theme.css", 1_536, 0o644),
+            ("reset.css", 640, 0o644),
+            ("api.ts", 2_304, 0o644),
+            ("router.ts", 1_920, 0o644),
+            ("store.js", 2_816, 0o644),
+            ("parse.py", 1_408, 0o644),
+            ("train.py", 3_840, 0o644),
+            ("render.c", 9_216, 0o644),
+            ("matrix.cpp", 5_632, 0o644),
+            ("linker.h", 1_280, 0o644),
+            ("ci.yml", 1_152, 0o644),
+            ("release.yml", 1_664, 0o644),
+            ("lint.toml", 384, 0o644),
+            ("schema.json", 12_288, 0o644),
+            ("seed.json", 4_096, 0o644),
+            ("guide.md", 7_168, 0o644),
+            ("design.md", 5_632, 0o644),
+            ("manual.pdf", 1_048_576, 0o644),
+            ("invoice.pdf", 262_144, 0o644),
+            ("sources.zip", 4_194_304, 0o644),
+            ("assets.tar.gz", 8_388_608, 0o644),
+            ("patch.tar", 2_097_152, 0o644),
+            ("cover.png", 1_310_720, 0o644),
+            ("avatar.png", 131_072, 0o644),
+            ("screenshot.png", 524_288, 0o644),
+            ("diagram.bmp", 393_216, 0o644),
+            ("intro.gif", 1_572_864, 0o644),
+            ("loop.webp", 655_360, 0o644),
+            ("podcast.mp3", 12_582_912, 0o644),
+            ("theme.flac", 6_291_456, 0o644),
+            ("demo.mp4", 25_165_824, 0o644),
+            ("clip.mkv", 10_485_760, 0o644),
+            ("setup", 8_192, 0o755),
+            ("bench", 24_576, 0o755),
+            ("cache.db", 524_288, 0o644),
+            ("history.db", 131_072, 0o644),
+            ("draft.txt", 4_608, 0o644),
+            ("todo.txt", 1_024, 0o644),
+        ];
+        for (i, (name, size, mode)) in files.iter().enumerate() {
+            fs.add_entry(
+                &root,
+                entry(
+                    &root,
+                    name,
+                    EntryKind::File,
+                    *size,
+                    *mode,
+                    t - 100 * (i as i64 + 1),
+                ),
+            );
+        }
+        fs.add_entry(
+            &root,
+            entry(
+                &root,
+                "README link",
+                EntryKind::Symlink { broken: false },
+                9,
+                0o777,
+                t - 1000,
+            ),
+        );
+        fs.add_entry(
+            &root,
+            entry(&root, ".hidden", EntryKind::File, 12, 0o600, t - 2000),
+        );
+        fs.add_entry(
+            &root,
+            entry(&root, ".env", EntryKind::File, 48, 0o600, t - 2100),
+        );
+        let src = root.join("src");
+        for name in ["main.rs", "lib.rs", "mod.rs"] {
+            fs.add_entry(&src, entry(&src, name, EntryKind::File, 1024, 0o644, t));
+        }
+        fs
+    }
+
     pub fn demo_fs_with_non_utf8() -> MemoryFileSystem {
         use std::os::unix::ffi::OsStrExt;
         let mut fs = demo_fs();

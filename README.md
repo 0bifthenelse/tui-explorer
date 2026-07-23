@@ -1,20 +1,21 @@
 # tui-explorer
 
-A fast, open-source terminal file explorer for Linux with mouse support for GUI-like navigation and full Vim-style keyboard controls. Browse, open, select, move, rename, copy, delete, tag, and manage files without leaving the terminal.
+A fast, open-source terminal file explorer for Linux with mouse support for GUI-like navigation and full Vim-style keyboard controls. Browse, open, select, move, rename, copy, delete, encrypt, tag, and manage files without leaving the terminal.
 
-![main view](docs/screenshots/main.svg)
+![tui-explorer main interface: icon grid with folders and files, places/mounts/tags/bookmarks sidebar, details and preview panel, status and legend bars](docs/screenshots/png/overview-main.png)
 
 ## What it is
 
 tui-explorer turns your terminal into a file manager that feels like a small desktop application. You can drive it entirely with the keyboard using Vim-style motions, or point and click with the mouse: click to select, double-click to open, right-click for a context menu, scroll with the wheel, and click the breadcrumb to jump to any parent directory. All icons are plain ASCII art drawn by the application's own icon engine, so it works in any terminal without Nerd Fonts, emoji support, or desktop icon themes.
 
-Named tags (such as `[src]` or `[fav]`) can be attached to any file or directory and are stored in a local SQLite database, so they survive restarts.
+Named tags (such as `[src]` or `[fav]`) can be attached to any file or directory and are stored in a local SQLite database, so they survive restarts. Files and folders can be encrypted and decrypted in place with the `age` crate's passphrase API, and image files render a live preview in the details panel on terminals that support Kitty, Sixel, or iTerm2 graphics (with a half-block fallback everywhere else).
 
 ## Features
 
 - Thunar-style layout: places/mounts/tags/bookmarks sidebar, clickable breadcrumb, responsive ASCII-art icon grid, metadata/preview panel, status and command bars
 - File and folder encryption with the `age` crate's passphrase API (`X`): files become `name.ext.age`, folders are tar-archived to `name.tar.age`; masked password dialog, atomic temp-file output, no source deletion, no silent overwrites, safe archive extraction (no `..` or absolute paths, symlinks never followed)
 - Image previews in the panel (PNG, JPEG, GIF first frame, WebP, BMP) via `ratatui-image` with Kitty/Sixel/iTerm2 protocol detection and a half-block fallback; decode happens off the render loop
+- Text and directory previews in the same panel, cached per focused entry and invalidated on mtime/size changes
 - Directory browsing with breadcrumb, metadata columns, and symlink, executable, hidden, socket, pipe, and device distinctions
 - Full Vim-style keyboard control plus complete mouse navigation; no operation requires a mouse
 - Multi-selection with visual mode
@@ -27,7 +28,29 @@ Named tags (such as `[src]` or `[fav]`) can be attached to any file or directory
 - Correct handling of non-UTF-8 Linux filenames
 - Deterministic, automatically generated screenshots and snapshot tests
 
-![tag picker](docs/screenshots/tags.svg)
+## Screenshots
+
+All raster screenshots are real renders of the application UI at exactly 1920x1080, generated from repository code (see [Regenerating screenshots](#regenerating-screenshots)).
+
+Image preview in the details panel (half-block protocol rendering):
+
+![image preview: photo.png focused, metadata and a rendered image in the details panel](docs/screenshots/png/details-preview.png)
+
+Tag picker and manager (`T`):
+
+![tag picker modal listing fav, media, src and work tags](docs/screenshots/png/tag-picker.png)
+
+Command mode (`:`):
+
+![command mode with :copy "/mnt/backup drive" typed into the command bar](docs/screenshots/png/command-mode.png)
+
+Help overlay (`?`):
+
+![help overlay with the full key legend](docs/screenshots/png/help-overlay.png)
+
+Compact layout on a small terminal (SVG, 60x16 cells):
+
+![compact layout at 60x16](docs/screenshots/compact.svg)
 
 ## Controls
 
@@ -66,8 +89,6 @@ Mouse controls:
 - Click a tag badge in the details panel: open the tag picker
 - Click outside a modal: dismiss it (only when safe, destructive confirmations always cancel)
 
-![command mode](docs/screenshots/command-mode.svg)
-
 ## Encryption
 
 Press `X` on any entry. Regular files and folders are encrypted with the maintained `age` crate's passphrase API; a recognized encrypted output (`*.age`, `*.tar.age`) is decrypted instead. The password dialog masks input, requires confirmation for encryption, never logs or persists secrets, and `Esc` cancels without touching the filesystem.
@@ -83,10 +104,6 @@ Press `X` on any entry. Regular files and folders are encrypted with the maintai
 - `TUI_EXPLORER_DOUBLE_CLICK_MS`: double-click threshold in milliseconds (default 500)
 - `TUI_EXPLORER_IMAGE_PROTOCOL`: force image preview protocol (`kitty`, `sixel`, `iterm2`, `halfblocks`); by default the terminal is detected from `TERM`/`TERM_PROGRAM` and unknown terminals get the safe half-block fallback
 - Bookmarks are stored in `$XDG_DATA_HOME/tui-explorer/bookmarks.txt`, tags in `tags.sqlite3` alongside it
-
-## Headless visual verification
-
-The real binary is tested end-to-end without a display server: `tests/headless.rs` runs it in a pseudo-terminal at 160x48, 120x36, 90x28 and 70x22, sends keystrokes, and replays the escape stream through a `vt100` parser to assert the rendered screen. `cargo run --bin visual` renders deterministic text and SVG frames of key scenarios into `docs/screenshots/visual/`.
 
 ## Command mode
 
@@ -146,11 +163,9 @@ If `XDG_DATA_HOME` is unset or invalid, the fallback is `$HOME/.local/share/tui-
 - When you rename or move an entry inside tui-explorer, its tags follow automatically
 - Moves done outside the application (for example with `mv`) cannot always be followed; the old path keeps its tags until you re-tag the new one
 
-![compact layout](docs/screenshots/compact.svg)
-
 ## Installation
 
-Build from source with Cargo. You need a Rust toolchain (1.85 or newer) and a C compiler for the bundled SQLite build.
+Build from source with Cargo. You need a Rust toolchain (1.87 or newer, matching `rust-version` in `Cargo.toml`) and a C compiler for the bundled SQLite build.
 
 Gentoo:
 
@@ -192,6 +207,8 @@ tui-explorer --help
 tui-explorer --version
 ```
 
+A positional argument selects the startup directory; without one the current working directory is used.
+
 ## Configuration and data locations
 
 - Tags database: `$XDG_DATA_HOME/tui-explorer/tags.sqlite3`
@@ -217,7 +234,7 @@ Linux filenames are bytes, not text. tui-explorer keeps paths as `PathBuf` and n
 
 ## Architecture
 
-Single Cargo package with a library and two binaries (`tui-explorer` and the `screenshots` generator):
+Single Cargo package with a library and three binaries (`tui-explorer`, the `screenshots` generator, and the `visual` dump harness):
 
 - `app`: application state, modes, the reducer, and side-effect boundaries
 - `ui`: layout tiers, rendering, and the hit-test model used by the mouse
@@ -225,6 +242,9 @@ Single Cargo package with a library and two binaries (`tui-explorer` and the `sc
 - `browser`: directory state, sorting, filtering, selection, navigation
 - `filesystem`: the `FileSystem` and `MutationBackend` traits plus the real Linux backend
 - `operations`: copy, move, rename, delete jobs, validation, and conflict handling
+- `crypto`: `age` passphrase encryption/decryption jobs with atomic output
+- `preview`: text, directory, and image preview loading on worker threads
+- `sidebar`: places, mounts, tags, and bookmarks model
 - `icons`: the ASCII icon registry and resolver
 - `tags`: the SQLite repository, schema, and migrations
 - `config`: XDG path resolution
@@ -250,12 +270,23 @@ UPDATE_SNAPSHOTS=1 cargo test --test visual
 git diff tests/snapshots
 ```
 
-To regenerate the README screenshots (they are built from synthetic data and rendered through the deterministic test backend):
+## Headless visual verification
+
+The real binary is tested end-to-end without a display server: `tests/headless.rs` runs it in a pseudo-terminal at 160x48, 120x36, 90x28 and 70x22, sends keystrokes, and replays the escape stream through a `vt100` parser to assert the rendered screen. `cargo run --bin visual` renders deterministic text and SVG frames of key scenarios into `docs/screenshots/visual/`.
+
+## Regenerating screenshots
+
+The README screenshots are built from synthetic demo data and rendered through the deterministic test backend — no display server, no real user files:
 
 ```
 cargo run --bin screenshots
 git diff docs/screenshots
 ```
+
+This writes two kinds of artifacts:
+
+- Compact SVG frames (`docs/screenshots/*.svg`) used by the visual-test workflow.
+- Native 1920x1080 PNG rasters (`docs/screenshots/png/*.png`) used by this README. The UI is rendered on a 240x60 cell grid with an 8x18 pixel cell (exactly 1920x1080), converted to SVG with per-glyph positioning, and rasterized with `rsvg-convert` (from the `librsvg` package; on Gentoo: `sudo emerge --ask x11-libs/librsvg`). Every PNG header is validated after rasterization and the generator exits nonzero if a file is missing or the dimensions are not exactly 1920x1080, so a broken pipeline can never silently produce wrong images.
 
 ## Packaging notes
 
@@ -276,12 +307,13 @@ Automated tests never exercise the real mutation backend by design. The followin
 - Real symlink copying
 - Opening files with `$EDITOR`, `TUI_EXPLORER_OPENER`, and `xdg-open` on a live terminal
 - Tag database creation, permissions, and persistence across restarts on a real home directory
+- Kitty/Sixel/iTerm2 pixel output on a graphics terminal (headless tests exercise the half-block fallback only)
 
 ## Current limitations
 
 - Linux only
 - One directory pane; no tabs or dual-pane mode
-- No file search, filtering, or preview of file contents yet
+- No file search or filtering yet
 - Display width of non-ASCII characters is approximated by character count
 - External moves of tagged files are not followed automatically
 
