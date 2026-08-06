@@ -70,6 +70,22 @@ fn fixture(tag: &str) -> PathBuf {
     dir
 }
 
+fn preview_fixture(tag: &str, target_name: &str, bytes: &[u8]) -> PathBuf {
+    let dir = std::env::temp_dir().join(format!(
+        "tui-explorer-headless-{}-preview-{tag}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("00-start.txt"),
+        b"safe text preview\nsecond line\n",
+    )
+    .unwrap();
+    std::fs::write(dir.join(target_name), bytes).unwrap();
+    dir
+}
+
 /// Run the real binary in a pty of `cols`x`rows`, send `keys` after warm-up,
 /// and return the final screen contents as seen by a vt100 terminal.
 fn run_in_pty(cols: u16, rows: u16, dir: &Path, keys: &[&str], settle_ms: u64) -> String {
@@ -164,26 +180,81 @@ fn headless_keyboard_navigation_and_open() {
 }
 
 #[test]
-fn headless_image_preview_fallback() {
-    let dir = fixture("img");
-    // Navigate to photo.png (grid order: dirs first, then files by name).
-    // Use the colon-free approach: enough `j`/`l` moves are fragile; instead
-    // just open the filter via keyboard: move selection right across files.
-    // Simpler deterministic path: the corrupt image and real images all show
-    // either pixels (half-block fallback) or a graceful message. We select
-    // each image by navigating the grid.
-    // First row is directories (docs, empty-dir, src); walk right into the
-    // file tiles. At 160x48 all entries fit on one screen.
-    let keys = vec!["l"; 10];
-    let screen = run_in_pty(160, 48, &dir, &keys, 800);
-    // The preview panel is visible at 160x48; whatever is selected shows
-    // metadata in it.
-    assert!(
-        screen.contains("Type:"),
-        "preview panel metadata:\n{screen}"
-    );
-    assert!(screen.contains("Preview"), "preview section:\n{screen}");
-    let _ = std::fs::remove_dir_all(&dir);
+fn headless_problematic_file_previews_preserve_the_full_display() {
+    let mut png = Vec::new();
+    image::DynamicImage::ImageRgb8(image::RgbImage::from_pixel(8, 6, image::Rgb([200, 30, 30])))
+        .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+        .unwrap();
+
+    let cases: [(&str, &str, Vec<u8>, &str); 7] = [
+        ("png", "10-target.png", png, "▀"),
+        (
+            "pdf",
+            "10-target.pdf",
+            b"%PDF-1.7\n1 0 obj\n".to_vec(),
+            "binary or unsupported document",
+        ),
+        (
+            "doc",
+            "10-target.doc",
+            b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1document".to_vec(),
+            "binary or unsupported document",
+        ),
+        (
+            "docx",
+            "10-target.docx",
+            b"PK\x03\x04word/document.xml".to_vec(),
+            "binary or unsupported document",
+        ),
+        (
+            "binary",
+            "10-target.bin",
+            b"prefix\x1b[2J\0\xfftail".to_vec(),
+            "binary or unsupported document",
+        ),
+        (
+            "corrupt-png",
+            "10-target.png",
+            b"not really a png".to_vec(),
+            "cannot decode image",
+        ),
+        (
+            "text",
+            "10-target.txt",
+            b"plain\ttext\nsecond line\n".to_vec(),
+            "plain    text",
+        ),
+    ];
+
+    for (tag, target_name, bytes, expected_preview) in cases {
+        let dir = preview_fixture(tag, target_name, &bytes);
+        // Move onto the target, back to text, then onto the target again. This
+        // exercises stale worker-result rejection and repainting after content
+        // type changes, not merely the initial selection.
+        let screen = run_in_pty(160, 48, &dir, &["l", "h", "l"], 900);
+        assert_layout_landmarks(&screen, 160, tag);
+        assert!(
+            screen.contains("BROWSER"),
+            "{tag}: status missing:\n{screen}"
+        );
+        assert!(
+            screen.contains("Preview"),
+            "{tag}: preview title missing:\n{screen}"
+        );
+        assert!(
+            screen.contains("Type:"),
+            "{tag}: metadata missing:\n{screen}"
+        );
+        assert!(
+            screen.contains(target_name),
+            "{tag}: target not focused:\n{screen}"
+        );
+        assert!(
+            screen.contains(expected_preview),
+            "{tag}: expected preview {expected_preview:?}:\n{screen}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
 
 #[test]

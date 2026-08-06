@@ -194,6 +194,11 @@ pub fn render(frame: &mut Frame, state: &mut AppState) {
                 &mut state.hit_map,
             );
         }
+        Mode::OpenWith(dialog) => {
+            let target = dialog.target.display().to_string();
+            let input = dialog.input.clone();
+            render_open_with(frame, area, &target, &input, &mut state.hit_map);
+        }
         Mode::Help => render_help(frame, area, &mut state.hit_map),
         _ => {}
     }
@@ -452,15 +457,34 @@ fn render_grid(frame: &mut Frame, area: Rect, state: &mut AppState) {
         .filter(|(_, e)| e.entry.kind.is_dir())
         .count();
     let total = state.browser.visible_len();
+    let listed = state.browser.listed_len();
     let files = total.saturating_sub(dirs);
-    let header = Line::from(vec![
-        Span::styled(
-            format!("{total} items ({dirs} dirs, {files} files)"),
-            base_style(),
-        ),
+    let count = if state.browser.filter.is_some() {
+        format!("{total}/{listed} items ({dirs} dirs, {files} files)")
+    } else {
+        format!("{total} items ({dirs} dirs, {files} files)")
+    };
+    let mut header_spans = vec![
+        Span::styled(count, base_style()),
         Span::raw("  "),
-        Span::styled("Sort: name (asc)", muted_style()),
-    ]);
+        Span::styled(
+            format!(
+                "Sort: {} ({})",
+                state.browser.sort_mode.label(),
+                if state.browser.sort_mode.descending() {
+                    "desc"
+                } else {
+                    "asc"
+                }
+            ),
+            muted_style(),
+        ),
+    ];
+    if let Some(filter) = &state.browser.filter {
+        header_spans.push(Span::raw("  "));
+        header_spans.push(Span::styled(format!("Filter: {filter}"), tag_style()));
+    }
+    let header = Line::from(header_spans);
     frame.render_widget(
         Paragraph::new(header),
         Rect::new(area.x, area.y, area.width, 1),
@@ -472,6 +496,16 @@ fn render_grid(frame: &mut Frame, area: Rect, state: &mut AppState) {
         area.width,
         area.height.saturating_sub(1),
     );
+    if total == 0 && state.browser.filter.is_some() {
+        frame.render_widget(
+            Paragraph::new(Line::from(Span::styled("No matching files", muted_style())))
+                .alignment(ratatui::layout::Alignment::Center),
+            grid,
+        );
+        state.grid_cols = 1;
+        state.list_viewport = 1;
+        return;
+    }
     let cols = (grid.width / TILE_W).max(1) as usize;
     let rows = (grid.height / TILE_H).max(1) as usize;
     state.grid_cols = cols;
@@ -659,6 +693,10 @@ fn render_preview(frame: &mut Frame, area: Rect, state: &mut AppState) {
     if content_area.height == 0 {
         return;
     }
+    // Always clear stale cells first: terminal-graphics-protocol pixels from
+    // a previously previewed image are painted out-of-band and are not
+    // erased by ratatui's normal cell diffing when the content kind changes.
+    frame.render_widget(Clear, content_area);
     match &mut state.preview.content {
         Some(PreviewContent::Text { lines, truncated }) => {
             let mut out: Vec<Line> = lines
@@ -685,17 +723,15 @@ fn render_preview(frame: &mut Frame, area: Rect, state: &mut AppState) {
             frame.render_widget(Paragraph::new(out), content_area);
         }
         Some(PreviewContent::Image(proto)) => {
-            // Clear stale cells before painting fresh image pixels.
-            frame.render_widget(Clear, content_area);
             let widget = ratatui_image::StatefulImage::new();
             frame.render_stateful_widget(widget, content_area, proto.as_mut());
         }
         Some(PreviewContent::Unavailable(msg)) => {
+            // A no-preview explanation is user-facing content, not decoration.
+            // Keep it readable even in terminal palettes where DarkGray maps
+            // to the background color.
             frame.render_widget(
-                Paragraph::new(Line::from(Span::styled(
-                    truncate(msg, width),
-                    muted_style(),
-                ))),
+                Paragraph::new(Line::from(Span::styled(truncate(msg, width), base_style()))),
                 content_area,
             );
         }
@@ -810,6 +846,10 @@ fn legend_items(
             ("Enter", "submit", None),
             ("Esc", "cancel", Some(LegendAction::Cancel)),
         ],
+        Mode::OpenWith(_) => vec![
+            ("Enter", "run", None),
+            ("Esc", "cancel", Some(LegendAction::Cancel)),
+        ],
         Mode::Help => vec![("Esc", "close", Some(LegendAction::Cancel))],
         Mode::Browser => {
             let mut items = vec![
@@ -822,6 +862,7 @@ fn legend_items(
                 ("?", "Help", Some(LegendAction::Help)),
             ];
             if tier != Tier::Narrow {
+                items.push(("r", "OpenWith", Some(LegendAction::OpenWith)));
                 items.push(("b", "Sidebar", Some(LegendAction::Sidebar)));
                 items.push(("p", "Preview", Some(LegendAction::Preview)));
             }
@@ -868,6 +909,9 @@ fn render_tip(frame: &mut Frame, area: Rect, state: &AppState) {
             "TIP  Double-click or Enter/e to open * Right-click for menu * Mouse wheel to scroll"
         }
         Mode::Password(_) => "TIP  Password input is masked and never stored",
+        Mode::OpenWith(_) => {
+            "TIP  Type a command, e.g. mupdf, then Enter to run it on the focused entry"
+        }
         _ => "TIP  Esc goes back",
     };
     let _ = state;
@@ -1185,6 +1229,45 @@ fn render_password(
     );
 }
 
+fn render_open_with(frame: &mut Frame, area: Rect, target: &str, input: &str, hits: &mut HitMap) {
+    push_blocker(area, hits);
+    let rect = centered_rect(area, 56, 9);
+    frame.render_widget(Clear, rect);
+    let style = dir_style();
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_set(ASCII_BORDERS)
+        .border_style(style)
+        .title(Span::styled(" OPEN WITH ", style));
+    let inner = block.inner(rect);
+    frame.render_widget(block, rect);
+    let lines = vec![
+        Line::from(Span::styled(
+            truncate(target, inner.width as usize),
+            base_style(),
+        )),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("command: ", base_style()),
+            Span::styled(input.to_string(), Style::default().fg(Color::White)),
+            Span::styled("_", muted_style()),
+        ]),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled(" [Enter] run ", style),
+            Span::raw(" "),
+            Span::styled(" [Esc] cancel ", base_style()),
+        ]),
+    ];
+    frame.render_widget(Paragraph::new(lines), inner);
+    let button_y = inner.y + 4;
+    hits.push(Rect::new(inner.x, button_y, 13, 1), HitTarget::ModalConfirm);
+    hits.push(
+        Rect::new(inner.x + 14, button_y, 14, 1),
+        HitTarget::ModalCancel,
+    );
+}
+
 fn render_help(frame: &mut Frame, area: Rect, hits: &mut HitMap) {
     push_blocker(area, hits);
     let rect = centered_rect(area, 100.min(area.width), (area.height * 4 / 5).max(16));
@@ -1202,7 +1285,9 @@ fn render_help(frame: &mut Frame, area: Rect, hits: &mut HitMap) {
         ("h / Left", "tile left"),
         ("l / Right", "tile right"),
         ("Backspace", "parent directory"),
+        ("F5", "refresh current directory"),
         ("e / Enter", "open: enter folder or open file"),
+        ("r", "open with: prompt for a command to run"),
         ("double left click", "open: enter folder or open file"),
         ("single left click", "select and focus (never opens)"),
         ("g g", "first entry"),
@@ -1218,6 +1303,7 @@ fn render_help(frame: &mut Frame, area: Rect, hits: &mut HitMap) {
         ("B", "bookmark current directory"),
         ("t", "toggle last used tag"),
         ("T", "tag picker and manager"),
+        ("/ / Ctrl-f", "filter current directory filenames"),
         (":", "command mode"),
         ("Esc", "cancel mode or modal"),
         ("?", "this help"),
@@ -1230,7 +1316,18 @@ fn render_help(frame: &mut Frame, area: Rect, hits: &mut HitMap) {
         (":untag <name>", "remove tag"),
         (":tags", "open tag picker"),
         (":open", "open entry"),
+        (
+            ":open-with <cmd> [args]",
+            "run a command on the entry (alias :ow)",
+        ),
         (":cd <path>", "change directory"),
+        (":mkdir <name>", "create a directory"),
+        (":touch <name>", "create an empty file / update mtime"),
+        (":selectall", "select every entry"),
+        (":invert", "invert the current selection"),
+        (":deselect", "clear the current selection"),
+        (":sort <field>", "sort by name, size, or modified time"),
+        (":refresh", "reload current directory"),
         (":quit", "quit"),
         (":help", "this help"),
         ("mouse right", "context menu"),

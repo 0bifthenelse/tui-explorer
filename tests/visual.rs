@@ -160,6 +160,83 @@ fn non_utf8_filename() {
 }
 
 #[test]
+fn sort_mode_is_visible_in_the_grid_header() {
+    let (mut state, mut handler) = loaded(120, 36);
+    drive(
+        &mut state,
+        &mut handler,
+        command_actions("sort size")
+            .into_iter()
+            .chain([Action::CommandSubmit])
+            .collect::<Vec<_>>(),
+    );
+    let text = render(&mut state, 120, 36);
+    assert!(
+        text.contains("Sort: size (asc)"),
+        "sort indicator missing:\n{text}"
+    );
+
+    drive(
+        &mut state,
+        &mut handler,
+        command_actions("sort size-desc")
+            .into_iter()
+            .chain([Action::CommandSubmit])
+            .collect::<Vec<_>>(),
+    );
+    let descending = render(&mut state, 120, 36);
+    assert!(
+        descending.contains("Sort: size desc (desc)"),
+        "descending sort indicator missing:\n{descending}"
+    );
+}
+
+#[test]
+fn empty_filter_result_explains_why_the_grid_is_blank() {
+    let (mut state, mut handler) = loaded(120, 36);
+    drive(
+        &mut state,
+        &mut handler,
+        command_actions("filter definitely-no-such-file")
+            .into_iter()
+            .chain([Action::CommandSubmit])
+            .collect::<Vec<_>>(),
+    );
+    let text = render(&mut state, 120, 36);
+    assert!(
+        text.contains("No matching files"),
+        "empty result unclear:\n{text}"
+    );
+}
+
+#[test]
+fn current_directory_filter_is_visible_and_limits_tiles() {
+    let (mut state, mut handler) = loaded(120, 36);
+    drive(
+        &mut state,
+        &mut handler,
+        command_actions("filter rs")
+            .into_iter()
+            .chain([Action::CommandSubmit])
+            .collect::<Vec<_>>(),
+    );
+    let text = render(&mut state, 120, 36);
+    assert!(
+        text.contains("Filter: rs"),
+        "filter indicator missing:\n{text}"
+    );
+    assert!(
+        text.contains("1/"),
+        "filtered result count missing:\n{text}"
+    );
+    assert!(text.contains("main.rs"), "matching tile missing:\n{text}");
+    assert!(
+        !text.contains("README.md"),
+        "non-matching tile shown:\n{text}"
+    );
+}
+
+#[test]
 fn command_mode() {
     let (mut state, mut handler) = loaded(120, 36);
     drive(

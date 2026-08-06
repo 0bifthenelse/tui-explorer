@@ -12,22 +12,64 @@ pub struct EntryView {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SortMode {
     NameDirsFirst,
+    Size,
+    SizeDesc,
+    Modified,
+    ModifiedDesc,
+    NameDesc,
 }
 
-pub fn sort_entries(entries: &mut [EntryView]) {
+impl SortMode {
+    pub fn label(self) -> &'static str {
+        match self {
+            SortMode::NameDirsFirst => "name",
+            SortMode::Size => "size",
+            SortMode::SizeDesc => "size desc",
+            SortMode::Modified => "modified",
+            SortMode::ModifiedDesc => "modified desc",
+            SortMode::NameDesc => "name desc",
+        }
+    }
+
+    pub fn descending(self) -> bool {
+        matches!(
+            self,
+            SortMode::NameDesc | SortMode::SizeDesc | SortMode::ModifiedDesc
+        )
+    }
+}
+
+pub fn sort_entries(entries: &mut [EntryView], mode: SortMode) {
     entries.sort_by(|a, b| {
         let dir_a = a.entry.kind.is_dir();
         let dir_b = b.entry.kind.is_dir();
         if dir_a != dir_b {
             return dir_b.cmp(&dir_a);
         }
-        let na = a.entry.name.to_string_lossy().to_lowercase();
-        let nb = b.entry.name.to_string_lossy().to_lowercase();
-        na.cmp(&nb).then_with(|| {
+        let primary = match mode {
+            SortMode::NameDirsFirst | SortMode::NameDesc => a
+                .entry
+                .name
+                .to_string_lossy()
+                .to_lowercase()
+                .cmp(&b.entry.name.to_string_lossy().to_lowercase()),
+            SortMode::Size | SortMode::SizeDesc => a.entry.size.cmp(&b.entry.size),
+            SortMode::Modified | SortMode::ModifiedDesc => a.entry.modified.cmp(&b.entry.modified),
+        };
+        let primary = if matches!(
+            mode,
+            SortMode::NameDesc | SortMode::SizeDesc | SortMode::ModifiedDesc
+        ) {
+            primary.reverse()
+        } else {
+            primary
+        };
+        primary.then_with(|| {
             a.entry
                 .name
                 .to_string_lossy()
-                .cmp(&b.entry.name.to_string_lossy())
+                .to_lowercase()
+                .cmp(&b.entry.name.to_string_lossy().to_lowercase())
         })
     });
 }
@@ -40,6 +82,9 @@ pub struct Browser {
     pub scroll: usize,
     pub selection: BTreeSet<PathBuf>,
     pub show_hidden: bool,
+    /// Case-insensitive filename filter for the current directory.
+    pub filter: Option<String>,
+    pub sort_mode: SortMode,
     pub visual: bool,
 }
 
@@ -52,6 +97,8 @@ impl Browser {
             scroll: 0,
             selection: BTreeSet::new(),
             show_hidden: false,
+            filter: None,
+            sort_mode: SortMode::NameDirsFirst,
             visual: false,
         }
     }
@@ -61,6 +108,15 @@ impl Browser {
             .iter()
             .enumerate()
             .filter(|(_, e)| self.show_hidden || !e.entry.hidden)
+            .filter(|(_, e)| {
+                self.filter.as_ref().is_none_or(|query| {
+                    e.entry
+                        .name
+                        .to_string_lossy()
+                        .to_lowercase()
+                        .contains(query)
+                })
+            })
     }
 
     pub fn visible_indices(&self) -> Vec<usize> {
@@ -82,7 +138,7 @@ impl Browser {
 
     pub fn set_entries(&mut self, mut entries: Vec<EntryView>) {
         let previous_focus = self.focused().map(|e| e.entry.path.clone());
-        sort_entries(&mut entries);
+        sort_entries(&mut entries, self.sort_mode);
         self.entries = entries;
         let indices = self.visible_indices();
         if indices.is_empty() {
@@ -106,6 +162,15 @@ impl Browser {
 
     pub fn visible_len(&self) -> usize {
         self.visible_indices().len()
+    }
+
+    /// Number of entries visible with hidden-file rules but before the active
+    /// filename filter, used for a useful `matches / total` status.
+    pub fn listed_len(&self) -> usize {
+        self.entries
+            .iter()
+            .filter(|entry| self.show_hidden || !entry.entry.hidden)
+            .count()
     }
 
     fn step(&mut self, delta: isize, viewport: usize) {
@@ -228,6 +293,22 @@ impl Browser {
         self.scroll = self.scroll.min(max_scroll);
     }
 
+    pub fn set_sort_mode(&mut self, mode: SortMode) {
+        self.sort_mode = mode;
+        let entries = std::mem::take(&mut self.entries);
+        self.set_entries(entries);
+    }
+
+    pub fn set_filter(&mut self, query: Option<String>) {
+        self.filter = query
+            .map(|value| value.trim().to_lowercase())
+            .filter(|value| !value.is_empty());
+        let len = self.visible_len();
+        self.selected = self.selected.min(len.saturating_sub(1));
+        self.scroll = 0;
+        self.clamp_scroll(usize::MAX);
+    }
+
     pub fn toggle_hidden(&mut self) {
         self.show_hidden = !self.show_hidden;
         let len = self.visible_len();
@@ -250,6 +331,26 @@ impl Browser {
 
     pub fn clear_selection(&mut self) {
         self.selection.clear();
+        self.visual = false;
+    }
+
+    /// Selects every entry currently in the listing (ranger's `:selectall`).
+    pub fn select_all(&mut self) {
+        self.selection = self.entries.iter().map(|e| e.entry.path.clone()).collect();
+        self.visual = false;
+    }
+
+    /// Flips selection membership for every entry currently in the listing
+    /// (ranger's per-view `:invert`). Anything already selected but outside
+    /// the current listing is dropped, keeping the result well-defined.
+    pub fn invert_selection(&mut self) {
+        self.selection = self
+            .entries
+            .iter()
+            .map(|e| &e.entry.path)
+            .filter(|p| !self.selection.contains(*p))
+            .cloned()
+            .collect();
         self.visual = false;
     }
 
@@ -332,6 +433,43 @@ mod tests {
     }
 
     #[test]
+    fn sort_mode_changes_order_without_losing_focus() {
+        let mut b = browser();
+        b.set_sort_mode(SortMode::Size);
+        let sizes: Vec<u64> = b.visible_entries().map(|(_, e)| e.entry.size).collect();
+        assert!(sizes.windows(2).all(|pair| pair[0] <= pair[1]));
+        b.set_sort_mode(SortMode::Modified);
+        let modified: Vec<i64> = b.visible_entries().map(|(_, e)| e.entry.modified).collect();
+        assert!(modified.windows(2).all(|pair| pair[0] <= pair[1]));
+        b.set_sort_mode(SortMode::SizeDesc);
+        let descending: Vec<u64> = b.visible_entries().map(|(_, e)| e.entry.size).collect();
+        assert!(descending.windows(2).all(|pair| pair[0] >= pair[1]));
+        b.set_filter(Some("rs".into()));
+        b.set_sort_mode(SortMode::NameDesc);
+        assert_eq!(b.visible_len(), 1);
+    }
+
+    #[test]
+    fn listed_len_ignores_filter_but_respects_hidden_setting() {
+        let mut b = browser();
+        assert_eq!(b.listed_len(), 4);
+        b.set_filter(Some("rs".into()));
+        assert_eq!(b.listed_len(), 4);
+        b.toggle_hidden();
+        assert_eq!(b.listed_len(), 5);
+    }
+
+    #[test]
+    fn filter_matches_names_case_insensitively_and_can_clear() {
+        let mut b = browser();
+        b.set_filter(Some("GAM".into()));
+        assert_eq!(b.visible_len(), 1);
+        assert_eq!(b.focused().unwrap().entry.display_name(), "Gamma.rs");
+        b.set_filter(None);
+        assert_eq!(b.visible_len(), 4);
+    }
+
+    #[test]
     fn navigation_bounds() {
         let mut b = browser();
         b.move_up(10);
@@ -389,6 +527,29 @@ mod tests {
         assert_eq!(b.targets().len(), 2);
         b.clear_selection();
         assert_eq!(b.targets().len(), 1);
+    }
+
+    #[test]
+    fn select_all_selects_every_entry() {
+        let mut b = browser();
+        b.visual = true;
+        b.select_all();
+        assert_eq!(b.selection.len(), 5);
+        assert!(!b.visual);
+    }
+
+    #[test]
+    fn invert_selection_flips_membership() {
+        let mut b = browser();
+        b.invert_selection();
+        assert_eq!(b.selection.len(), 5);
+        b.invert_selection();
+        assert!(b.selection.is_empty());
+        b.toggle_select_focused();
+        b.invert_selection();
+        assert_eq!(b.selection.len(), 4);
+        let focused = b.entries[b.focused_index().unwrap()].entry.path.clone();
+        assert!(!b.selection.contains(&focused));
     }
 
     #[test]

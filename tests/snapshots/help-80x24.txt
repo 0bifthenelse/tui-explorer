@@ -1,23 +1,23 @@
  tui-explorer 0.1.0         tui-explorer is awesome!           Press ? for help
  Path: [ / ]>[ home ]>[ demo ]
 + HELP ------------------------------------------------------------------------+
-|j / Down          next row of tiles    t                 toggle last used tag |
-|k / Up            previous row of til~ T                 tag picker and mana~ |
-|h / Left          tile left            :                 command mode         |
-|l / Right         tile right           Esc               cancel mode or modal |
-|Backspace         parent directory     ?                 this help            |
-|e / Enter         open: enter folder ~ q                 quit                 |
-|double left click open: enter folder ~ :copy <dest>      copy selection       |
-|single left click select and focus (n~ :move <dest>      move selection       |
-|g g               first entry          :rename <name>    rename entry         |
-|G                 last entry           :delete           delete selection (c~ |
-|Ctrl-u / Ctrl-d   half page up / down  :tag <name>       assign tag           |
-|PageUp / PageDown full page up / down  :untag <name>     remove tag           |
-|Space             toggle entry select~ :tags             open tag picker      |
-|v                 visual multi-select~ :open             open entry           |
-|.                 toggle hidden files  :cd <path>        change directory     |
-|X                 encrypt / decrypt f~ :quit             quit                 |
-|b                 toggle sidebar       :help             this help            |
+|j / Down          next row of tiles    Esc               cancel mode or modal |
+|k / Up            previous row of til~ ?                 this help            |
+|h / Left          tile left            q                 quit                 |
+|l / Right         tile right           :copy <dest>      copy selection       |
+|Backspace         parent directory     :move <dest>      move selection       |
+|F5                refresh current dir~ :rename <name>    rename entry         |
+|e / Enter         open: enter folder ~ :delete           delete selection (c~ |
+|r                 open with: prompt f~ :tag <name>       assign tag           |
+|double left click open: enter folder ~ :untag <name>     remove tag           |
+|single left click select and focus (n~ :tags             open tag picker      |
+|g g               first entry          :open             open entry           |
+|G                 last entry           :open-with <cmd> ~run a command on th~ |
+|Ctrl-u / Ctrl-d   half page up / down  :cd <path>        change directory     |
+|PageUp / PageDown full page up / down  :mkdir <name>     create a directory   |
+|Space             toggle entry select~ :touch <name>     create an empty fil~ |
+|v                 visual multi-select~ :selectall        select every entry   |
+|.                 toggle hidden files  :invert           invert the current ~ |
 +------------------------------------------------------------------------------+
  HELP                                                                  5%  1/18
 | Esc close

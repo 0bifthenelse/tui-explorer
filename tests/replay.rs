@@ -1,10 +1,19 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use tui_explorer::app::action::{Action, ConflictDecision};
 use tui_explorer::app::state::{AppState, Mode};
 use tui_explorer::filesystem::RecordedMutation;
 use tui_explorer::testing::builders::{demo_fs, demo_state};
 use tui_explorer::testing::{SyncHandler, drive};
+
+fn open_with_actions(text: &str) -> Vec<Action> {
+    let mut actions = vec![Action::OpenWithPrompt];
+    for c in text.chars() {
+        actions.push(Action::OpenWithChar(c));
+    }
+    actions.push(Action::OpenWithSubmit);
+    actions
+}
 
 fn command_actions(input: &str) -> Vec<Action> {
     let mut actions = vec![Action::EnterCommand];
@@ -285,6 +294,113 @@ fn picker_rejects_invalid_names() {
 }
 
 #[test]
+fn current_directory_filter_reduces_and_restores_entries() {
+    let (mut state, mut handler) = loaded(120, 36);
+    let before = state.browser.visible_len();
+    drive(
+        &mut state,
+        &mut handler,
+        command_actions("filter rs")
+            .into_iter()
+            .chain([Action::CommandSubmit])
+            .collect::<Vec<_>>(),
+    );
+    assert!(state.browser.visible_len() < before);
+    assert!(
+        state
+            .message
+            .as_ref()
+            .is_some_and(|message| message.text.contains("filter applied"))
+    );
+    assert!(
+        state
+            .browser
+            .visible_entries()
+            .all(|(_, entry)| { entry.entry.display_name().to_lowercase().contains("rs") })
+    );
+    drive(&mut state, &mut handler, [Action::Cancel]);
+    assert!(state.browser.filter.is_none());
+    drive(
+        &mut state,
+        &mut handler,
+        command_actions("filter rs")
+            .into_iter()
+            .chain([Action::CommandSubmit])
+            .collect::<Vec<_>>(),
+    );
+    drive(
+        &mut state,
+        &mut handler,
+        command_actions("clearfilter")
+            .into_iter()
+            .chain([Action::CommandSubmit])
+            .collect::<Vec<_>>(),
+    );
+    assert_eq!(state.browser.visible_len(), before);
+
+    drive(
+        &mut state,
+        &mut handler,
+        command_actions("filter rs")
+            .into_iter()
+            .chain([Action::CommandSubmit])
+            .collect::<Vec<_>>(),
+    );
+    drive(
+        &mut state,
+        &mut handler,
+        command_actions("cd src")
+            .into_iter()
+            .chain([Action::CommandSubmit])
+            .collect::<Vec<_>>(),
+    );
+    assert!(state.browser.filter.is_none());
+}
+
+#[test]
+fn refresh_reloads_the_current_directory_without_resetting_view_options() {
+    let (mut state, mut handler) = loaded(120, 36);
+    drive(
+        &mut state,
+        &mut handler,
+        command_actions("filter rs")
+            .into_iter()
+            .chain([Action::CommandSubmit])
+            .collect::<Vec<_>>(),
+    );
+    drive(&mut state, &mut handler, [Action::Refresh]);
+    assert!(
+        state
+            .message
+            .as_ref()
+            .is_some_and(|message| message.text == "refreshing directory")
+    );
+    assert_eq!(state.browser.filter.as_deref(), Some("rs"));
+    assert_eq!(state.browser.visible_len(), 1);
+}
+
+#[test]
+fn invalid_sort_reports_an_error_without_changing_the_listing() {
+    let (mut state, mut handler) = loaded(120, 36);
+    let before = state.browser.visible_len();
+    drive(
+        &mut state,
+        &mut handler,
+        command_actions("sort nonsense")
+            .into_iter()
+            .chain([Action::CommandSubmit])
+            .collect::<Vec<_>>(),
+    );
+    assert_eq!(state.browser.visible_len(), before);
+    assert!(
+        state
+            .message
+            .as_ref()
+            .is_some_and(|message| message.is_error)
+    );
+}
+
+#[test]
 fn command_parse_error_stays_in_tui() {
     let (mut state, mut handler) = loaded(120, 36);
     drive(&mut state, &mut handler, command_actions("bogus stuff"));
@@ -306,6 +422,102 @@ fn quit_only_from_browser_mode() {
     assert!(!handler.quit);
     drive(&mut state, &mut handler, [Action::Cancel, Action::Quit]);
     assert!(handler.quit);
+}
+
+#[test]
+fn mkdir_creates_directory_and_refreshes_listing() {
+    let (mut state, mut handler) = loaded(120, 36);
+    drive(&mut state, &mut handler, command_actions("mkdir fresh-dir"));
+    assert!(matches!(
+        handler.mutations.recorded().as_slice(),
+        [RecordedMutation::CreateDir { path }] if path == &PathBuf::from("/home/demo/fresh-dir")
+    ));
+    assert!(
+        state
+            .browser
+            .entries
+            .iter()
+            .any(|e| e.entry.path == Path::new("/home/demo/fresh-dir"))
+    );
+}
+
+#[test]
+fn touch_creates_file_and_refreshes_listing() {
+    let (mut state, mut handler) = loaded(120, 36);
+    drive(&mut state, &mut handler, command_actions("touch fresh.txt"));
+    assert!(matches!(
+        handler.mutations.recorded().as_slice(),
+        [RecordedMutation::CreateFile { path }] if path == &PathBuf::from("/home/demo/fresh.txt")
+    ));
+    assert!(
+        state
+            .browser
+            .entries
+            .iter()
+            .any(|e| e.entry.path == Path::new("/home/demo/fresh.txt"))
+    );
+}
+
+#[test]
+fn mkdir_rejects_invalid_names() {
+    let (mut state, mut handler) = loaded(120, 36);
+    drive(&mut state, &mut handler, command_actions("mkdir a/b"));
+    let msg = state.message.as_ref().expect("error message");
+    assert!(msg.is_error);
+    assert!(handler.mutations.recorded().is_empty());
+}
+
+#[test]
+fn selection_utilities_via_command() {
+    let (mut state, mut handler) = loaded(120, 36);
+    let total = state.browser.entries.len();
+    drive(&mut state, &mut handler, command_actions("selectall"));
+    assert_eq!(state.browser.selection.len(), total);
+    drive(&mut state, &mut handler, command_actions("invert"));
+    assert!(state.browser.selection.is_empty());
+    drive(&mut state, &mut handler, command_actions("selectall"));
+    drive(&mut state, &mut handler, command_actions("deselect"));
+    assert!(state.browser.selection.is_empty());
+}
+
+#[test]
+fn open_with_prompt_runs_explicit_program() {
+    let (mut state, mut handler) = loaded(120, 36);
+    drive(&mut state, &mut handler, [Action::GotoLast]);
+    let target = state.browser.focused().unwrap().entry.path.clone();
+    drive(&mut state, &mut handler, open_with_actions("mupdf -r 150"));
+    assert_eq!(
+        handler.opened_with,
+        vec![(
+            target,
+            "mupdf".to_string(),
+            vec!["-r".to_string(), "150".to_string()]
+        )]
+    );
+    assert!(matches!(state.mode, Mode::Browser));
+}
+
+#[test]
+fn open_with_command_runs_without_prompt() {
+    let (mut state, mut handler) = loaded(120, 36);
+    drive(&mut state, &mut handler, [Action::GotoLast]);
+    let target = state.browser.focused().unwrap().entry.path.clone();
+    drive(&mut state, &mut handler, command_actions("open-with mupdf"));
+    assert_eq!(
+        handler.opened_with,
+        vec![(target, "mupdf".to_string(), vec![])]
+    );
+}
+
+#[test]
+fn open_with_empty_input_reports_error() {
+    let (mut state, mut handler) = loaded(120, 36);
+    drive(&mut state, &mut handler, [Action::GotoLast]);
+    drive(&mut state, &mut handler, open_with_actions(""));
+    let msg = state.message.as_ref().expect("error message");
+    assert!(msg.is_error);
+    assert!(handler.opened_with.is_empty());
+    assert!(matches!(state.mode, Mode::Browser));
 }
 
 #[test]

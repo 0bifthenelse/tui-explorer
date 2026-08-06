@@ -197,7 +197,66 @@ impl MutationBackend for RealMutations {
         }
     }
 
+    fn create_dir(&self, path: &Path) -> io::Result<()> {
+        fs::create_dir_all(path)
+    }
+
+    fn create_file(&self, path: &Path) -> io::Result<()> {
+        match fs::File::options().create_new(true).write(true).open(path) {
+            Ok(_) => Ok(()),
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
+                let file = fs::File::options().write(true).open(path)?;
+                file.set_modified(std::time::SystemTime::now())
+            }
+            Err(e) => Err(e),
+        }
+    }
+
     fn exists(&self, path: &Path) -> bool {
         path.exists() || fs::symlink_metadata(path).is_ok()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tmp_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "tui-explorer-real-fs-test-{name}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn create_dir_is_recursive() {
+        let root = tmp_dir("mkdir");
+        let mutations = RealMutations::new();
+        let nested = root.join("a/b/c");
+        mutations.create_dir(&nested).unwrap();
+        assert!(nested.is_dir());
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn create_file_touches_new_and_existing() {
+        let root = tmp_dir("touch");
+        let mutations = RealMutations::new();
+        let file = root.join("new.txt");
+        mutations.create_file(&file).unwrap();
+        assert!(file.is_file());
+        assert_eq!(fs::metadata(&file).unwrap().len(), 0);
+        let before = fs::metadata(&file).unwrap().modified().unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        mutations.create_file(&file).unwrap();
+        let after = fs::metadata(&file).unwrap().modified().unwrap();
+        assert!(after >= before);
+        fs::remove_dir_all(&root).unwrap();
     }
 }

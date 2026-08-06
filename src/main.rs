@@ -41,7 +41,9 @@ KEYS:
     j/k or arrows    move selection
     h/l              move between tiles
     Backspace        parent directory
+    F5               refresh current directory
     e, Enter         enter folder or open file
+    r                open with: prompt for a command to run on the focused entry
     X                encrypt / decrypt focused entry
     b, p             toggle sidebar / preview panel
     B                bookmark current directory
@@ -50,7 +52,9 @@ KEYS:
     Space, v         select, visual mode
     .                toggle hidden files
     t, T             quick tag / tag picker
-    :                command mode (:copy :move :rename :delete :tag :untag :tags :open :cd :quit :help)
+    :                command mode (:copy :move :rename :delete :tag :untag :tags :open
+                     :open-with :mkdir :touch :selectall :invert :deselect :filter :sort :refresh :cd :quit :help)
+    /, Ctrl-f        quick current-directory filename filter
     ?                help overlay
     q                quit
 
@@ -210,6 +214,26 @@ impl EffectHandler for ProdHandler {
                 }
             }
             Effect::OpenPath(_) => Vec::new(),
+            Effect::OpenPathWith { .. } => Vec::new(),
+            Effect::CreateEntry { path, is_dir } => {
+                let result = if is_dir {
+                    self.mutations.create_dir(&path)
+                } else {
+                    self.mutations.create_file(&path)
+                };
+                match result {
+                    Ok(()) => {
+                        let parent = path.parent().map(Path::to_path_buf).unwrap_or(path);
+                        vec![Action::DirectoryLoaded {
+                            result: self.snapshot(&parent),
+                        }]
+                    }
+                    Err(e) => vec![Action::ErrorMessage(format!(
+                        "could not create {}: {e}",
+                        path.display()
+                    ))],
+                }
+            }
             Effect::TagAssign {
                 name,
                 paths,
@@ -294,47 +318,30 @@ impl EffectHandler for ProdHandler {
     }
 }
 
-/// Non-blocking terminal graphics detection.
-///
-/// `Picker::from_query_stdio` performs an interactive stdin/stdout query
-/// that can stall the UI on terminals (or multiplexers) that never answer,
-/// so detection here is environment-based and conservative: unknown
-/// terminals get the half-block cell fallback, which works everywhere.
+/// Choose a graphics protocol without emitting terminal capability queries.
+/// Native protocols are deliberately opt-in: incorrect terminal detection or
+/// pixel geometry can overdraw the surrounding TUI, while half-blocks stay
+/// inside Ratatui's cell buffer on every terminal.
+fn image_protocol(override_: Option<&str>) -> ratatui_image::picker::ProtocolType {
+    use ratatui_image::picker::ProtocolType;
+    match override_
+        .map(str::trim)
+        .map(str::to_ascii_lowercase)
+        .as_deref()
+    {
+        Some("kitty") => ProtocolType::Kitty,
+        Some("sixel") => ProtocolType::Sixel,
+        Some("iterm2") => ProtocolType::Iterm2,
+        Some("halfblocks") => ProtocolType::Halfblocks,
+        _ => ProtocolType::Halfblocks,
+    }
+}
+
 fn detect_picker() -> ratatui_image::picker::Picker {
-    use ratatui_image::picker::{Picker, ProtocolType};
+    use ratatui_image::picker::Picker;
     let mut picker = Picker::from_fontsize((8, 16));
-    let term = std::env::var("TERM").unwrap_or_default().to_lowercase();
-    let program = std::env::var("TERM_PROGRAM")
-        .unwrap_or_default()
-        .to_lowercase();
-    let forced = std::env::var("TUI_EXPLORER_IMAGE_PROTOCOL")
-        .unwrap_or_default()
-        .to_lowercase();
-    let protocol = match forced.as_str() {
-        "kitty" => Some(ProtocolType::Kitty),
-        "sixel" => Some(ProtocolType::Sixel),
-        "iterm2" => Some(ProtocolType::Iterm2),
-        "halfblocks" => Some(ProtocolType::Halfblocks),
-        _ => None,
-    }
-    .or_else(|| {
-        if term.contains("kitty") || program.contains("kitty") || program.contains("wezterm") {
-            Some(ProtocolType::Kitty)
-        } else if program.contains("iterm") {
-            Some(ProtocolType::Iterm2)
-        } else if term.contains("sixel")
-            || term.contains("foot")
-            || term.contains("mlterm")
-            || term.contains("yaft")
-        {
-            Some(ProtocolType::Sixel)
-        } else {
-            None
-        }
-    });
-    if let Some(protocol) = protocol {
-        picker.set_protocol_type(protocol);
-    }
+    let override_ = std::env::var("TUI_EXPLORER_IMAGE_PROTOCOL").ok();
+    picker.set_protocol_type(image_protocol(override_.as_deref()));
     picker
 }
 
@@ -368,6 +375,40 @@ fn open_external(session: &mut TerminalSession<CrosstermTty>, path: &Path) -> Op
     match std::process::Command::new("xdg-open").arg(path).spawn() {
         Ok(_) => None,
         Err(e) => Some(Action::OpenFailed(format!("could not start xdg-open: {e}"))),
+    }
+}
+
+/// Runs the user-supplied program from the interactive "open with" prompt
+/// (or the `:open-with`/`:ow` command) against `path`. Unlike
+/// `open_external`, the program is always explicit: no `TUI_EXPLORER_OPENER`
+/// / `$EDITOR` / `xdg-open` fallback applies here.
+fn open_external_with(
+    session: &mut TerminalSession<CrosstermTty>,
+    path: &Path,
+    program: &str,
+    args: &[String],
+) -> Option<Action> {
+    if session.suspend().is_err() {
+        return Some(Action::OpenFailed(
+            "could not suspend terminal for editor".to_string(),
+        ));
+    }
+    let status = std::process::Command::new(program)
+        .args(args)
+        .arg(path)
+        .status();
+    let resume = session.resume();
+    match (status, resume) {
+        (Err(e), _) => Some(Action::OpenFailed(format!(
+            "could not start {program}: {e}"
+        ))),
+        (Ok(s), _) if !s.success() => {
+            Some(Action::OpenFailed(format!("{program} exited with {s}")))
+        }
+        (Ok(_), Err(e)) => Some(Action::OpenFailed(format!(
+            "could not restore terminal: {e}"
+        ))),
+        (Ok(_), Ok(())) => None,
     }
 }
 
@@ -465,10 +506,9 @@ fn run(start: PathBuf) -> std::io::Result<()> {
     terminal::install_panic_hook();
     let backend = CrosstermBackend::new(std::io::stdout());
     let mut term = Terminal::new(backend)?;
-    // Detect terminal graphics capabilities without blocking: environment
-    // detection is deterministic and never emits protocol data into
-    // terminals that do not support it. `TUI_EXPLORER_IMAGE_PROTOCOL`
-    // (kitty|sixel|iterm2|halfblocks) overrides detection.
+    // Use the cell-based renderer unless a native graphics protocol is
+    // explicitly selected. This is deterministic and never emits protocol
+    // data into terminals that did not opt in.
     let picker = detect_picker();
     let (sender, receiver) = sync_channel::<Action>(64);
     let bookmark_store = tui_explorer::sidebar::BookmarkStore::new(config::bookmarks_path(&dirs));
@@ -531,6 +571,17 @@ fn run(start: PathBuf) -> std::io::Result<()> {
                             pending.push_back(action);
                         }
                     }
+                    Effect::OpenPathWith {
+                        path,
+                        program,
+                        args,
+                    } => {
+                        if let Some(action) =
+                            open_external_with(&mut session, &path, &program, &args)
+                        {
+                            pending.push_back(action);
+                        }
+                    }
                     other => {
                         for follow in handler.handle(other) {
                             pending.push_back(follow);
@@ -568,6 +619,32 @@ fn main() -> ExitCode {
         Err(e) => {
             eprintln!("tui-explorer failed: {e}");
             ExitCode::FAILURE
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::image_protocol;
+    use ratatui_image::picker::ProtocolType;
+
+    #[test]
+    fn image_protocol_defaults_to_halfblocks() {
+        assert_eq!(image_protocol(None), ProtocolType::Halfblocks);
+        assert_eq!(image_protocol(Some("")), ProtocolType::Halfblocks);
+        assert_eq!(image_protocol(Some("unknown")), ProtocolType::Halfblocks);
+    }
+
+    #[test]
+    fn image_protocol_honors_supported_overrides() {
+        for (value, expected) in [
+            ("halfblocks", ProtocolType::Halfblocks),
+            ("kitty", ProtocolType::Kitty),
+            ("sixel", ProtocolType::Sixel),
+            ("iterm2", ProtocolType::Iterm2),
+            (" KITTY ", ProtocolType::Kitty),
+        ] {
+            assert_eq!(image_protocol(Some(value)), expected, "override {value}");
         }
     }
 }

@@ -20,11 +20,31 @@ pub const MAX_IMAGE_PIXELS: u64 = 100_000_000;
 
 pub const IMAGE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "bmp"];
 
+const UNSUPPORTED_MESSAGE: &str = "binary or unsupported document; no text preview";
+
 pub fn is_supported_image(name: &str) -> bool {
-    let lower = name.to_lowercase();
-    lower
-        .rsplit_once('.')
-        .map(|(_, ext)| IMAGE_EXTENSIONS.contains(&ext))
+    extension(name)
+        .map(|ext| {
+            IMAGE_EXTENSIONS
+                .iter()
+                .any(|candidate| ext.eq_ignore_ascii_case(candidate))
+        })
+        .unwrap_or(false)
+}
+
+fn extension(name: &str) -> Option<&str> {
+    let (_, ext) = name.rsplit_once('.')?;
+    (!ext.is_empty()).then_some(ext)
+}
+
+fn is_unsupported_document(name: &str) -> bool {
+    extension(name)
+        .map(|ext| {
+            matches!(
+                ext.to_ascii_lowercase().as_str(),
+                "pdf" | "doc" | "docx" | "xls" | "xlsx" | "ppt" | "pptx" | "odt" | "ods"
+            )
+        })
         .unwrap_or(false)
 }
 
@@ -63,6 +83,9 @@ pub fn load(path: &Path, is_dir: bool, name: &str) -> PreviewLoaded {
     if is_supported_image(name) {
         return load_image(path);
     }
+    if is_unsupported_document(name) {
+        return PreviewLoaded::Unavailable(UNSUPPORTED_MESSAGE.to_string());
+    }
     load_text(path)
 }
 
@@ -81,6 +104,69 @@ fn load_directory(path: &Path) -> PreviewLoaded {
     }
 }
 
+/// Signatures that must never be interpreted as terminal text, even when the
+/// file's initial bytes happen to be valid ASCII (notably PDF and ZIP).
+fn has_binary_signature(bytes: &[u8]) -> bool {
+    const SIGNATURES: &[&[u8]] = &[
+        b"%PDF-",                            // PDF
+        b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1", // OLE: legacy DOC/XLS/PPT
+        b"PK\x03\x04",                       // ZIP: DOCX/XLSX/PPTX and archives
+        b"PK\x05\x06",
+        b"PK\x07\x08",
+        b"\x89PNG\r\n\x1a\n",
+        b"\xff\xd8\xff", // JPEG
+        b"GIF87a",
+        b"GIF89a",
+        b"BM",       // BMP
+        b"RIFF",     // WebP/WAV/AVI container
+        b"\x1f\x8b", // gzip
+        b"7z\xbc\xaf\x27\x1c",
+        b"Rar!\x1a\x07",
+        b"\x7fELF",
+    ];
+    SIGNATURES
+        .iter()
+        .any(|signature| bytes.starts_with(signature))
+}
+
+/// Decode a bounded sample only when it is safe terminal text. A sample cut
+/// in the middle of its final UTF-8 scalar is accepted only when the file was
+/// actually truncated; malformed UTF-8 anywhere else is rejected.
+fn safe_text(bytes: &[u8], truncated: bool) -> Option<&str> {
+    if has_binary_signature(bytes) {
+        return None;
+    }
+    let text = match std::str::from_utf8(bytes) {
+        Ok(text) => text,
+        Err(error) if truncated && error.error_len().is_none() => {
+            std::str::from_utf8(&bytes[..error.valid_up_to()]).ok()?
+        }
+        Err(_) => return None,
+    };
+    if text
+        .chars()
+        .any(|ch| ch.is_control() && !matches!(ch, '\t' | '\n' | '\r'))
+    {
+        return None;
+    }
+    Some(text)
+}
+
+/// Final render-boundary defense. Classification currently permits only tabs
+/// and line endings; tabs are expanded and every other control is replaced so
+/// future classification changes cannot place control data in a Ratatui cell.
+fn sanitize_line(line: &str) -> String {
+    let mut clean = String::with_capacity(line.len());
+    for ch in line.chars() {
+        match ch {
+            '\t' => clean.push_str("    "),
+            ch if ch.is_control() => clean.push('\u{fffd}'),
+            ch => clean.push(ch),
+        }
+    }
+    clean
+}
+
 fn load_text(path: &Path) -> PreviewLoaded {
     let read = (|| -> std::io::Result<(Vec<u8>, bool)> {
         let file = std::fs::File::open(path)?;
@@ -93,11 +179,10 @@ fn load_text(path: &Path) -> PreviewLoaded {
     })();
     match read {
         Ok((bytes, truncated)) => {
-            if bytes.contains(&0) {
-                return PreviewLoaded::Unavailable("binary file, no text preview".to_string());
-            }
-            let text = String::from_utf8_lossy(&bytes);
-            let lines = text.lines().map(|l| l.to_string()).collect();
+            let Some(text) = safe_text(&bytes, truncated) else {
+                return PreviewLoaded::Unavailable(UNSUPPORTED_MESSAGE.to_string());
+            };
+            let lines = text.lines().map(sanitize_line).collect();
             PreviewLoaded::Text { lines, truncated }
         }
         Err(e) => PreviewLoaded::Unavailable(format!("cannot read file: {e}")),
@@ -163,25 +248,100 @@ mod tests {
         assert!(!is_supported_image("noext"));
     }
 
+    fn assert_unavailable(path: &Path) {
+        match load(
+            path,
+            false,
+            path.file_name().unwrap().to_string_lossy().as_ref(),
+        ) {
+            PreviewLoaded::Unavailable(message) => assert_eq!(message, UNSUPPORTED_MESSAGE),
+            other => panic!("expected unavailable preview, got {other:?}"),
+        }
+    }
+
     #[test]
-    fn text_and_binary_previews() {
+    fn text_preview_expands_tabs_and_contains_no_controls() {
         let dir = fixture();
         let text = dir.join("a.txt");
-        std::fs::write(&text, "one\ntwo\n").unwrap();
+        std::fs::write(&text, "one\ttwo\nUnicode: café\n").unwrap();
         match load(&text, false, "a.txt") {
-            PreviewLoaded::Text { lines, .. } => assert_eq!(lines, vec!["one", "two"]),
-            _ => panic!("expected text preview"),
+            PreviewLoaded::Text { lines, truncated } => {
+                assert!(!truncated);
+                assert_eq!(lines, vec!["one    two", "Unicode: café"]);
+                assert!(lines.iter().all(|line| !line.chars().any(char::is_control)));
+            }
+            other => panic!("expected text preview, got {other:?}"),
         }
-        let bin = dir.join("b.bin");
-        std::fs::write(&bin, [0u8, 1, 2]).unwrap();
-        assert!(matches!(
-            load(&bin, false, "b.bin"),
-            PreviewLoaded::Unavailable(_)
-        ));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn controls_invalid_utf8_and_binary_bytes_are_rejected() {
+        let dir = fixture();
+        for (name, bytes) in [
+            ("nul.bin", b"text\0tail".as_slice()),
+            ("esc.bin", b"text\x1b[31mred".as_slice()),
+            ("del.bin", b"text\x7ftail".as_slice()),
+            ("c1.txt", "text\u{009b}31mred".as_bytes()),
+            ("invalid.bin", b"text\xfftail".as_slice()),
+            ("arbitrary.bin", b"\x01\x9f\x92\x96\xfe".as_slice()),
+        ] {
+            let path = dir.join(name);
+            std::fs::write(&path, bytes).unwrap();
+            assert_unavailable(&path);
+        }
         let missing = dir.join("missing.txt");
         assert!(matches!(
             load(&missing, false, "missing.txt"),
-            PreviewLoaded::Unavailable(_)
+            PreviewLoaded::Unavailable(message) if message.starts_with("cannot read file:")
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn document_and_archive_signatures_are_rejected() {
+        let dir = fixture();
+        for (name, bytes) in [
+            ("report.pdf", b"%PDF-1.7\n1 0 obj\n".as_slice()),
+            (
+                "legacy.doc",
+                b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1document".as_slice(),
+            ),
+            ("modern.docx", b"PK\x03\x04word/document.xml".as_slice()),
+            ("archive.zip", b"PK\x05\x06empty archive".as_slice()),
+            ("empty.pdf", b"".as_slice()),
+            ("plain.docx", b"printable but still a document".as_slice()),
+        ] {
+            let path = dir.join(name);
+            std::fs::write(&path, bytes).unwrap();
+            assert_unavailable(&path);
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn text_preview_is_bounded_and_reports_truncation() {
+        let dir = fixture();
+        let text = dir.join("large.txt");
+        std::fs::write(&text, "x".repeat(MAX_TEXT_BYTES + 100)).unwrap();
+        match load(&text, false, "large.txt") {
+            PreviewLoaded::Text { lines, truncated } => {
+                assert!(truncated);
+                assert_eq!(lines.iter().map(String::len).sum::<usize>(), MAX_TEXT_BYTES);
+            }
+            other => panic!("expected text preview, got {other:?}"),
+        }
+
+        let unicode = dir.join("unicode.txt");
+        let mut bytes = vec![b'x'; MAX_TEXT_BYTES - 1];
+        bytes.extend_from_slice("€".as_bytes());
+        std::fs::write(&unicode, bytes).unwrap();
+        assert!(matches!(
+            load(&unicode, false, "unicode.txt"),
+            PreviewLoaded::Text {
+                truncated: true,
+                ..
+            }
         ));
         let _ = std::fs::remove_dir_all(&dir);
     }

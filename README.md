@@ -61,7 +61,9 @@ Compact layout on a small terminal (SVG, 60x16 cells):
 | `h` / Left | move one tile left |
 | `l` / Right | move one tile right |
 | Backspace | open parent directory |
+| `F5` | refresh the current directory |
 | `e` / Enter | enter directory or open file (the only keyboard open actions) |
+| `r` | open with: prompt for a command to run on the focused entry |
 | `X` | encrypt / decrypt the focused entry (masked password dialog) |
 | `b` | toggle the sidebar |
 | `p` | toggle the preview panel |
@@ -76,7 +78,8 @@ Compact layout on a small terminal (SVG, 60x16 cells):
 | `t` | toggle the default or last-used tag |
 | `T` | open the tag picker and manager |
 | `:` | enter command mode |
-| Esc | cancel the current mode, modal, or command |
+| `/` / `Ctrl-f` | quick filter: opens `:filter ` prompt for the current directory |
+| Esc | cancel the current mode, modal, or command; clear an active filename filter |
 | `?` | open the help overlay |
 | `q` | quit (when no modal or command is active) |
 
@@ -102,7 +105,7 @@ Press `X` on any entry. Regular files and folders are encrypted with the maintai
 
 - `TUI_EXPLORER_OPENER` / `EDITOR`: program used to open files (falls back to `xdg-open`)
 - `TUI_EXPLORER_DOUBLE_CLICK_MS`: double-click threshold in milliseconds (default 500)
-- `TUI_EXPLORER_IMAGE_PROTOCOL`: force image preview protocol (`kitty`, `sixel`, `iterm2`, `halfblocks`); by default the terminal is detected from `TERM`/`TERM_PROGRAM` and unknown terminals get the safe half-block fallback
+- `TUI_EXPLORER_IMAGE_PROTOCOL`: choose the image preview protocol (`halfblocks`, `kitty`, `sixel`, or `iterm2`). The stable cell-based `halfblocks` renderer is always the default; native Kitty/Sixel/iTerm2 graphics are explicit opt-ins because incorrect terminal geometry can overdraw a TUI.
 - Bookmarks are stored in `$XDG_DATA_HOME/tui-explorer/bookmarks.txt`, tags in `tags.sqlite3` alongside it
 
 ## Command mode
@@ -111,19 +114,33 @@ Press `:` and type a command. Paths with spaces work when quoted, for example `:
 
 | Command | Action |
 | --- | --- |
-| `:copy <destination>` | copy targets to a directory |
-| `:move <destination>` | move targets to a directory |
+| `:copy <destination>` (`:cp`) | copy targets to a directory |
+| `:move <destination>` (`:mv`) | move targets to a directory |
 | `:rename <new-name>` | rename the focused entry |
-| `:delete` | delete targets (always confirmed) |
+| `:delete` (`:rm`) | delete targets (always confirmed) |
+| `:mkdir <name>` | create a directory in the current directory (parents created as needed) |
+| `:touch <name>` | create an empty file, or update its modified time if it already exists |
+| `:selectall` (`:select-all`) | select every entry in the current listing |
+| `:invert` (`:invertselection`) | invert the current selection |
+| `:deselect` (`:clearselection`) | clear the current selection |
+| `:filter <text>` (`:search`) | show only matching names in the current directory |
+| `:clearfilter` (`:clear-search`) | restore all names in the current directory |
+| `:sort name|size|modified` | sort entries by name, size, or modification time; append `-desc` for descending order |
+| `:refresh` (`:reload`) | reload the current directory |
 | `:tag <name>` | assign a tag (created if missing) |
 | `:untag <name>` | remove a tag |
 | `:tags` | open the tag picker |
-| `:open` | open the focused entry |
+| `:open` | open the focused entry with the default opener |
+| `:open-with <command> [args...]` (`:ow`) | run `<command> [args...] <entry>` directly, no prompt |
 | `:cd <path>` | change directory (`~` and relative paths work) |
-| `:quit` | quit |
+| `:quit` (`:q`) | quit |
 | `:help` | open the help overlay |
 
 Command input is parsed by the application itself. It is never passed to a shell, and files are always opened by spawning programs directly with argument arrays.
+
+### Open with
+
+Press `r` on a focused entry to open a small prompt asking which command to run against it, for example typing `mupdf` to run `mupdf <path>` on a focused PDF, or `mupdf -r 150` to pass flags. The command is split the same quote-aware way as the rest of command mode, so `"my viewer" --flag` works. This is independent from the default open flow (`e`/`Enter`/double-click), which keeps using `TUI_EXPLORER_OPENER`/`$EDITOR`/`xdg-open` automatically; nothing is remembered between prompts. `:open-with <command> [args...]` (alias `:ow`) runs the same way without a prompt, since the command is already supplied on the line.
 
 ## Icons
 
@@ -313,7 +330,7 @@ Automated tests never exercise the real mutation backend by design. The followin
 
 - Linux only
 - One directory pane; no tabs or dual-pane mode
-- No file search or filtering yet
+- Search is currently limited to filtering names in the open directory; recursive content search is not included
 - Display width of non-ASCII characters is approximated by character count
 - External moves of tagged files are not followed automatically
 

@@ -70,11 +70,19 @@ pub enum RecordedMutation {
         path: PathBuf,
         recursive: bool,
     },
+    CreateDir {
+        path: PathBuf,
+    },
+    CreateFile {
+        path: PathBuf,
+    },
 }
 
 pub trait MutationBackend: Send {
     fn copy_entry(&self, src: &Path, dst: &Path, replace: bool) -> io::Result<()>;
     fn move_entry(&self, src: &Path, dst: &Path, replace: bool) -> io::Result<()>;
     fn delete_entry(&self, path: &Path, recursive: bool) -> io::Result<()>;
+    fn create_dir(&self, path: &Path) -> io::Result<()>;
+    fn create_file(&self, path: &Path) -> io::Result<()>;
     fn exists(&self, path: &Path) -> bool;
 }

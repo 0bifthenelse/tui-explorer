@@ -5,9 +5,10 @@ use crate::app::action::{Action, ConflictDecision, DirectorySnapshot, MouseKind}
 use crate::app::effects::Effect;
 use crate::app::state::{
     AppState, ConfirmAction, ConfirmState, ConflictState, ContextItem, ContextMenuState, Mode,
-    OperationState, Password, PasswordPurpose, PasswordState, PreviewContent, StatusMessage,
-    TagPickerState,
+    OpenWithState, OperationState, Password, PasswordPurpose, PasswordState, PreviewContent,
+    StatusMessage, TagPickerState,
 };
+use crate::browser::SortMode;
 use crate::crypto::CryptoKind;
 use crate::filesystem::EntryKind;
 use crate::input::command::{self, Command};
@@ -108,6 +109,28 @@ fn reduce_inner(state: &mut AppState, action: Action) -> Vec<Effect> {
                 _ => Vec::new(),
             }
         }),
+        Action::Refresh => {
+            if matches!(state.mode, Mode::Browser) {
+                state.message = Some(StatusMessage::info("refreshing directory"));
+                vec![Effect::LoadDirectory(state.browser.cwd.clone())]
+            } else {
+                Vec::new()
+            }
+        }
+        Action::OpenWithPrompt => open_with_prompt(state),
+        Action::OpenWithChar(c) => {
+            if let Mode::OpenWith(o) = &mut state.mode {
+                o.input.push(c);
+            }
+            Vec::new()
+        }
+        Action::OpenWithBackspace => {
+            if let Mode::OpenWith(o) = &mut state.mode {
+                o.input.pop();
+            }
+            Vec::new()
+        }
+        Action::OpenWithSubmit => open_with_submit(state),
         Action::ToggleSelect => browser_only(state, |s| {
             s.browser.toggle_select_focused();
             let vp = s.list_viewport;
@@ -120,6 +143,7 @@ fn reduce_inner(state: &mut AppState, action: Action) -> Vec<Effect> {
             }
         }),
         Action::ToggleHidden => browser_only(state, |s| s.browser.toggle_hidden()),
+        Action::SetFilter(query) => browser_only(state, |s| s.browser.set_filter(query)),
         Action::ToggleSidebar => {
             if matches!(state.mode, Mode::Browser) {
                 let now = crate::ui::sidebar_visible(state.width, state.height, state.show_sidebar);
@@ -211,6 +235,13 @@ fn reduce_inner(state: &mut AppState, action: Action) -> Vec<Effect> {
             if matches!(state.mode, Mode::Browser) {
                 state.mode = Mode::Command;
                 state.command_input.clear();
+            }
+            Vec::new()
+        }
+        Action::EnterFilter => {
+            if matches!(state.mode, Mode::Browser) {
+                state.mode = Mode::Command;
+                state.command_input = "filter ".to_string();
             }
             Vec::new()
         }
@@ -469,6 +500,9 @@ fn browser_only_fx(
 
 fn navigate(state: &mut AppState, dir: PathBuf) -> Vec<Effect> {
     state.pending_nav = Some(state.browser.cwd.clone());
+    // A filename search is scoped to one directory, matching desktop file
+    // managers: changing location should not hide unrelated entries.
+    state.browser.set_filter(None);
     state.browser.enter(&dir);
     vec![Effect::LoadDirectory(dir)]
 }
@@ -484,6 +518,51 @@ fn open_focused(state: &mut AppState) -> Vec<Effect> {
             _ => vec![Effect::OpenPath(path)],
         }
     })
+}
+
+fn open_with_prompt(state: &mut AppState) -> Vec<Effect> {
+    browser_only_fx(state, |s| {
+        let Some(view) = s.browser.focused() else {
+            s.message = Some(StatusMessage::info("nothing focused"));
+            return Vec::new();
+        };
+        let target = view.entry.path.clone();
+        s.mode = Mode::OpenWith(Box::new(OpenWithState {
+            target,
+            input: String::new(),
+        }));
+        Vec::new()
+    })
+}
+
+fn open_with_submit(state: &mut AppState) -> Vec<Effect> {
+    let Mode::OpenWith(dialog) = &state.mode else {
+        return Vec::new();
+    };
+    let target = dialog.target.clone();
+    let input = dialog.input.clone();
+    state.mode = Mode::Browser;
+    if input.trim().is_empty() {
+        state.message = Some(StatusMessage::error("no command entered"));
+        return Vec::new();
+    }
+    match command::split_words(&input) {
+        Ok(words) => {
+            let Some((program, args)) = words.split_first() else {
+                state.message = Some(StatusMessage::error("no command entered"));
+                return Vec::new();
+            };
+            vec![Effect::OpenPathWith {
+                path: target,
+                program: program.clone(),
+                args: args.to_vec(),
+            }]
+        }
+        Err(e) => {
+            state.message = Some(StatusMessage::error(e.to_string()));
+            Vec::new()
+        }
+    }
 }
 
 fn quick_tag(state: &mut AppState) -> Vec<Effect> {
@@ -664,6 +743,33 @@ fn delete_confirm(state: &mut AppState) -> Vec<Effect> {
     Vec::new()
 }
 
+/// Rejects names unsafe to create directly in the current directory:
+/// empty, containing a path separator, `.`/`..`, or a NUL byte.
+fn validate_entry_name(name: &str) -> Result<(), &'static str> {
+    if name.is_empty() {
+        return Err("empty name");
+    }
+    if name.contains('/') {
+        return Err("name cannot contain '/'");
+    }
+    if name == "." || name == ".." {
+        return Err("invalid name");
+    }
+    if name.contains('\0') {
+        return Err("name cannot contain a NUL byte");
+    }
+    Ok(())
+}
+
+fn create_entry(state: &mut AppState, name: String, is_dir: bool) -> Vec<Effect> {
+    if let Err(e) = validate_entry_name(&name) {
+        state.message = Some(StatusMessage::error(e.to_string()));
+        return Vec::new();
+    }
+    let path = state.browser.cwd.join(&name);
+    vec![Effect::CreateEntry { path, is_dir }]
+}
+
 fn submit_command(state: &mut AppState) -> Vec<Effect> {
     if !matches!(state.mode, Mode::Command) {
         return Vec::new();
@@ -728,9 +834,77 @@ fn submit_command(state: &mut AppState) -> Vec<Effect> {
         }
         Command::Tags => open_picker(state),
         Command::Open => open_focused(state),
+        Command::OpenWith { program, args } => {
+            let Some(view) = state.browser.focused() else {
+                state.message = Some(StatusMessage::info("nothing focused"));
+                return Vec::new();
+            };
+            vec![Effect::OpenPathWith {
+                path: view.entry.path.clone(),
+                program,
+                args,
+            }]
+        }
         Command::Cd { path } => {
             let dir = resolve_user_path(state, &path);
             navigate(state, dir)
+        }
+        Command::Mkdir { name } => create_entry(state, name, true),
+        Command::Touch { name } => create_entry(state, name, false),
+        Command::SelectAll => {
+            if state.browser.entries.is_empty() {
+                state.message = Some(StatusMessage::info("nothing to select"));
+                return Vec::new();
+            }
+            state.browser.select_all();
+            Vec::new()
+        }
+        Command::InvertSelection => {
+            state.browser.invert_selection();
+            Vec::new()
+        }
+        Command::Deselect => {
+            state.browser.clear_selection();
+            Vec::new()
+        }
+        Command::Filter { query } => {
+            state.browser.set_filter(Some(query.clone()));
+            state.message = Some(StatusMessage::info(format!("filter applied: {query}")));
+            Vec::new()
+        }
+        Command::ClearFilter => {
+            state.browser.set_filter(None);
+            state.message = Some(StatusMessage::info("filter cleared"));
+            Vec::new()
+        }
+        Command::Sort { field } => {
+            let mode = match field.to_ascii_lowercase().as_str() {
+                "name" => Some(SortMode::NameDirsFirst),
+                "name-desc" | "name-descending" => Some(SortMode::NameDesc),
+                "size" => Some(SortMode::Size),
+                "size-desc" | "size-descending" => Some(SortMode::SizeDesc),
+                "modified" | "time" | "date" => Some(SortMode::Modified),
+                "modified-desc" | "time-desc" | "date-desc" => Some(SortMode::ModifiedDesc),
+                _ => None,
+            };
+            if let Some(mode) = mode {
+                let label = mode.label();
+                state.browser.set_sort_mode(mode);
+                state.message = Some(StatusMessage::info(format!("sorted by {label}")));
+            } else {
+                state.message = Some(StatusMessage::error(
+                    "sort expects name, size, modified, or a -desc variant".to_string(),
+                ));
+            }
+            Vec::new()
+        }
+        Command::Refresh => {
+            if matches!(state.mode, Mode::Browser) {
+                state.message = Some(StatusMessage::info("refreshing directory"));
+                vec![Effect::LoadDirectory(state.browser.cwd.clone())]
+            } else {
+                Vec::new()
+            }
         }
         Command::Quit => vec![Effect::Quit],
         Command::Help => {
@@ -825,6 +999,7 @@ fn context_apply(state: &mut AppState, item: ContextItem) -> Vec<Effect> {
     }
     match item {
         ContextItem::Open => open_focused(state),
+        ContextItem::OpenWith => open_with_prompt(state),
         ContextItem::Rename => {
             state.mode = Mode::Command;
             state.command_input = "rename ".to_string();
@@ -853,12 +1028,15 @@ fn cancel(state: &mut AppState) -> Vec<Effect> {
         | Mode::TagPicker(_)
         | Mode::ContextMenu(_)
         | Mode::Password(_)
+        | Mode::OpenWith(_)
         | Mode::Help => {
             state.mode = Mode::Browser;
             state.command_input.clear();
         }
         Mode::Browser => {
-            if !state.browser.selection.is_empty() || state.browser.visual {
+            if state.browser.filter.is_some() {
+                state.browser.set_filter(None);
+            } else if !state.browser.selection.is_empty() || state.browser.visual {
                 state.browser.clear_selection();
             }
         }
@@ -1022,6 +1200,8 @@ fn mouse(state: &mut AppState, kind: MouseKind, x: u16, y: u16) -> Vec<Effect> {
             MouseKind::Left => {
                 if matches!(state.mode, Mode::Password(_)) {
                     password_submit(state)
+                } else if matches!(state.mode, Mode::OpenWith(_)) {
+                    open_with_submit(state)
                 } else {
                     confirm(state)
                 }
@@ -1029,7 +1209,13 @@ fn mouse(state: &mut AppState, kind: MouseKind, x: u16, y: u16) -> Vec<Effect> {
             _ => Vec::new(),
         },
         HitTarget::ModalCancel => match kind {
-            MouseKind::Left => reduce(state, Action::Reject),
+            MouseKind::Left => {
+                if matches!(state.mode, Mode::OpenWith(_)) {
+                    cancel(state)
+                } else {
+                    reduce(state, Action::Reject)
+                }
+            }
             _ => Vec::new(),
         },
         HitTarget::ConflictCancel => match kind {
@@ -1118,6 +1304,7 @@ fn legend_action(state: &mut AppState, action: LegendAction) -> Vec<Effect> {
         LegendAction::QuickTag => reduce(state, Action::QuickTag),
         LegendAction::TagPicker => reduce(state, Action::OpenTagPicker),
         LegendAction::Open => reduce(state, Action::OpenFocused),
+        LegendAction::OpenWith => reduce(state, Action::OpenWithPrompt),
         LegendAction::Parent => reduce(state, Action::OpenParent),
         LegendAction::Cancel => reduce(state, Action::Cancel),
         LegendAction::Encrypt => reduce(state, Action::EncryptToggle),

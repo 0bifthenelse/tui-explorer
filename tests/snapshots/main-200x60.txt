@@ -56,5 +56,5 @@ BOOKMARKS -------------| docs          src           a very long~  app.tsx      
                        |                                                                                                                                            |
                        |                                                                                                                                            |
  BROWSER                                                                                                                                                                                       5%  1/18
-| e/Enter Open | X Crypt | Bsp Up | v Visual | t Tag | : Command | ? Help | b Sidebar | p Preview | B Bookmark | q Quit
+| e/Enter Open | X Crypt | Bsp Up | v Visual | t Tag | : Command | ? Help | r OpenWith | b Sidebar | p Preview | B Bookmark | q Quit
 TIP  Double-click or Enter/e to open * Right-click for menu * Mouse wheel to scroll

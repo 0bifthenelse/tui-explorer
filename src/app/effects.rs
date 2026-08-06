@@ -11,6 +11,15 @@ pub enum Effect {
     RunOperation(Box<OperationPlan>),
     RunRename(Box<OperationPlan>),
     OpenPath(PathBuf),
+    OpenPathWith {
+        path: PathBuf,
+        program: String,
+        args: Vec<String>,
+    },
+    CreateEntry {
+        path: PathBuf,
+        is_dir: bool,
+    },
     /// Load preview content for the focused entry (worker thread).
     LoadPreview {
         key: (PathBuf, i64, u64),

@@ -63,6 +63,13 @@ pub fn map_key(key: KeyEvent, state: &AppState) -> Option<Action> {
             KeyCode::Char(c) => Some(Action::PasswordChar(c)),
             _ => None,
         },
+        Mode::OpenWith(_) => match key.code {
+            KeyCode::Enter => Some(Action::OpenWithSubmit),
+            KeyCode::Esc => Some(Action::Cancel),
+            KeyCode::Backspace => Some(Action::OpenWithBackspace),
+            KeyCode::Char(c) => Some(Action::OpenWithChar(c)),
+            _ => None,
+        },
         Mode::Help => match key.code {
             KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('?') => Some(Action::Cancel),
             _ => None,
@@ -79,12 +86,15 @@ fn map_browser_key(key: KeyEvent) -> Option<Action> {
         KeyCode::Char('h') | KeyCode::Left => Some(Action::MoveLeft),
         KeyCode::Char('l') | KeyCode::Right => Some(Action::MoveRight),
         KeyCode::Backspace => Some(Action::OpenParent),
+        KeyCode::F(5) => Some(Action::Refresh),
         // Opening happens only through Enter, `e`, or a double left click.
         KeyCode::Enter | KeyCode::Char('e') => Some(Action::OpenFocused),
+        KeyCode::Char('r') => Some(Action::OpenWithPrompt),
         KeyCode::Char('g') => Some(Action::KeyG),
         KeyCode::Char('G') => Some(Action::GotoLast),
         KeyCode::Char('u') if ctrl => Some(Action::HalfPageUp),
         KeyCode::Char('d') if ctrl => Some(Action::HalfPageDown),
+        KeyCode::Char('f') if ctrl => Some(Action::EnterFilter),
         KeyCode::PageUp => Some(Action::PageUp),
         KeyCode::PageDown => Some(Action::PageDown),
         KeyCode::Char(' ') => Some(Action::ToggleSelect),
@@ -97,6 +107,7 @@ fn map_browser_key(key: KeyEvent) -> Option<Action> {
         KeyCode::Char('B') => Some(Action::ToggleBookmark),
         KeyCode::Char('T') => Some(Action::OpenTagPicker),
         KeyCode::Char(':') => Some(Action::EnterCommand),
+        KeyCode::Char('/') => Some(Action::EnterFilter),
         KeyCode::Esc => Some(Action::Cancel),
         KeyCode::Char('?') => Some(Action::ToggleHelp),
         KeyCode::Char('q') => Some(Action::Quit),
@@ -127,6 +138,10 @@ mod tests {
             Some(Action::MoveDown)
         ));
         assert!(matches!(
+            map_key(key(KeyCode::F(5)), &s),
+            Some(Action::Refresh)
+        ));
+        assert!(matches!(
             map_key(key(KeyCode::Char('k')), &s),
             Some(Action::MoveUp)
         ));
@@ -147,6 +162,10 @@ mod tests {
             Some(Action::OpenFocused)
         ));
         assert!(matches!(
+            map_key(key(KeyCode::Char('r')), &s),
+            Some(Action::OpenWithPrompt)
+        ));
+        assert!(matches!(
             map_key(key(KeyCode::Char('X')), &s),
             Some(Action::EncryptToggle)
         ));
@@ -157,6 +176,14 @@ mod tests {
         assert!(matches!(
             map_key(key(KeyCode::Char('p')), &s),
             Some(Action::TogglePreview)
+        ));
+        assert!(matches!(
+            map_key(key(KeyCode::Char('/')), &s),
+            Some(Action::EnterFilter)
+        ));
+        assert!(matches!(
+            map_key(KeyEvent::new(KeyCode::Char('f'), KeyModifiers::CONTROL), &s),
+            Some(Action::EnterFilter)
         ));
         assert!(matches!(
             map_key(key(KeyCode::Char('B')), &s),
@@ -193,6 +220,31 @@ mod tests {
         assert!(matches!(
             map_key(key(KeyCode::Char('q')), &s),
             Some(Action::Quit)
+        ));
+    }
+
+    #[test]
+    fn open_with_mode_keys() {
+        let mut s = state();
+        s.mode = Mode::OpenWith(Box::new(crate::app::state::OpenWithState {
+            target: std::path::PathBuf::from("/d/f.txt"),
+            input: String::new(),
+        }));
+        assert!(matches!(
+            map_key(key(KeyCode::Char('m')), &s),
+            Some(Action::OpenWithChar('m'))
+        ));
+        assert!(matches!(
+            map_key(key(KeyCode::Backspace), &s),
+            Some(Action::OpenWithBackspace)
+        ));
+        assert!(matches!(
+            map_key(key(KeyCode::Enter), &s),
+            Some(Action::OpenWithSubmit)
+        ));
+        assert!(matches!(
+            map_key(key(KeyCode::Esc), &s),
+            Some(Action::Cancel)
         ));
     }
 

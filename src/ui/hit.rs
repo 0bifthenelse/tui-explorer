@@ -10,6 +10,7 @@ pub enum LegendAction {
     QuickTag,
     TagPicker,
     Open,
+    OpenWith,
     Parent,
     Cancel,
     Encrypt,

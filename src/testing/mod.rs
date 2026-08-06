@@ -139,6 +139,30 @@ impl MutationBackend for RecordingMutations {
         Ok(())
     }
 
+    fn create_dir(&self, path: &Path) -> io::Result<()> {
+        if let Ok(mut log) = self.log.lock() {
+            log.push(RecordedMutation::CreateDir {
+                path: path.to_path_buf(),
+            });
+        }
+        if let Some(msg) = &self.fail_with {
+            return Err(io::Error::other(msg.clone()));
+        }
+        Ok(())
+    }
+
+    fn create_file(&self, path: &Path) -> io::Result<()> {
+        if let Ok(mut log) = self.log.lock() {
+            log.push(RecordedMutation::CreateFile {
+                path: path.to_path_buf(),
+            });
+        }
+        if let Some(msg) = &self.fail_with {
+            return Err(io::Error::other(msg.clone()));
+        }
+        Ok(())
+    }
+
     fn exists(&self, path: &Path) -> bool {
         self.existing.contains(path)
     }
@@ -149,6 +173,7 @@ pub struct SyncHandler {
     pub mutations: RecordingMutations,
     pub tags: TagStore,
     pub opened: Vec<PathBuf>,
+    pub opened_with: Vec<(PathBuf, String, Vec<String>)>,
     pub quit: bool,
     pub now: i64,
     pub bookmarks: Vec<PathBuf>,
@@ -163,6 +188,7 @@ impl SyncHandler {
             mutations: RecordingMutations::new(existing),
             tags: TagStore::open_in_memory().expect("in-memory tag store"),
             opened: Vec::new(),
+            opened_with: Vec::new(),
             quit: false,
             now: 1_700_000_000,
             bookmarks: Vec::new(),
@@ -267,6 +293,54 @@ impl EffectHandler for SyncHandler {
             Effect::OpenPath(path) => {
                 self.opened.push(path);
                 Vec::new()
+            }
+            Effect::OpenPathWith {
+                path,
+                program,
+                args,
+            } => {
+                self.opened_with.push((path, program, args));
+                Vec::new()
+            }
+            Effect::CreateEntry { path, is_dir } => {
+                let result = if is_dir {
+                    self.mutations.create_dir(&path)
+                } else {
+                    self.mutations.create_file(&path)
+                };
+                if let Err(e) = result {
+                    return vec![Action::ErrorMessage(format!(
+                        "could not create {}: {e}",
+                        path.display()
+                    ))];
+                }
+                let name = path
+                    .file_name()
+                    .map(|n| n.to_os_string())
+                    .unwrap_or_default();
+                let kind = if is_dir {
+                    crate::filesystem::EntryKind::Directory
+                } else {
+                    crate::filesystem::EntryKind::File
+                };
+                let hidden = name.to_string_lossy().starts_with('.');
+                let entry = crate::filesystem::DirEntry {
+                    name,
+                    path: path.clone(),
+                    kind,
+                    size: 0,
+                    mode: 0o644,
+                    modified: self.now,
+                    executable: false,
+                    hidden,
+                    device: None,
+                    inode: None,
+                };
+                let parent = path.parent().map(Path::to_path_buf).unwrap_or(path);
+                self.fs.add_entry(&parent, entry);
+                vec![Action::DirectoryLoaded {
+                    result: self.snapshot(&parent),
+                }]
             }
             Effect::TagAssign {
                 name,

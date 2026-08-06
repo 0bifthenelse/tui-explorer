@@ -52,6 +52,14 @@ impl PasswordState {
     }
 }
 
+/// State for the interactive "open with" prompt (`r` key): asks which
+/// program to run against the focused entry.
+#[derive(Clone, Debug)]
+pub struct OpenWithState {
+    pub target: PathBuf,
+    pub input: String,
+}
+
 /// Decoded preview content for the focused entry.
 pub enum PreviewContent {
     Text { lines: Vec<String>, truncated: bool },
@@ -128,6 +136,7 @@ pub struct TagPickerState {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ContextItem {
     Open,
+    OpenWith,
     Rename,
     Copy,
     Move,
@@ -139,6 +148,7 @@ impl ContextItem {
     pub fn label(&self) -> &'static str {
         match self {
             ContextItem::Open => "Open",
+            ContextItem::OpenWith => "Open with",
             ContextItem::Rename => "Rename",
             ContextItem::Copy => "Copy",
             ContextItem::Move => "Move",
@@ -150,6 +160,7 @@ impl ContextItem {
     pub fn all() -> &'static [ContextItem] {
         &[
             ContextItem::Open,
+            ContextItem::OpenWith,
             ContextItem::Rename,
             ContextItem::Copy,
             ContextItem::Move,
@@ -177,6 +188,7 @@ pub enum Mode {
     TagPicker(Box<TagPickerState>),
     ContextMenu(Box<ContextMenuState>),
     Password(Box<PasswordState>),
+    OpenWith(Box<OpenWithState>),
     Help,
 }
 
@@ -196,6 +208,7 @@ impl Clone for Mode {
                 input: String::new(),
                 first: None,
             })),
+            Mode::OpenWith(o) => Mode::OpenWith(o.clone()),
             Mode::Help => Mode::Help,
         }
     }
@@ -211,6 +224,7 @@ impl Mode {
             Mode::TagPicker(_) => "TAGS",
             Mode::ContextMenu(_) => "MENU",
             Mode::Password(_) => "CRYPTO",
+            Mode::OpenWith(_) => "OPEN WITH",
             Mode::Help => "HELP",
         }
     }
