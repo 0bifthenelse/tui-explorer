@@ -215,6 +215,8 @@ cargo build --release
 
 Optional: install the binary into your user path, for example `cargo install --path .` which places it under `~/.cargo/bin`.
 
+Or run the bundled installer from the repository root: `./install.sh`. It builds the release binary and installs it to `$HOME/.local/bin` for a regular user, or to `/usr/local/bin` when run as root (`sudo ./install.sh`). Pass `--prefix DIR` to install somewhere else. Re-running `install.sh` at any time overwrites the existing install seamlessly, with no prompt. Make sure the chosen `bin` directory is on your `PATH`; `install.sh` prints a warning with the exact `export` line if it is not.
+
 ## Running from source
 
 ```
