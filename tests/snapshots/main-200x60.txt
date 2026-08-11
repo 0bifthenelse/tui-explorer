@@ -7,7 +7,7 @@ MOUNTS ----------------|   /______/_     /______/_    | .--'   |    | .--'   |  
 TAGS ------------------|  |      \ |    |        |    | ------ |    | ------ |    | ------ |    | ------ |    | ------ |    | ------ |    | ------ |    | ------ |  |Tags: (none)
 (no tags yet)          |  +-------\+    +--------+    '--------'    '--------'    '--------'    '--------'    '--------'    '--------'    '--------'    '--------'  | Preview --------------------------
 BOOKMARKS -------------| docs          src           a very long~  app.tsx       archive.tar~  build.sh      Cargo.lock    Cargo.toml    data.json     deploy       |cannot read directory: No such fil~
-(B to bookmark cwd)    | dir           dir           88B           5.0K          1.0M          256B          50K           734B          8.0K          15K          |
+(Ctrl-b bookmarks cwd) | dir           dir           88B           5.0K          1.0M          256B          50K           734B          8.0K          15K          |
                        |  .--------.    .--------.    .--------.    .--------.    .--------.    .--------.    .--------.    .--------.                              |
                        |  | .--'   |    | .--'   |    | .--'   |    | .--'   |    | .--'   |    | .--'   |    | .--'   |    | .--'   |                              |
                        |  | HTML   |    | RS     |    | MD     |    | JSON   |    | PNG    |    | LNK>   |    | MP3    |    | CSS    |                              |
@@ -56,5 +56,5 @@ BOOKMARKS -------------| docs          src           a very long~  app.tsx      
                        |                                                                                                                                            |
                        |                                                                                                                                            |
  BROWSER                                                                                                                                                                                       5%  1/18
-| e/Enter Open | X Crypt | Bsp Up | v Visual | t Tag | : Command | ? Help | r OpenWith | b Sidebar | p Preview | B Bookmark | q Quit
+| e/Enter Open | X Crypt | Bsp Up | v Visual | t Tag | : Command | ? Help | r OpenWith | b Sidebar | p Preview | B Bookmarks | q Quit
 TIP  Double-click or Enter/e to open * Right-click for menu * Mouse wheel to scroll

@@ -10,7 +10,6 @@ pub enum Effect {
     LoadDirectory(PathBuf),
     RunOperation(Box<OperationPlan>),
     RunRename(Box<OperationPlan>),
-    OpenPath(PathBuf),
     OpenPathWith {
         path: PathBuf,
         program: String,

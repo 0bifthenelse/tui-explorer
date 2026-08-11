@@ -7,7 +7,7 @@ MOUNTS ----------------|   /______/_     /______/_    | .--'   |   |Open        
 TAGS ------------------|  |        |    |        |    | ------ |   |Rename        | ------ |    | ------ |
 (no tags yet)          |  +--------+    +--------+    '--------'   |Copy          |--------'    '--------'
 BOOKMARKS -------------| docs          src           a very long~  |Move          |chive.tar~  build.sh
-(B to bookmark cwd)    | dir           dir           88B           |Delete        |0M          256B
+(Ctrl-b bookmarks cwd) | dir           dir           88B           |Delete        |0M          256B
                        |  .--------.    .--------.    .--------.   |Tags          |--------.    .--------.
                        |  | .--'   |    | .--'   |    | .--'   |   +--------------+ .--'   |    | .--'   |
                        |  | LOCK   |    | TOML   |    | JSON   |    | EXE>   |    | HTML   |    | RS     |

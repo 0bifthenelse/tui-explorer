@@ -1,0 +1,24 @@
+ tui-explorer 0.1.0         tui-explorer is awesome!           Press ? for help
+ Path: [ / ]>[ home ]>[ demo ]
+18 items (2 dirs, 16 files)  Sort: name (asc)
+    ______        ______      .--------.    .--------.    .--------.
+   /______/_     /______/_    | .--'   |    | .--'   |    | .--'   |
+  |        |    |        |    | TXT    |    | TSX    |    | GZ     |
+  |        |    |        |    | ------ |    | ------ |    | ------ |
+  +-----+ BOOKMARKS ---------------------------------------------------+
+ docs   |search: _                                                     |
+ dir    |                                                              |
+  .-----|no bookmarks yet, press Ctrl-b to bookmark the current direct~|
+  | .--'|                                                              |
+  | SH  | [Enter] go   [Esc] close                                     |
+  | ----|                                                              |
+  '-----|                                                              |
+ build.s+--------------------------------------------------------------+
+ 256B          50K           734B          8.0K          15K
+
+
+
+
+ BOOKMARKS                                                             5%  1/18
+| Enter go | Esc close
+TIP  Type to fuzzy-search bookmarks, Up/Down to select, Enter to go

@@ -70,6 +70,23 @@ pub fn map_key(key: KeyEvent, state: &AppState) -> Option<Action> {
             KeyCode::Char(c) => Some(Action::OpenWithChar(c)),
             _ => None,
         },
+        Mode::Bookmarks(_) => match key.code {
+            KeyCode::Esc => Some(Action::Cancel),
+            KeyCode::Enter => Some(Action::BookmarkSubmit),
+            KeyCode::Backspace => Some(Action::BookmarkBackspace),
+            KeyCode::Down => Some(Action::BookmarkMove(1)),
+            KeyCode::Up => Some(Action::BookmarkMove(-1)),
+            KeyCode::Char('n') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                Some(Action::BookmarkMove(1))
+            }
+            KeyCode::Char('p') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                Some(Action::BookmarkMove(-1))
+            }
+            KeyCode::Char(c) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
+                Some(Action::BookmarkChar(c))
+            }
+            _ => None,
+        },
         Mode::Help => match key.code {
             KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('?') => Some(Action::Cancel),
             _ => None,
@@ -102,9 +119,10 @@ fn map_browser_key(key: KeyEvent) -> Option<Action> {
         KeyCode::Char('.') => Some(Action::ToggleHidden),
         KeyCode::Char('t') => Some(Action::QuickTag),
         KeyCode::Char('X') => Some(Action::EncryptToggle),
+        KeyCode::Char('b') if ctrl => Some(Action::ToggleBookmark),
         KeyCode::Char('b') => Some(Action::ToggleSidebar),
         KeyCode::Char('p') => Some(Action::TogglePreview),
-        KeyCode::Char('B') => Some(Action::ToggleBookmark),
+        KeyCode::Char('B') => Some(Action::OpenBookmarks),
         KeyCode::Char('T') => Some(Action::OpenTagPicker),
         KeyCode::Char(':') => Some(Action::EnterCommand),
         KeyCode::Char('/') => Some(Action::EnterFilter),
@@ -187,7 +205,15 @@ mod tests {
         ));
         assert!(matches!(
             map_key(key(KeyCode::Char('B')), &s),
+            Some(Action::OpenBookmarks)
+        ));
+        assert!(matches!(
+            map_key(KeyEvent::new(KeyCode::Char('b'), KeyModifiers::CONTROL), &s),
             Some(Action::ToggleBookmark)
+        ));
+        assert!(matches!(
+            map_key(key(KeyCode::Char('b')), &s),
+            Some(Action::ToggleSidebar)
         ));
         assert!(matches!(
             map_key(key(KeyCode::Enter), &s),

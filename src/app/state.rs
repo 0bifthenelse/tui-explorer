@@ -60,6 +60,15 @@ pub struct OpenWithState {
     pub input: String,
 }
 
+/// State for the fuzzy bookmark navigator (`B`): a query over the already
+/// loaded `AppState::bookmarks`, with the ranked result list it produced.
+#[derive(Clone, Debug)]
+pub struct BookmarkNavState {
+    pub query: String,
+    pub matches: Vec<PathBuf>,
+    pub selected: usize,
+}
+
 /// Decoded preview content for the focused entry.
 pub enum PreviewContent {
     Text { lines: Vec<String>, truncated: bool },
@@ -189,6 +198,7 @@ pub enum Mode {
     ContextMenu(Box<ContextMenuState>),
     Password(Box<PasswordState>),
     OpenWith(Box<OpenWithState>),
+    Bookmarks(Box<BookmarkNavState>),
     Help,
 }
 
@@ -209,6 +219,7 @@ impl Clone for Mode {
                 first: None,
             })),
             Mode::OpenWith(o) => Mode::OpenWith(o.clone()),
+            Mode::Bookmarks(b) => Mode::Bookmarks(b.clone()),
             Mode::Help => Mode::Help,
         }
     }
@@ -225,6 +236,7 @@ impl Mode {
             Mode::ContextMenu(_) => "MENU",
             Mode::Password(_) => "CRYPTO",
             Mode::OpenWith(_) => "OPEN WITH",
+            Mode::Bookmarks(_) => "BOOKMARKS",
             Mode::Help => "HELP",
         }
     }
@@ -240,6 +252,9 @@ pub struct AppState {
     pub mode: Mode,
     pub command_input: String,
     pub message: Option<StatusMessage>,
+    /// Bumped on every committed user-visible error; the event loop watches
+    /// it to force a full redraw so the error is never lost to stale cells.
+    pub error_epoch: u64,
     pub operation: Option<OperationState>,
     pub tag_defs: Vec<TagDef>,
     pub last_tag: Option<String>,
@@ -277,6 +292,7 @@ impl AppState {
             mode: Mode::Browser,
             command_input: String::new(),
             message: None,
+            error_epoch: 0,
             operation: None,
             tag_defs: Vec::new(),
             last_tag: None,
@@ -306,6 +322,13 @@ impl AppState {
             return "VISUAL";
         }
         self.mode.name()
+    }
+
+    /// Commits a user-visible error and bumps the epoch the event loop
+    /// watches to force a full redraw.
+    pub fn set_error(&mut self, text: impl Into<String>) {
+        self.message = Some(StatusMessage::error(text));
+        self.error_epoch = self.error_epoch.wrapping_add(1);
     }
 
     /// Key identifying the focused entry for preview caching

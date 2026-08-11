@@ -42,11 +42,12 @@ KEYS:
     h/l              move between tiles
     Backspace        parent directory
     F5               refresh current directory
-    e, Enter         enter folder or open file
+    e, Enter         enter folder, or choose a command to open a file
     r                open with: prompt for a command to run on the focused entry
     X                encrypt / decrypt focused entry
     b, p             toggle sidebar / preview panel
-    B                bookmark current directory
+    B                search bookmarks (fuzzy navigator)
+    Ctrl-b           bookmark / unbookmark current directory
     g g, G           first / last entry
     Ctrl-u/Ctrl-d    half page up/down
     Space, v         select, visual mode
@@ -213,7 +214,6 @@ impl EffectHandler for ProdHandler {
                     ))],
                 }
             }
-            Effect::OpenPath(_) => Vec::new(),
             Effect::OpenPathWith { .. } => Vec::new(),
             Effect::CreateEntry { path, is_dir } => {
                 let result = if is_dir {
@@ -345,43 +345,8 @@ fn detect_picker() -> ratatui_image::picker::Picker {
     picker
 }
 
-fn open_external(session: &mut TerminalSession<CrosstermTty>, path: &Path) -> Option<Action> {
-    let opener = std::env::var("TUI_EXPLORER_OPENER")
-        .ok()
-        .filter(|v| !v.is_empty());
-    let editor = std::env::var("EDITOR").ok().filter(|v| !v.is_empty());
-    if let Some(program) = opener.or(editor) {
-        if session.suspend().is_err() {
-            return Some(Action::OpenFailed(
-                "could not suspend terminal for editor".to_string(),
-            ));
-        }
-        let status = std::process::Command::new(&program).arg(path).status();
-        let resume = session.resume();
-        let result = match (status, resume) {
-            (Err(e), _) => Some(Action::OpenFailed(format!(
-                "could not start {program}: {e}"
-            ))),
-            (Ok(s), _) if !s.success() => {
-                Some(Action::OpenFailed(format!("{program} exited with {s}")))
-            }
-            (Ok(_), Err(e)) => Some(Action::OpenFailed(format!(
-                "could not restore terminal: {e}"
-            ))),
-            (Ok(_), Ok(())) => None,
-        };
-        return result;
-    }
-    match std::process::Command::new("xdg-open").arg(path).spawn() {
-        Ok(_) => None,
-        Err(e) => Some(Action::OpenFailed(format!("could not start xdg-open: {e}"))),
-    }
-}
-
 /// Runs the user-supplied program from the interactive "open with" prompt
-/// (or the `:open-with`/`:ow` command) against `path`. Unlike
-/// `open_external`, the program is always explicit: no `TUI_EXPLORER_OPENER`
-/// / `$EDITOR` / `xdg-open` fallback applies here.
+/// (or the `:open-with`/`:ow` command) against `path`.
 fn open_external_with(
     session: &mut TerminalSession<CrosstermTty>,
     path: &Path,
@@ -531,11 +496,15 @@ fn run(start: PathBuf) -> std::io::Result<()> {
         state.double_click = Duration::from_millis(ms);
     }
     if let Some(err) = startup_error {
-        state.message = Some(tui_explorer::app::state::StatusMessage::error(err));
+        state.set_error(err);
     }
     let mut pending: VecDeque<Action> = VecDeque::new();
     pending.push_back(Action::LoadInitial);
+    let mut redraw = terminal::RedrawGate::new();
     loop {
+        if redraw.take_full() {
+            term.clear()?;
+        }
         term.draw(|frame| ui::render(frame, &mut state))?;
         drain_channel(&receiver, &mut pending);
         if pending.is_empty() {
@@ -559,6 +528,7 @@ fn run(start: PathBuf) -> std::io::Result<()> {
             }
             drain_channel(&receiver, &mut pending);
         }
+        let epoch_before = state.error_epoch;
         while let Some(action) = pending.pop_front() {
             let effects = reduce(&mut state, action);
             for effect in effects {
@@ -566,19 +536,16 @@ fn run(start: PathBuf) -> std::io::Result<()> {
                     Effect::Quit => {
                         state.should_quit = true;
                     }
-                    Effect::OpenPath(path) => {
-                        if let Some(action) = open_external(&mut session, &path) {
-                            pending.push_back(action);
-                        }
-                    }
                     Effect::OpenPathWith {
                         path,
                         program,
                         args,
                     } => {
-                        if let Some(action) =
-                            open_external_with(&mut session, &path, &program, &args)
-                        {
+                        let follow = open_external_with(&mut session, &path, &program, &args);
+                        // The child ran regardless of success: ratatui's
+                        // cell buffer is stale now, force a full repaint.
+                        redraw.request_full();
+                        if let Some(action) = follow {
                             pending.push_back(action);
                         }
                     }
@@ -589,6 +556,9 @@ fn run(start: PathBuf) -> std::io::Result<()> {
                     }
                 }
             }
+        }
+        if state.error_epoch != epoch_before {
+            redraw.request_full();
         }
         if state.should_quit {
             break;

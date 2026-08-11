@@ -4,9 +4,9 @@ use std::time::Instant;
 use crate::app::action::{Action, ConflictDecision, DirectorySnapshot, MouseKind};
 use crate::app::effects::Effect;
 use crate::app::state::{
-    AppState, ConfirmAction, ConfirmState, ConflictState, ContextItem, ContextMenuState, Mode,
-    OpenWithState, OperationState, Password, PasswordPurpose, PasswordState, PreviewContent,
-    StatusMessage, TagPickerState,
+    AppState, BookmarkNavState, ConfirmAction, ConfirmState, ConflictState, ContextItem,
+    ContextMenuState, Mode, OpenWithState, OperationState, Password, PasswordPurpose,
+    PasswordState, PreviewContent, StatusMessage, TagPickerState,
 };
 use crate::browser::SortMode;
 use crate::crypto::CryptoKind;
@@ -169,6 +169,50 @@ fn reduce_inner(state: &mut AppState, action: Action) -> Vec<Effect> {
             }
             Vec::new()
         }
+        Action::OpenBookmarks => browser_only_fx(state, |s| {
+            s.mode = Mode::Bookmarks(Box::new(BookmarkNavState {
+                query: String::new(),
+                matches: Vec::new(),
+                selected: 0,
+            }));
+            refresh_bookmark_matches(s);
+            Vec::new()
+        }),
+        Action::BookmarkChar(c) => {
+            if let Mode::Bookmarks(nav) = &mut state.mode {
+                nav.query.push(c);
+            }
+            refresh_bookmark_matches(state);
+            Vec::new()
+        }
+        Action::BookmarkBackspace => {
+            if let Mode::Bookmarks(nav) = &mut state.mode {
+                nav.query.pop();
+            }
+            refresh_bookmark_matches(state);
+            Vec::new()
+        }
+        Action::BookmarkMove(delta) => {
+            if let Mode::Bookmarks(nav) = &mut state.mode {
+                let len = nav.matches.len();
+                if len > 0 {
+                    let next = (nav.selected as isize + delta).clamp(0, len as isize - 1);
+                    nav.selected = next as usize;
+                }
+            }
+            Vec::new()
+        }
+        Action::BookmarkSubmit => {
+            let path = match &state.mode {
+                Mode::Bookmarks(nav) => nav.matches.get(nav.selected).cloned(),
+                _ => None,
+            };
+            let Some(path) = path else {
+                return Vec::new();
+            };
+            state.mode = Mode::Browser;
+            navigate(state, path)
+        }
         Action::BookmarksChanged { bookmarks, message } => {
             state.bookmarks = bookmarks;
             state.message = Some(StatusMessage::info(message));
@@ -190,23 +234,27 @@ fn reduce_inner(state: &mut AppState, action: Action) -> Vec<Effect> {
         Action::PasswordSubmit => password_submit(state),
         Action::CryptoFinished { done, failed } => {
             state.operation = None;
-            let message = if failed.is_empty() {
-                StatusMessage::info(format!(
+            let text = if failed.is_empty() {
+                format!(
                     "{} entr{} processed",
                     done.len(),
                     if done.len() == 1 { "y" } else { "ies" }
-                ))
+                )
             } else {
                 let (path, err) = &failed[0];
-                StatusMessage::error(format!(
+                format!(
                     "{}/{} failed: {}: {}",
                     failed.len(),
                     done.len() + failed.len(),
                     path.display(),
                     err
-                ))
+                )
             };
-            state.message = Some(message);
+            if failed.is_empty() {
+                state.message = Some(StatusMessage::info(text));
+            } else {
+                state.set_error(text);
+            }
             vec![Effect::LoadDirectory(state.browser.cwd.clone())]
         }
         Action::PreviewLoaded { key, result } => {
@@ -377,11 +425,11 @@ fn reduce_inner(state: &mut AppState, action: Action) -> Vec<Effect> {
             Vec::new()
         }
         Action::OpenFailed(err) => {
-            state.message = Some(StatusMessage::error(err));
+            state.set_error(err);
             Vec::new()
         }
         Action::ErrorMessage(err) => {
-            state.message = Some(StatusMessage::error(err));
+            state.set_error(err);
             Vec::new()
         }
         Action::TagsApplied { message, last_tag } => {
@@ -434,7 +482,7 @@ fn password_submit(state: &mut AppState) -> Vec<Effect> {
     match dialog.purpose {
         PasswordPurpose::Encrypt => {
             if dialog.input.is_empty() {
-                state.message = Some(StatusMessage::error("password cannot be empty"));
+                state.set_error("password cannot be empty");
                 return Vec::new();
             }
             if let Some(first) = &dialog.first {
@@ -442,7 +490,7 @@ fn password_submit(state: &mut AppState) -> Vec<Effect> {
                     // Mismatched confirmation blocks encryption; start over.
                     dialog.first = None;
                     dialog.input.clear();
-                    state.message = Some(StatusMessage::error("passwords do not match, try again"));
+                    state.set_error("passwords do not match, try again");
                     return Vec::new();
                 }
                 start_crypto(state, CryptoKind::Encrypt)
@@ -453,7 +501,7 @@ fn password_submit(state: &mut AppState) -> Vec<Effect> {
         }
         PasswordPurpose::Decrypt => {
             if dialog.input.is_empty() {
-                state.message = Some(StatusMessage::error("password cannot be empty"));
+                state.set_error("password cannot be empty");
                 return Vec::new();
             }
             start_crypto(state, CryptoKind::Decrypt)
@@ -498,6 +546,26 @@ fn browser_only_fx(
     Vec::new()
 }
 
+fn bookmark_matches(bookmarks: &[PathBuf], query: &str) -> Vec<PathBuf> {
+    let mut scored: Vec<(i32, usize, &PathBuf)> = bookmarks
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, path)| {
+            crate::app::fuzzy::score_bookmark(query, path).map(|score| (score, idx, path))
+        })
+        .collect();
+    scored.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
+    scored.into_iter().map(|(_, _, p)| p.clone()).collect()
+}
+
+fn refresh_bookmark_matches(state: &mut AppState) {
+    let bookmarks = state.bookmarks.clone();
+    if let Mode::Bookmarks(nav) = &mut state.mode {
+        nav.matches = bookmark_matches(&bookmarks, &nav.query);
+        nav.selected = nav.selected.min(nav.matches.len().saturating_sub(1));
+    }
+}
+
 fn navigate(state: &mut AppState, dir: PathBuf) -> Vec<Effect> {
     state.pending_nav = Some(state.browser.cwd.clone());
     // A filename search is scoped to one directory, matching desktop file
@@ -515,9 +583,19 @@ fn open_focused(state: &mut AppState) -> Vec<Effect> {
         let path = view.entry.path.clone();
         match &view.entry.kind {
             EntryKind::Directory => navigate(s, path),
-            _ => vec![Effect::OpenPath(path)],
+            _ => {
+                prompt_open_with(s, path);
+                Vec::new()
+            }
         }
     })
+}
+
+fn prompt_open_with(state: &mut AppState, target: PathBuf) {
+    state.mode = Mode::OpenWith(Box::new(OpenWithState {
+        target,
+        input: String::new(),
+    }));
 }
 
 fn open_with_prompt(state: &mut AppState) -> Vec<Effect> {
@@ -527,10 +605,7 @@ fn open_with_prompt(state: &mut AppState) -> Vec<Effect> {
             return Vec::new();
         };
         let target = view.entry.path.clone();
-        s.mode = Mode::OpenWith(Box::new(OpenWithState {
-            target,
-            input: String::new(),
-        }));
+        prompt_open_with(s, target);
         Vec::new()
     })
 }
@@ -543,13 +618,13 @@ fn open_with_submit(state: &mut AppState) -> Vec<Effect> {
     let input = dialog.input.clone();
     state.mode = Mode::Browser;
     if input.trim().is_empty() {
-        state.message = Some(StatusMessage::error("no command entered"));
+        state.set_error("no command entered");
         return Vec::new();
     }
     match command::split_words(&input) {
         Ok(words) => {
             let Some((program, args)) = words.split_first() else {
-                state.message = Some(StatusMessage::error("no command entered"));
+                state.set_error("no command entered");
                 return Vec::new();
             };
             vec![Effect::OpenPathWith {
@@ -559,7 +634,7 @@ fn open_with_submit(state: &mut AppState) -> Vec<Effect> {
             }]
         }
         Err(e) => {
-            state.message = Some(StatusMessage::error(e.to_string()));
+            state.set_error(e.to_string());
             Vec::new()
         }
     }
@@ -666,11 +741,11 @@ fn picker_submit_new(state: &mut AppState) -> Vec<Effect> {
         return Vec::new();
     };
     if let Err(e) = validate_name(&name) {
-        state.message = Some(StatusMessage::error(e.to_string()));
+        state.set_error(e.to_string());
         return Vec::new();
     }
     if picker.defs.iter().any(|d| d.name == name) {
-        state.message = Some(StatusMessage::error(format!("tag exists: {name}")));
+        state.set_error(format!("tag exists: {name}"));
         return Vec::new();
     }
     let targets = picker.targets.clone();
@@ -763,7 +838,7 @@ fn validate_entry_name(name: &str) -> Result<(), &'static str> {
 
 fn create_entry(state: &mut AppState, name: String, is_dir: bool) -> Vec<Effect> {
     if let Err(e) = validate_entry_name(&name) {
-        state.message = Some(StatusMessage::error(e.to_string()));
+        state.set_error(e.to_string());
         return Vec::new();
     }
     let path = state.browser.cwd.join(&name);
@@ -780,7 +855,7 @@ fn submit_command(state: &mut AppState) -> Vec<Effect> {
     let parsed = match command::parse(&input) {
         Ok(c) => c,
         Err(e) => {
-            state.message = Some(StatusMessage::error(e.to_string()));
+            state.set_error(e.to_string());
             return Vec::new();
         }
     };
@@ -799,7 +874,7 @@ fn submit_command(state: &mut AppState) -> Vec<Effect> {
             match validate_rename(&plan) {
                 Ok(_) => vec![Effect::RunRename(Box::new(plan))],
                 Err(e) => {
-                    state.message = Some(StatusMessage::error(e.to_string()));
+                    state.set_error(e.to_string());
                     Vec::new()
                 }
             }
@@ -807,7 +882,7 @@ fn submit_command(state: &mut AppState) -> Vec<Effect> {
         Command::Delete => delete_confirm(state),
         Command::Tag { name } => {
             if let Err(e) = validate_name(&name) {
-                state.message = Some(StatusMessage::error(e.to_string()));
+                state.set_error(e.to_string());
                 return Vec::new();
             }
             let targets = state.browser.targets();
@@ -892,9 +967,7 @@ fn submit_command(state: &mut AppState) -> Vec<Effect> {
                 state.browser.set_sort_mode(mode);
                 state.message = Some(StatusMessage::info(format!("sorted by {label}")));
             } else {
-                state.message = Some(StatusMessage::error(
-                    "sort expects name, size, modified, or a -desc variant".to_string(),
-                ));
+                state.set_error("sort expects name, size, modified, or a -desc variant");
             }
             Vec::new()
         }
@@ -926,7 +999,7 @@ fn start_copy_move(state: &mut AppState, kind: OperationKind, dest: String) -> V
     match validate(&plan) {
         Ok(()) => start_operation(state, plan),
         Err(e) => {
-            state.message = Some(StatusMessage::error(e.to_string()));
+            state.set_error(e.to_string());
             Vec::new()
         }
     }
@@ -1029,6 +1102,7 @@ fn cancel(state: &mut AppState) -> Vec<Effect> {
         | Mode::ContextMenu(_)
         | Mode::Password(_)
         | Mode::OpenWith(_)
+        | Mode::Bookmarks(_)
         | Mode::Help => {
             state.mode = Mode::Browser;
             state.command_input.clear();
@@ -1065,10 +1139,10 @@ fn directory_loaded(
         Err(err) => {
             if let Some(prev) = state.pending_nav.take() {
                 state.browser.enter(&prev);
-                state.message = Some(StatusMessage::error(err));
+                state.set_error(err);
                 return vec![Effect::LoadDirectory(prev)];
             }
-            state.message = Some(StatusMessage::error(err));
+            state.set_error(err);
         }
     }
     Vec::new()
@@ -1093,11 +1167,11 @@ fn operation_finished(state: &mut AppState, report: OperationReport) -> Vec<Effe
             text.push_str(&format!(": {err}"));
         }
     }
-    state.message = Some(if failed.is_empty() {
-        StatusMessage::info(text)
+    if failed.is_empty() {
+        state.message = Some(StatusMessage::info(text));
     } else {
-        StatusMessage::error(text)
-    });
+        state.set_error(text);
+    }
     let mut effects: Vec<Effect> = report
         .moves
         .iter()
@@ -1310,6 +1384,6 @@ fn legend_action(state: &mut AppState, action: LegendAction) -> Vec<Effect> {
         LegendAction::Encrypt => reduce(state, Action::EncryptToggle),
         LegendAction::Sidebar => reduce(state, Action::ToggleSidebar),
         LegendAction::Preview => reduce(state, Action::TogglePreview),
-        LegendAction::Bookmark => reduce(state, Action::ToggleBookmark),
+        LegendAction::Bookmarks => reduce(state, Action::OpenBookmarks),
     }
 }

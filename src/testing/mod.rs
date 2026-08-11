@@ -172,7 +172,6 @@ pub struct SyncHandler {
     pub fs: MemoryFileSystem,
     pub mutations: RecordingMutations,
     pub tags: TagStore,
-    pub opened: Vec<PathBuf>,
     pub opened_with: Vec<(PathBuf, String, Vec<String>)>,
     pub quit: bool,
     pub now: i64,
@@ -187,7 +186,6 @@ impl SyncHandler {
             fs,
             mutations: RecordingMutations::new(existing),
             tags: TagStore::open_in_memory().expect("in-memory tag store"),
-            opened: Vec::new(),
             opened_with: Vec::new(),
             quit: false,
             now: 1_700_000_000,
@@ -289,10 +287,6 @@ impl EffectHandler for SyncHandler {
                         format!("removed bookmark {}", path.display())
                     },
                 }]
-            }
-            Effect::OpenPath(path) => {
-                self.opened.push(path);
-                Vec::new()
             }
             Effect::OpenPathWith {
                 path,

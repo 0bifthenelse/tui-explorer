@@ -140,6 +140,35 @@ pub fn install_panic_hook() {
     }));
 }
 
+/// Tracks whether the next frame must be preceded by a full terminal clear.
+/// Ratatui diffs against its own cell buffer, which goes stale whenever a
+/// child process writes to the tty; a full clear is the only reliable
+/// recovery. Efficient diffing is preserved for every other frame.
+#[derive(Debug)]
+pub struct RedrawGate {
+    full: bool,
+}
+
+impl RedrawGate {
+    pub fn new() -> Self {
+        RedrawGate { full: true }
+    }
+
+    pub fn request_full(&mut self) {
+        self.full = true;
+    }
+
+    pub fn take_full(&mut self) -> bool {
+        std::mem::replace(&mut self.full, false)
+    }
+}
+
+impl Default for RedrawGate {
+    fn default() -> Self {
+        RedrawGate::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

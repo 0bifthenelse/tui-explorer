@@ -1,6 +1,8 @@
 pub mod format;
 pub mod hit;
 
+use std::path::Path;
+
 use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
@@ -20,7 +22,7 @@ const ASCII_BORDERS: border::Set = border::Set {
 };
 
 use crate::app::reduce::breadcrumb_segments;
-use crate::app::state::{AppState, Mode, PasswordPurpose, PreviewContent};
+use crate::app::state::{AppState, BookmarkNavState, Mode, PasswordPurpose, PreviewContent};
 use crate::icons::{IconResolver, IconVariant, TILE_ART_HEIGHT, TILE_ART_WIDTH, tile_art};
 use crate::sidebar::{self, SidebarItem};
 use crate::ui::format::{format_mode, format_size, format_time, kind_label, pad_right, truncate};
@@ -198,6 +200,11 @@ pub fn render(frame: &mut Frame, state: &mut AppState) {
             let target = dialog.target.display().to_string();
             let input = dialog.input.clone();
             render_open_with(frame, area, &target, &input, &mut state.hit_map);
+        }
+        Mode::Bookmarks(nav) => {
+            let nav = nav.clone();
+            let home = state.home.clone();
+            render_bookmarks(frame, area, &nav, &home, &mut state.hit_map);
         }
         Mode::Help => render_help(frame, area, &mut state.hit_map),
         _ => {}
@@ -431,7 +438,7 @@ fn render_sidebar(frame: &mut Frame, area: Rect, state: &mut AppState) {
         &mut lines,
         &mut flat,
         &mut hits,
-        "(B to bookmark cwd)",
+        "(Ctrl-b bookmarks cwd)",
     );
 
     state.sidebar_items = flat;
@@ -850,6 +857,10 @@ fn legend_items(
             ("Enter", "run", None),
             ("Esc", "cancel", Some(LegendAction::Cancel)),
         ],
+        Mode::Bookmarks(_) => vec![
+            ("Enter", "go", None),
+            ("Esc", "close", Some(LegendAction::Cancel)),
+        ],
         Mode::Help => vec![("Esc", "close", Some(LegendAction::Cancel))],
         Mode::Browser => {
             let mut items = vec![
@@ -867,7 +878,7 @@ fn legend_items(
                 items.push(("p", "Preview", Some(LegendAction::Preview)));
             }
             if tier == Tier::Wide {
-                items.push(("B", "Bookmark", Some(LegendAction::Bookmark)));
+                items.push(("B", "Bookmarks", Some(LegendAction::Bookmarks)));
                 items.push(("q", "Quit", Some(LegendAction::Quit)));
             }
             items
@@ -912,6 +923,7 @@ fn render_tip(frame: &mut Frame, area: Rect, state: &AppState) {
         Mode::OpenWith(_) => {
             "TIP  Type a command, e.g. mupdf, then Enter to run it on the focused entry"
         }
+        Mode::Bookmarks(_) => "TIP  Type to fuzzy-search bookmarks, Up/Down to select, Enter to go",
         _ => "TIP  Esc goes back",
     };
     let _ = state;
@@ -1268,6 +1280,102 @@ fn render_open_with(frame: &mut Frame, area: Rect, target: &str, input: &str, hi
     );
 }
 
+fn render_bookmarks(
+    frame: &mut Frame,
+    area: Rect,
+    nav: &BookmarkNavState,
+    home: &Path,
+    hits: &mut HitMap,
+) {
+    push_blocker(area, hits);
+    let rect = centered_rect(
+        area,
+        64.min(area.width),
+        (nav.matches.len() as u16 + 6).clamp(9, area.height.max(9)),
+    );
+    frame.render_widget(Clear, rect);
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_set(ASCII_BORDERS)
+        .border_style(dir_style())
+        .title(Span::styled(" BOOKMARKS ", dir_style()));
+    let inner = block.inner(rect);
+    frame.render_widget(block, rect);
+    let width = inner.width as usize;
+    let mut lines: Vec<Line> = Vec::new();
+    lines.push(Line::from(vec![
+        Span::styled("search: ", base_style()),
+        Span::styled(nav.query.clone(), Style::default().fg(Color::White)),
+        Span::styled("_", muted_style()),
+    ]));
+    lines.push(Line::from(""));
+    if nav.matches.is_empty() {
+        let text = if nav.query.is_empty() {
+            "no bookmarks yet, press Ctrl-b to bookmark the current directory"
+        } else {
+            "no bookmarks match this search"
+        };
+        lines.push(Line::from(Span::styled(
+            truncate(text, width),
+            muted_style(),
+        )));
+    }
+    for (idx, path) in nav.matches.iter().enumerate() {
+        if lines.len() as u16 >= inner.height - 2 {
+            break;
+        }
+        let focused = idx == nav.selected;
+        let cursor = if focused { ">" } else { " " };
+        let cursor_style = if focused {
+            focused_style()
+        } else {
+            base_style()
+        };
+        let basename = path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| path.display().to_string());
+        let shown = path
+            .strip_prefix(home)
+            .map(|rest| format!("~/{rest}", rest = rest.display()))
+            .unwrap_or_else(|_| path.display().to_string());
+        let text = truncate(
+            &format!("{cursor}{} {shown}", pad_right(&basename, 20)),
+            width,
+        );
+        let chars: Vec<char> = text.chars().collect();
+        let mut spans: Vec<Span> = Vec::new();
+        if let Some(&c) = chars.first() {
+            spans.push(Span::styled(c.to_string(), cursor_style));
+        }
+        let base_end = chars.len().min(1 + 20);
+        if base_end > 1 {
+            spans.push(Span::styled(
+                chars[1..base_end].iter().collect::<String>(),
+                if focused {
+                    focused_style()
+                } else {
+                    base_style()
+                },
+            ));
+        }
+        if chars.len() > base_end {
+            spans.push(Span::styled(
+                chars[base_end..].iter().collect::<String>(),
+                muted_style(),
+            ));
+        }
+        lines.push(Line::from(spans));
+    }
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![
+        Span::styled(" [Enter] go ", dir_style()),
+        Span::raw(" "),
+        Span::styled(" [Esc] close ", base_style()),
+    ]));
+    frame.render_widget(Paragraph::new(lines), inner);
+}
+
 fn render_help(frame: &mut Frame, area: Rect, hits: &mut HitMap) {
     push_blocker(area, hits);
     let rect = centered_rect(area, 100.min(area.width), (area.height * 4 / 5).max(16));
@@ -1300,7 +1408,8 @@ fn render_help(frame: &mut Frame, area: Rect, hits: &mut HitMap) {
         ("X", "encrypt / decrypt focused entry"),
         ("b", "toggle sidebar"),
         ("p", "toggle preview panel"),
-        ("B", "bookmark current directory"),
+        ("B", "search bookmarks (fuzzy)"),
+        ("Ctrl-b", "bookmark / unbookmark current directory"),
         ("t", "toggle last used tag"),
         ("T", "tag picker and manager"),
         ("/ / Ctrl-f", "filter current directory filenames"),

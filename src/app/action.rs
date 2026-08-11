@@ -52,6 +52,11 @@ pub enum Action {
     ToggleSidebar,
     TogglePreview,
     ToggleBookmark,
+    OpenBookmarks,
+    BookmarkChar(char),
+    BookmarkBackspace,
+    BookmarkMove(isize),
+    BookmarkSubmit,
     /// `X`: start encryption, or decryption when the focused entry is a
     /// recognized encrypted output (`*.age` / `*.tar.age`).
     EncryptToggle,

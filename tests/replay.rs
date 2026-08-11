@@ -521,15 +521,46 @@ fn open_with_empty_input_reports_error() {
 }
 
 #[test]
-fn open_file_goes_to_opener_not_fs() {
+fn open_file_prompts_for_command() {
     let (mut state, mut handler) = loaded(120, 36);
     drive(
         &mut state,
         &mut handler,
         [Action::GotoLast, Action::OpenFocused],
     );
-    assert_eq!(handler.opened.len(), 1);
+    let Mode::OpenWith(dialog) = &state.mode else {
+        panic!("expected open-with modal, got {:?}", state.mode.name())
+    };
+    let target = state.browser.focused().unwrap().entry.path.clone();
+    assert_eq!(dialog.target, target, "modal targets the focused file");
+    assert!(handler.opened_with.is_empty());
     assert!(handler.mutations.recorded().is_empty());
+}
+
+#[test]
+fn open_command_prompts_for_command() {
+    let (mut state, mut handler) = loaded(120, 36);
+    drive(&mut state, &mut handler, [Action::GotoLast]);
+    drive(&mut state, &mut handler, command_actions("open"));
+    let Mode::OpenWith(dialog) = &state.mode else {
+        panic!("expected open-with modal, got {:?}", state.mode.name())
+    };
+    let target = state.browser.focused().unwrap().entry.path.clone();
+    assert_eq!(dialog.target, target);
+    assert!(handler.opened_with.is_empty());
+}
+
+#[test]
+fn open_with_command_skips_prompt() {
+    let (mut state, mut handler) = loaded(120, 36);
+    drive(&mut state, &mut handler, [Action::GotoLast]);
+    let target = state.browser.focused().unwrap().entry.path.clone();
+    drive(&mut state, &mut handler, command_actions("open-with cat"));
+    assert_eq!(
+        handler.opened_with,
+        vec![(target, "cat".to_string(), vec![])]
+    );
+    assert!(matches!(state.mode, Mode::Browser));
 }
 
 #[test]
@@ -612,9 +643,10 @@ fn single_click_selects_but_never_opens() {
     assert_eq!(state.browser.selected, 1);
     assert_eq!(state.browser.cwd, cwd, "single click must not navigate");
     assert!(
-        handler.opened.is_empty(),
+        handler.opened_with.is_empty(),
         "single click must not open files"
     );
+    assert!(matches!(state.mode, Mode::Browser));
 }
 
 #[test]
@@ -629,7 +661,10 @@ fn double_click_same_entry_opens_exactly_once() {
         PathBuf::from("/home/demo/docs"),
         "double click enters the folder"
     );
-    assert_eq!(handler.opened.len(), 0, "folder opens navigate, not spawn");
+    assert!(
+        handler.opened_with.is_empty(),
+        "folder opens navigate, not spawn"
+    );
 }
 
 #[test]
@@ -640,7 +675,8 @@ fn double_click_different_entries_does_not_open() {
     click(&mut state, &mut handler, 1);
     assert_eq!(state.browser.selected, 1);
     assert_eq!(state.browser.cwd, cwd, "clicks on different entries select");
-    assert!(handler.opened.is_empty());
+    assert!(handler.opened_with.is_empty());
+    assert!(matches!(state.mode, Mode::Browser));
 }
 
 #[test]
@@ -694,8 +730,138 @@ fn open_on_empty_directory_is_safe() {
     let mut handler = SyncHandler::new(fs);
     drive(&mut state, &mut handler, [Action::LoadInitial]);
     drive(&mut state, &mut handler, [Action::OpenFocused]);
-    assert!(handler.opened.is_empty());
+    assert!(handler.opened_with.is_empty());
+    assert!(matches!(state.mode, Mode::Browser));
     assert_eq!(state.browser.cwd, PathBuf::from("/home/demo"));
+}
+
+fn first_file_pos(state: &AppState) -> usize {
+    state
+        .browser
+        .visible_indices()
+        .iter()
+        .position(|&i| !state.browser.entries[i].entry.kind.is_dir())
+        .expect("demo fs has files")
+}
+
+#[test]
+fn double_click_file_prompts_for_command() {
+    let (mut state, mut handler) = rendered(120, 36);
+    let pos = first_file_pos(&state);
+    click(&mut state, &mut handler, pos);
+    click(&mut state, &mut handler, pos);
+    let Mode::OpenWith(dialog) = &state.mode else {
+        panic!("expected open-with modal, got {:?}", state.mode.name())
+    };
+    let target = state.browser.focused().unwrap().entry.path.clone();
+    assert_eq!(dialog.target, target);
+    assert!(handler.opened_with.is_empty());
+}
+
+#[test]
+fn context_menu_open_prompts_for_command() {
+    let (mut state, mut handler) = rendered(120, 36);
+    let pos = first_file_pos(&state);
+    let rect = row_rect(&state, pos);
+    drive(
+        &mut state,
+        &mut handler,
+        [Action::Mouse {
+            kind: MouseKind::Right,
+            x: rect.x + 1,
+            y: rect.y + 1,
+        }],
+    );
+    assert!(matches!(state.mode, Mode::ContextMenu(_)));
+    let target = state.browser.focused().unwrap().entry.path.clone();
+    // ContextItem::all() starts with Open, and the menu opens on it.
+    drive(&mut state, &mut handler, [Action::ContextChoose]);
+    let Mode::OpenWith(dialog) = &state.mode else {
+        panic!("expected open-with modal, got {:?}", state.mode.name())
+    };
+    assert_eq!(dialog.target, target);
+    assert!(handler.opened_with.is_empty());
+}
+
+#[test]
+fn bookmark_navigator_filters_submits_and_cancels() {
+    let (mut state, mut handler) = loaded(120, 36);
+    state.bookmarks = vec![
+        PathBuf::from("/home/demo/docs"),
+        PathBuf::from("/home/demo/src"),
+    ];
+    drive(&mut state, &mut handler, [Action::OpenBookmarks]);
+    let Mode::Bookmarks(nav) = &state.mode else {
+        panic!("expected bookmarks modal")
+    };
+    assert_eq!(nav.matches.len(), 2);
+    assert_eq!(nav.selected, 0);
+    // Moving then typing a query that shrinks the list keeps selection valid.
+    drive(&mut state, &mut handler, [Action::BookmarkMove(1)]);
+    for c in "src".chars() {
+        drive(&mut state, &mut handler, [Action::BookmarkChar(c)]);
+    }
+    let Mode::Bookmarks(nav) = &state.mode else {
+        panic!("still in bookmarks modal")
+    };
+    assert_eq!(nav.matches, vec![PathBuf::from("/home/demo/src")]);
+    assert_eq!(nav.selected, 0, "selection clamps to the shrunk list");
+    drive(&mut state, &mut handler, [Action::BookmarkSubmit]);
+    assert_eq!(state.browser.cwd, PathBuf::from("/home/demo/src"));
+    assert!(matches!(state.mode, Mode::Browser));
+    // Reopen; Esc closes without navigating.
+    let cwd = state.browser.cwd.clone();
+    drive(&mut state, &mut handler, [Action::OpenBookmarks]);
+    drive(&mut state, &mut handler, [Action::Cancel]);
+    assert!(matches!(state.mode, Mode::Browser));
+    assert_eq!(state.browser.cwd, cwd);
+}
+
+#[test]
+fn bookmark_navigator_opens_empty() {
+    let (mut state, mut handler) = loaded(120, 36);
+    state.bookmarks.clear();
+    drive(&mut state, &mut handler, [Action::OpenBookmarks]);
+    let Mode::Bookmarks(nav) = &state.mode else {
+        panic!("expected bookmarks modal")
+    };
+    assert!(nav.matches.is_empty());
+    drive(&mut state, &mut handler, [Action::Cancel]);
+    assert!(matches!(state.mode, Mode::Browser));
+}
+
+#[test]
+fn error_epoch_bumps_only_on_errors() {
+    let (mut state, mut handler) = loaded(120, 36);
+    let before = state.error_epoch;
+    drive(
+        &mut state,
+        &mut handler,
+        [Action::TagsApplied {
+            message: "tagged 1 entry with [x]".to_string(),
+            last_tag: Some("x".to_string()),
+        }],
+    );
+    assert_eq!(
+        state.error_epoch, before,
+        "info messages do not bump the epoch"
+    );
+    drive(
+        &mut state,
+        &mut handler,
+        [Action::ErrorMessage("boom".to_string())],
+    );
+    assert_eq!(state.error_epoch, before + 1);
+    assert!(state.message.as_ref().is_some_and(|m| m.is_error));
+    drive(
+        &mut state,
+        &mut handler,
+        [Action::DirectoryLoaded {
+            result: Err("cannot read /nope: no such directory".to_string()),
+        }],
+    );
+    assert_eq!(state.error_epoch, before + 2);
+    assert!(state.message.as_ref().is_some_and(|m| m.is_error));
 }
 
 // ---- Encryption flow through the UI (real temp fixture) ----

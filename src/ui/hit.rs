@@ -16,7 +16,7 @@ pub enum LegendAction {
     Encrypt,
     Sidebar,
     Preview,
-    Bookmark,
+    Bookmarks,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

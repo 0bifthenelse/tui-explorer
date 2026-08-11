@@ -348,6 +348,59 @@ fn context_menu() {
 }
 
 #[test]
+fn bookmark_modal() {
+    let (mut state, mut handler) = loaded(120, 36);
+    state.bookmarks = vec![
+        PathBuf::from("/home/demo/docs"),
+        PathBuf::from("/home/demo/src"),
+        PathBuf::from("/var/log"),
+    ];
+    drive(&mut state, &mut handler, [Action::OpenBookmarks]);
+    drive(&mut state, &mut handler, [Action::BookmarkChar('d')]);
+    let text = render(&mut state, 120, 36);
+    assert_snapshot("bookmarks-120x36", &text);
+}
+
+#[test]
+fn bookmark_modal_empty() {
+    let (mut state, mut handler) = loaded(80, 24);
+    state.bookmarks.clear();
+    drive(&mut state, &mut handler, [Action::OpenBookmarks]);
+    let text = render(&mut state, 80, 24);
+    assert_snapshot("bookmarks-empty-80x24", &text);
+}
+
+#[test]
+fn bookmark_modal_renders_at_every_size() {
+    for (w, h) in SIZES {
+        let (mut state, mut handler) = loaded(*w, *h);
+        state.bookmarks = vec![
+            PathBuf::from("/home/demo/docs"),
+            PathBuf::from("/home/demo/src"),
+            PathBuf::from("/var/log"),
+            PathBuf::from("/etc"),
+        ];
+        drive(&mut state, &mut handler, [Action::OpenBookmarks]);
+        for c in "do".chars() {
+            drive(&mut state, &mut handler, [Action::BookmarkChar(c)]);
+        }
+        let backend = TestBackend::new(*w, *h);
+        let mut terminal = Terminal::new(backend).expect("test terminal");
+        terminal
+            .draw(|frame| ui::render(frame, &mut state))
+            .unwrap_or_else(|e| panic!("render panicked at {w}x{h}: {e}"));
+        let area = terminal.backend().buffer().area;
+        for (rect, target) in &state.hit_map.regions {
+            assert!(
+                rect.x + rect.width <= area.x + area.width
+                    && rect.y + rect.height <= area.y + area.height,
+                "hit region {target:?} out of bounds at {w}x{h}"
+            );
+        }
+    }
+}
+
+#[test]
 fn symlinks_and_executables_render() {
     let (state, _) = loaded(160, 48);
     let mut state = state;

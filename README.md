@@ -62,12 +62,13 @@ Compact layout on a small terminal (SVG, 60x16 cells):
 | `l` / Right | move one tile right |
 | Backspace | open parent directory |
 | `F5` | refresh the current directory |
-| `e` / Enter | enter directory or open file (the only keyboard open actions) |
+| `e` / Enter | enter directory, or prompt for a command to open a file (the only keyboard open actions) |
 | `r` | open with: prompt for a command to run on the focused entry |
 | `X` | encrypt / decrypt the focused entry (masked password dialog) |
 | `b` | toggle the sidebar |
 | `p` | toggle the preview panel |
-| `B` | bookmark the current directory |
+| `B` | open the fuzzy bookmark navigator |
+| `Ctrl-b` | bookmark / unbookmark the current directory |
 | `g g` | first entry |
 | `G` | last entry |
 | `Ctrl-u` / `Ctrl-d` | half page up / down |
@@ -86,7 +87,7 @@ Compact layout on a small terminal (SVG, 60x16 cells):
 Mouse controls:
 
 - Left click: select a tile, activate a legend action, navigate the breadcrumb or jump to a sidebar place/mount/bookmark (a single click never opens anything)
-- Double left click on the same entry: enter a directory or open a file
+- Double left click on the same entry: enter a directory, or prompt for a command to open a file
 - Right click: context menu for the focused entry
 - Mouse wheel: scroll the list
 - Click a tag badge in the details panel: open the tag picker
@@ -103,7 +104,6 @@ Press `X` on any entry. Regular files and folders are encrypted with the maintai
 
 ## Configuration
 
-- `TUI_EXPLORER_OPENER` / `EDITOR`: program used to open files (falls back to `xdg-open`)
 - `TUI_EXPLORER_DOUBLE_CLICK_MS`: double-click threshold in milliseconds (default 500)
 - `TUI_EXPLORER_IMAGE_PROTOCOL`: choose the image preview protocol (`halfblocks`, `kitty`, `sixel`, or `iterm2`). The stable cell-based `halfblocks` renderer is always the default; native Kitty/Sixel/iTerm2 graphics are explicit opt-ins because incorrect terminal geometry can overdraw a TUI.
 - Bookmarks are stored in `$XDG_DATA_HOME/tui-explorer/bookmarks.txt`, tags in `tags.sqlite3` alongside it
@@ -130,7 +130,7 @@ Press `:` and type a command. Paths with spaces work when quoted, for example `:
 | `:tag <name>` | assign a tag (created if missing) |
 | `:untag <name>` | remove a tag |
 | `:tags` | open the tag picker |
-| `:open` | open the focused entry with the default opener |
+| `:open` | open the focused entry (directories enter, files prompt for a command) |
 | `:open-with <command> [args...]` (`:ow`) | run `<command> [args...] <entry>` directly, no prompt |
 | `:cd <path>` | change directory (`~` and relative paths work) |
 | `:quit` (`:q`) | quit |
@@ -140,7 +140,13 @@ Command input is parsed by the application itself. It is never passed to a shell
 
 ### Open with
 
-Press `r` on a focused entry to open a small prompt asking which command to run against it, for example typing `mupdf` to run `mupdf <path>` on a focused PDF, or `mupdf -r 150` to pass flags. The command is split the same quote-aware way as the rest of command mode, so `"my viewer" --flag` works. This is independent from the default open flow (`e`/`Enter`/double-click), which keeps using `TUI_EXPLORER_OPENER`/`$EDITOR`/`xdg-open` automatically; nothing is remembered between prompts. `:open-with <command> [args...]` (alias `:ow`) runs the same way without a prompt, since the command is already supplied on the line.
+Press `r` on a focused entry to open a small prompt asking which command to run against it, for example typing `mupdf` to run `mupdf <path>` on a focused PDF, or `mupdf -r 150` to pass flags. The command is split the same quote-aware way as the rest of command mode, so `"my viewer" --flag` works.
+
+The prompt is now the only way a file is opened: `e`/`Enter`, double-click, and `:open` all route into it, and nothing is remembered between prompts. `:open-with <command> [args...]` (alias `:ow`) skips the prompt because the command is already supplied on the line.
+
+### Bookmarks
+
+`Ctrl-b` bookmarks or unbookmarks the current directory (persisted in `bookmarks.txt`, one absolute path per line, unchanged format). `B` opens a fuzzy bookmark navigator: type to filter the bookmark list live (case-insensitive subsequence matching, basename matches ranked first), Up/Down or Ctrl-n/Ctrl-p to move the selection, Enter to navigate to the selected bookmark, Esc to close. The navigator opens even with no bookmarks and explains how to add one.
 
 ## Icons
 
@@ -236,10 +242,9 @@ A positional argument selects the startup directory; without one the current wor
 
 Opening files:
 
-- If `$EDITOR` is set, regular files open in it; the interface suspends cleanly and restores the terminal afterwards
-- `TUI_EXPLORER_OPENER` overrides `$EDITOR` when you want a different program
-- Without either, files open through `xdg-open`
-- Directories always open internally
+- Files always open through the command prompt: `e`/`Enter`, double-click, and `:open` ask which command to run; directories always open internally
+- No environment variable or `xdg-open` fallback exists
+- The interface suspends and restores the terminal around the child process and forces a full repaint afterwards
 
 ## Safety and deletion behavior
 
@@ -324,7 +329,7 @@ Automated tests never exercise the real mutation backend by design. The followin
 
 - Real copy, move, rename, and delete operations, including recursive directories and cross-device moves
 - Real symlink copying
-- Opening files with `$EDITOR`, `TUI_EXPLORER_OPENER`, and `xdg-open` on a live terminal
+- Opening files through the command prompt on a live terminal
 - Tag database creation, permissions, and persistence across restarts on a real home directory
 - Kitty/Sixel/iTerm2 pixel output on a graphics terminal (headless tests exercise the half-block fallback only)
 
