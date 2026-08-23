@@ -5,8 +5,8 @@ use crate::app::action::{Action, ConflictDecision, DirectorySnapshot, MouseKind}
 use crate::app::effects::Effect;
 use crate::app::state::{
     AppState, BookmarkNavState, ConfirmAction, ConfirmState, ConflictState, ContextItem,
-    ContextMenuState, MediaState, Mode, OpenWithState, OperationState, Password, PasswordPurpose,
-    PasswordState, PreviewContent, StatusMessage, TagPickerState,
+    ContextMenuState, DragPhase, DragState, MediaState, Mode, OpenWithState, OperationState,
+    Password, PasswordPurpose, PasswordState, PreviewContent, StatusMessage, TagPickerState,
 };
 use crate::browser::SortMode;
 use crate::crypto::CryptoKind;
@@ -547,6 +547,7 @@ fn reduce_inner(state: &mut AppState, action: Action) -> Vec<Effect> {
         Action::Resize { width, height } => {
             state.width = width;
             state.height = height;
+            state.drag = None;
             // Video restarts at the new geometry: snapshot playback, stop
             // the backend, and re-enter Preparing once stopped.
             if let Mode::Media(media) = &mut state.mode
@@ -600,6 +601,10 @@ fn reduce_inner(state: &mut AppState, action: Action) -> Vec<Effect> {
         }
         Action::ErrorMessage(err) => {
             state.set_error(err);
+            Vec::new()
+        }
+        Action::DragCancel => {
+            state.drag = None;
             Vec::new()
         }
         Action::TagsApplied { message, last_tag } => {
@@ -1300,6 +1305,7 @@ fn context_apply(state: &mut AppState, item: ContextItem) -> Vec<Effect> {
 }
 
 fn cancel(state: &mut AppState) -> Vec<Effect> {
+    state.drag = None;
     match &state.mode {
         Mode::Media(_) => return close_media(state, AfterStop::Close),
         Mode::Command
@@ -1392,14 +1398,21 @@ fn operation_finished(state: &mut AppState, report: OperationReport) -> Vec<Effe
 }
 
 fn mouse(state: &mut AppState, kind: MouseKind, x: u16, y: u16) -> Vec<Effect> {
+    // Drag-and-drop intercepts left-button motion and release before the
+    // ordinary click handling; the click path stays untouched below.
+    if let Some(drag) = state.drag.clone() {
+        if kind != MouseKind::Left {
+            return handle_drag_motion(state, drag, kind, x, y);
+        }
+        // A fresh left-down means no release was ever seen (test harnesses
+        // synthesize clicks directly): drop the stale armed press and fall
+        // through to the normal click path.
+        state.drag = None;
+    }
     let Some(target) = state.hit_map.hit(x, y) else {
         return Vec::new();
     };
     match target {
-        HitTarget::Blocker => match kind {
-            MouseKind::Left => cancel(state),
-            _ => Vec::new(),
-        },
         HitTarget::Row(pos) => match kind {
             MouseKind::Left => {
                 if !matches!(state.mode, Mode::Browser) {
@@ -1408,6 +1421,14 @@ fn mouse(state: &mut AppState, kind: MouseKind, x: u16, y: u16) -> Vec<Effect> {
                 state.browser.selected = pos;
                 let (c, r) = grid_dims(state);
                 state.browser.clamp_scroll_grid(c, r);
+                // Arm a potential drag: snapshot the source set now because
+                // sorting/filtering/refresh may shift rows during a drag.
+                state.drag = Some(DragState {
+                    phase: DragPhase::Armed,
+                    origin: (x, y),
+                    sources: drag_sources(state),
+                    cursor: (x, y),
+                });
                 // Double-click requires the same entry, left button, within
                 // the configured threshold; it is consumed once so one
                 // double click can never trigger duplicate opens.
@@ -1449,6 +1470,7 @@ fn mouse(state: &mut AppState, kind: MouseKind, x: u16, y: u16) -> Vec<Effect> {
                 let (c, r) = grid_dims(s);
                 s.browser.grid_move(c as isize, c, r);
             }),
+            MouseKind::LeftUp | MouseKind::LeftDrag => Vec::new(),
         },
         HitTarget::Sidebar(idx) => match kind {
             MouseKind::Left => {
@@ -1570,7 +1592,139 @@ fn mouse(state: &mut AppState, kind: MouseKind, x: u16, y: u16) -> Vec<Effect> {
             _ => Vec::new(),
         },
         HitTarget::Details => Vec::new(),
+        HitTarget::Blocker => match kind {
+            MouseKind::Left => cancel(state),
+            _ => Vec::new(),
+        },
     }
+}
+
+/// Chebyshev distance threshold before an armed press becomes a drag.
+const DRAG_THRESHOLD_CELLS: u16 = 2;
+
+fn drag_sources(state: &AppState) -> Vec<PathBuf> {
+    let selected = state.browser.selected_paths_set();
+    if selected.is_empty() {
+        state
+            .browser
+            .focused()
+            .map(|view| vec![view.entry.path.clone()])
+            .unwrap_or_default()
+    } else {
+        selected.iter().cloned().collect()
+    }
+}
+
+/// Resolves the hovered hit target to a drop destination directory, or None
+/// when the relationship is invalid (files, labels without a directory,
+/// sources themselves, descendants of a moved source).
+fn drag_drop_target_with_sources(
+    state: &mut AppState,
+    sources: &[PathBuf],
+    x: u16,
+    y: u16,
+) -> Option<PathBuf> {
+    if !matches!(state.mode, Mode::Browser) {
+        return None;
+    }
+    match state.hit_map.hit(x, y)? {
+        HitTarget::Row(pos) => {
+            let Some((_, view)) = state.browser.visible_entries().nth(pos) else {
+                return None;
+            };
+            if !view.entry.kind.is_dir() {
+                return None;
+            }
+            Some(view.entry.path.clone())
+        }
+        HitTarget::Breadcrumb(idx) => {
+            let segments = breadcrumb_segments(&state.browser.cwd);
+            segments.get(idx).map(|(path, _)| path.clone())
+        }
+        HitTarget::Sidebar(idx) => match state.sidebar_items.get(idx)? {
+            SidebarItem::Place { path, .. }
+            | SidebarItem::Mount { path, .. }
+            | SidebarItem::Bookmark { path } => Some(path.clone()),
+            _ => None,
+        },
+        _ => None,
+    }
+    .filter(|dest| {
+        !sources
+            .iter()
+            .any(|source| dest.starts_with(source) || dest == source)
+    })
+}
+
+fn drag_drop_target(state: &mut AppState, x: u16, y: u16) -> Option<PathBuf> {
+    let sources = state.drag.as_ref()?.sources.clone();
+    drag_drop_target_with_sources(state, &sources, x, y)
+}
+
+fn handle_drag_motion(
+    state: &mut AppState,
+    mut drag: DragState,
+    kind: MouseKind,
+    x: u16,
+    y: u16,
+) -> Vec<Effect> {
+    match kind {
+        MouseKind::LeftUp | MouseKind::Right => {
+            let was_dragging = drag.phase == DragPhase::Dragging;
+            state.drag = None;
+            if !was_dragging || !matches!(state.mode, Mode::Browser) {
+                return Vec::new();
+            }
+            let Some(dest) = drag_drop_target_with_sources(state, &drag.sources, x, y) else {
+                return Vec::new();
+            };
+            start_drag_move(state, drag.sources, dest)
+        }
+        MouseKind::LeftDrag => {
+            let dx = x.abs_diff(drag.origin.0);
+            let dy = y.abs_diff(drag.origin.1);
+            if drag.phase == DragPhase::Armed
+                && dx <= DRAG_THRESHOLD_CELLS
+                && dy <= DRAG_THRESHOLD_CELLS
+            {
+                return Vec::new();
+            }
+            drag.phase = DragPhase::Dragging;
+            drag.cursor = (x, y);
+            state.drag = Some(drag);
+            Vec::new()
+        }
+        // Any other mouse event during a drag is ignored.
+        _ => Vec::new(),
+    }
+}
+
+/// Cancels any in-flight drag on mode changes, resize, refresh, or Esc.
+pub fn cancel_drag(state: &mut AppState) {
+    state.drag = None;
+}
+
+fn start_drag_move(state: &mut AppState, mut sources: Vec<PathBuf>, dest: PathBuf) -> Vec<Effect> {
+    sources.sort();
+    sources.dedup();
+    let plan = OperationPlan {
+        kind: OperationKind::Move,
+        sources,
+        dest_dir: Some(dest),
+        rename_to: None,
+        policy: ConflictPolicy::Ask,
+    };
+    if let Err(err) = validate(&plan) {
+        state.set_error(err.to_string());
+        return Vec::new();
+    }
+    start_operation(state, plan)
+}
+
+/// UI-only validity probe used by the drag renderer: same rules as
+/// `drag_drop_target`, exposed without touching the reducer's private state.
+pub fn drag_drop_target_for_ui(state: &mut AppState, x: u16, y: u16) -> Option<PathBuf> {
+    drag_drop_target(state, x, y)
 }
 
 fn breadcrumb_nav(state: &mut AppState, idx: usize) -> Vec<Effect> {

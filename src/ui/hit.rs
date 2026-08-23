@@ -73,6 +73,14 @@ impl HitMap {
             })
             .map(|(_, target)| *target)
     }
+
+    pub fn rect_for(&self, target: HitTarget) -> Option<Rect> {
+        self.regions
+            .iter()
+            .rev()
+            .find(|(_, t)| *t == target)
+            .map(|(rect, _)| *rect)
+    }
 }
 
 #[cfg(test)]

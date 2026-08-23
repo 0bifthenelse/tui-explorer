@@ -1302,6 +1302,148 @@ fn current_session(state: &AppState) -> u64 {
     }
 }
 
+fn drag_rect(state: &AppState, pos: usize) -> ratatui::layout::Rect {
+    state
+        .hit_map
+        .regions
+        .iter()
+        .find_map(|(rect, target)| match target {
+            tui_explorer::ui::hit::HitTarget::Row(p) if *p == pos => Some(*rect),
+            _ => None,
+        })
+        .expect("row hit region")
+}
+
+#[test]
+fn drag_moves_file_to_directory_target() {
+    let (mut state, mut handler) = rendered(120, 36);
+    drive(&mut state, &mut handler, [Action::GotoFirst]);
+    // docs is a directory row (position 0); pick a file row as source.
+    let file_pos = first_file_pos(&state);
+    let src = drag_rect(&state, file_pos);
+    let dst = drag_rect(&state, 0);
+    let source_path = state.browser.entries[state.browser.visible_indices()[file_pos]]
+        .entry
+        .path
+        .clone();
+    drive(
+        &mut state,
+        &mut handler,
+        [Action::Mouse {
+            kind: MouseKind::Left,
+            x: src.x + 1,
+            y: src.y + 1,
+        }],
+    );
+    drive(
+        &mut state,
+        &mut handler,
+        [Action::Mouse {
+            kind: MouseKind::LeftDrag,
+            x: dst.x + 1,
+            y: dst.y + 1,
+        }],
+    );
+    assert!(state.drag.is_some(), "drag activates past threshold");
+    drive(
+        &mut state,
+        &mut handler,
+        [Action::Mouse {
+            kind: MouseKind::LeftUp,
+            x: dst.x + 1,
+            y: dst.y + 1,
+        }],
+    );
+    assert!(matches!(state.mode, Mode::Browser));
+    // The move ran through the real operation path and was recorded.
+    let moves: Vec<_> = handler
+        .mutations
+        .recorded()
+        .into_iter()
+        .filter(|m| matches!(m, tui_explorer::filesystem::RecordedMutation::Move { .. }))
+        .collect();
+    assert_eq!(moves.len(), 1, "drop performs exactly one move");
+}
+
+#[test]
+fn drag_below_threshold_is_click_not_move() {
+    let (mut state, mut handler) = rendered(120, 36);
+    let cwd = state.browser.cwd.clone();
+    let rect = drag_rect(&state, 0);
+    drive(
+        &mut state,
+        &mut handler,
+        [
+            Action::Mouse {
+                kind: MouseKind::Left,
+                x: rect.x + 1,
+                y: rect.y + 1,
+            },
+            Action::Mouse {
+                kind: MouseKind::LeftDrag,
+                x: rect.x + 2,
+                y: rect.y + 1,
+            },
+            Action::Mouse {
+                kind: MouseKind::LeftUp,
+                x: rect.x + 2,
+                y: rect.y + 1,
+            },
+        ],
+    );
+    assert!(state.drag.is_none());
+    assert_eq!(state.browser.cwd, cwd);
+    assert!(
+        !handler
+            .mutations
+            .recorded()
+            .iter()
+            .any(|m| matches!(m, tui_explorer::filesystem::RecordedMutation::Move { .. })),
+        "sub-threshold motion must not mutate"
+    );
+}
+
+#[test]
+fn esc_cancels_active_drag() {
+    let (mut state, mut handler) = rendered(120, 36);
+    let src = drag_rect(&state, 0);
+    let dst = drag_rect(&state, 1);
+    drive(
+        &mut state,
+        &mut handler,
+        [Action::Mouse {
+            kind: MouseKind::Left,
+            x: src.x + 1,
+            y: src.y + 1,
+        }],
+    );
+    drive(
+        &mut state,
+        &mut handler,
+        [Action::Mouse {
+            kind: MouseKind::LeftDrag,
+            x: dst.x + 1,
+            y: dst.y + 1,
+        }],
+    );
+    assert!(state.drag.is_some());
+    drive(&mut state, &mut handler, [Action::DragCancel]);
+    assert!(state.drag.is_none());
+}
+#[test]
+fn stale_media_stop_after_close_is_ignored() {
+    let (mut state, mut handler) = loaded(120, 36);
+    focus_song(&mut state, &mut handler);
+    drive(&mut state, &mut handler, [Action::OpenFocused]);
+    let session = match &state.mode {
+        Mode::Media(media) => media.session,
+        _ => panic!("expected media mode"),
+    };
+    drive(&mut state, &mut handler, [Action::MediaClose]);
+    drive(&mut state, &mut handler, [Action::MediaStopped { session }]);
+    assert!(matches!(state.mode, Mode::Browser));
+}
+
 fn video_path() -> std::path::PathBuf {
     tui_explorer::testing::builders::demo_root().join("clip.mkv")
 }

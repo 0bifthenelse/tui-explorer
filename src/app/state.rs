@@ -191,6 +191,25 @@ pub struct ContextMenuState {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DragPhase {
+    /// Left button pressed, not yet moved past the threshold.
+    Armed,
+    /// Past the threshold: a real drag in flight.
+    Dragging,
+}
+
+#[derive(Clone, Debug)]
+pub struct DragState {
+    pub phase: DragPhase,
+    /// Cell where the left button was pressed.
+    pub origin: (u16, u16),
+    /// Snapshot of source paths taken at press time (stable against
+    /// sorting/filtering changes during the drag).
+    pub sources: Vec<PathBuf>,
+    pub cursor: (u16, u16),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MediaSurface {
     pub rect: Rect,
     pub terminal_cells: (u16, u16),
@@ -325,6 +344,8 @@ pub struct AppState {
     pub double_click: Duration,
     /// Sidebar visibility: None = automatic per terminal size.
     pub show_sidebar: Option<bool>,
+    /// In-flight mouse drag; None when idle.
+    pub drag: Option<DragState>,
     /// Preview panel visibility: None = automatic per terminal size.
     pub show_preview: Option<bool>,
     /// Sidebar entries in render order; rebuilt every frame.
@@ -384,6 +405,7 @@ impl AppState {
             bookmarks: Vec::new(),
             preview: PreviewState::default(),
             picker: ratatui_image::picker::Picker::from_fontsize((8, 16)),
+            drag: None,
             next_media_session: 1,
         }
     }

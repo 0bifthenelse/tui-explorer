@@ -748,6 +748,8 @@ fn map_mouse(kind: MouseEventKind, x: u16, y: u16) -> Option<Action> {
         MouseEventKind::Down(MouseButton::Right) => MouseKind::Right,
         MouseEventKind::ScrollUp => MouseKind::ScrollUp,
         MouseEventKind::ScrollDown => MouseKind::ScrollDown,
+        MouseEventKind::Drag(MouseButton::Left) => MouseKind::LeftDrag,
+        MouseEventKind::Up(MouseButton::Left) => MouseKind::LeftUp,
         _ => return None,
     };
     Some(Action::Mouse { kind, x, y })

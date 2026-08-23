@@ -14,8 +14,11 @@ pub enum MouseKind {
     Right,
     ScrollUp,
     ScrollDown,
+    /// Left button moved while held (drag motion).
+    LeftDrag,
+    /// Left button released.
+    LeftUp,
 }
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ConflictDecision {
     Cancel,
@@ -111,6 +114,12 @@ pub enum Action {
         message: String,
     },
     ToggleSelect,
+    Mouse {
+        kind: MouseKind,
+        x: u16,
+        y: u16,
+    },
+    DragCancel,
     ToggleVisual,
     ToggleHidden,
     SetFilter(Option<String>),
@@ -137,11 +146,6 @@ pub enum Action {
     ContextMove(isize),
     ContextChoose,
     ConflictChoice(ConflictDecision),
-    Mouse {
-        kind: MouseKind,
-        x: u16,
-        y: u16,
-    },
     Resize {
         width: u16,
         height: u16,

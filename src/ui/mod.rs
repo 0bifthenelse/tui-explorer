@@ -271,6 +271,89 @@ pub fn render(frame: &mut Frame, state: &mut AppState) {
         }
         Mode::Browser | Mode::Command => {}
     }
+
+    // Active drag feedback renders above panels but below modals.
+    if let Some(drag) = &state.drag
+        && drag.phase == crate::app::state::DragPhase::Dragging
+    {
+        render_drag_feedback(frame, area, state);
+    }
+}
+
+/// Ghost, target border, and status text for an in-flight drag. Renders
+/// above panels but below modals; never mutates anything.
+fn render_drag_feedback(frame: &mut Frame, area: Rect, state: &mut AppState) {
+    let Some(drag) = state.drag.clone() else {
+        return;
+    };
+    if !matches!(state.mode, Mode::Browser) {
+        return;
+    }
+    let (cx, cy) = drag.cursor;
+
+    // Valid-target highlight: accent border around a real directory.
+    let valid_target = crate::app::reduce::drag_drop_target_for_ui(state, cx, cy);
+    let target_style = if valid_target.is_some() {
+        Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(DANGER).add_modifier(Modifier::BOLD)
+    };
+    if valid_target.is_some() || state.hit_map.hit(cx, cy).is_some() {
+        if let Some(rect) = hovered_row_rect(state, cx, cy) {
+            outline_rect(frame, rect, target_style);
+        }
+    }
+
+    // Ghost label at the cursor.
+    let count = drag.sources.len();
+    let ghost = format!(" moving {count} item{} ", if count == 1 { "" } else { "s" });
+    let ghost_width = ghost.len() as u16;
+    let gx = (cx.saturating_add(1)).min(area.width.saturating_sub(ghost_width));
+    let gy = cy.saturating_sub(1).min(area.height.saturating_sub(1));
+    frame.buffer_mut().set_stringn(
+        gx,
+        gy,
+        &ghost,
+        ghost_width as usize,
+        Style::default()
+            .bg(FOCUS_BG)
+            .fg(ACCENT_SOFT)
+            .add_modifier(Modifier::BOLD),
+    );
+
+    // Status line hint.
+    let status_y = area.y + area.height - 3;
+    let hint = " drop on a folder to move, Esc to cancel";
+    frame.buffer_mut().set_stringn(
+        area.x + 1,
+        status_y,
+        hint,
+        (area.width as usize).saturating_sub(2),
+        Style::default().fg(TEXT_SECONDARY),
+    );
+}
+
+fn hovered_row_rect(state: &AppState, x: u16, y: u16) -> Option<Rect> {
+    match state.hit_map.hit(x, y)? {
+        HitTarget::Row(_) | HitTarget::Sidebar(_) | HitTarget::Breadcrumb(_) => state
+            .hit_map
+            .regions
+            .iter()
+            .rev()
+            .find(|(rect, _)| {
+                x >= rect.x && x < rect.x + rect.width && y >= rect.y && y < rect.y + rect.height
+            })
+            .map(|(rect, _)| *rect),
+        _ => None,
+    }
+}
+
+fn outline_rect(frame: &mut Frame, rect: Rect, style: Style) {
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_set(ASCII_BORDERS)
+        .border_style(style);
+    frame.render_widget(block, rect);
 }
 
 /// The `Narrow`-tier shell: a single combined header/path row on top, the
