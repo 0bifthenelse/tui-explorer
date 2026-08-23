@@ -530,6 +530,7 @@ fn run(start: PathBuf) -> std::io::Result<()> {
         }
         let epoch_before = state.error_epoch;
         while let Some(action) = pending.pop_front() {
+            let preview_loaded = matches!(&action, Action::PreviewLoaded { .. });
             let effects = reduce(&mut state, action);
             for effect in effects {
                 match effect {
@@ -555,6 +556,9 @@ fn run(start: PathBuf) -> std::io::Result<()> {
                         }
                     }
                 }
+            }
+            if preview_loaded {
+                redraw.request_full();
             }
         }
         if state.error_epoch != epoch_before {
