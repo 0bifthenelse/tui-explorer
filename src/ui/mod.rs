@@ -265,7 +265,11 @@ pub fn render(frame: &mut Frame, state: &mut AppState) {
             render_bookmarks(frame, area, &nav, &home, &mut state.hit_map);
         }
         Mode::Help => render_help(frame, area, &mut state.hit_map),
-        _ => {}
+        Mode::Media(media) => {
+            let media = media.clone();
+            render_media_modal(frame, area, state, &media);
+        }
+        Mode::Browser | Mode::Command => {}
     }
 }
 
@@ -1048,6 +1052,177 @@ fn apply_image_encoding_result(
     }
 }
 
+fn render_media_modal(
+    frame: &mut Frame,
+    area: Rect,
+    state: &mut AppState,
+    media: &crate::app::state::MediaState,
+) {
+    use crate::media::{MediaKind, MediaPhase};
+
+    state.hit_map.push(area, HitTarget::Blocker);
+    let full = area.width >= 60 && area.height >= 16;
+    let modal_height = if full { 22 } else { 12 }.min(area.height);
+    let rect = centered_rect(area, area.width.min(96), modal_height);
+    frame.render_widget(Clear, rect);
+    let title = match media.kind {
+        MediaKind::Audio => "NOW PLAYING",
+        MediaKind::Video => "VIDEO",
+    };
+    let block = overlay_block(title, accent_border_style());
+    let inner = block.inner(rect);
+    frame.render_widget(block, rect);
+    if inner.width < 8 || inner.height < 7 {
+        return;
+    }
+
+    let filename = media
+        .path
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_else(|| media.path.display().to_string());
+    frame.render_widget(
+        Paragraph::new(Line::from(Span::styled(
+            truncate(&filename, inner.width as usize),
+            dir_style(),
+        ))),
+        Rect::new(inner.x, inner.y, inner.width, 1),
+    );
+    let state_label = media
+        .error
+        .as_deref()
+        .map(|error| format!("[!] {error}"))
+        .unwrap_or_else(|| format!("{:?}", media.phase).to_ascii_uppercase());
+    frame.render_widget(
+        Paragraph::new(Line::from(Span::styled(
+            truncate(&state_label, inner.width as usize),
+            if media.error.is_some() {
+                error_style()
+            } else {
+                Style::default().fg(TEXT_SECONDARY)
+            },
+        ))),
+        Rect::new(inner.x, inner.y + 1, inner.width, 1),
+    );
+    let elapsed = std::time::Duration::from_secs_f64(media.position.max(0.0));
+    let duration = media
+        .duration
+        .map(|seconds| format_time_duration(std::time::Duration::from_secs_f64(seconds.max(0.0))))
+        .unwrap_or_else(|| "--:--".to_string());
+    let time = format!("{} / {duration}", format_time_duration(elapsed));
+    frame.render_widget(
+        Paragraph::new(Line::from(Span::styled(time, preview_meta_style()))),
+        Rect::new(inner.x, inner.y + 2, inner.width, 1),
+    );
+
+    let rail = Rect::new(inner.x, inner.y + 3, inner.width, 1);
+    let ratio = media
+        .duration
+        .filter(|duration| *duration > 0.0)
+        .map(|duration| (media.position / duration).clamp(0.0, 1.0))
+        .unwrap_or(0.0);
+    let filled = (ratio * rail.width as f64).round() as usize;
+    let buffer = frame.buffer_mut();
+    buffer.set_stringn(
+        rail.x,
+        rail.y,
+        "-".repeat(rail.width as usize),
+        rail.width as usize,
+        Style::default().fg(BORDER_SUBTLE),
+    );
+    if filled > 0 {
+        buffer.set_stringn(
+            rail.x,
+            rail.y,
+            "=".repeat(filled),
+            filled,
+            Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+        );
+    }
+
+    let controls_y = inner.y + inner.height - 1;
+    let controls = [
+        ("[-5]", HitTarget::MediaSeekBack),
+        ("[PLAY]", HitTarget::MediaTogglePause),
+        ("[+5]", HitTarget::MediaSeekForward),
+        ("[V-]", HitTarget::MediaVolumeDown),
+        ("[V+]", HitTarget::MediaVolumeUp),
+        ("[STOP]", HitTarget::MediaStop),
+        ("[X]", HitTarget::MediaClose),
+    ];
+    let mut control_x = inner.x;
+    for (label, target) in controls {
+        let width = label.len() as u16;
+        if control_x + width > inner.x + inner.width {
+            break;
+        }
+        let active = target == HitTarget::MediaTogglePause
+            && matches!(media.phase, MediaPhase::Playing | MediaPhase::Paused);
+        frame.buffer_mut().set_stringn(
+            control_x,
+            controls_y,
+            label,
+            width as usize,
+            if active {
+                accent_border_style()
+            } else {
+                key_style()
+            },
+        );
+        state
+            .hit_map
+            .push(Rect::new(control_x, controls_y, width, 1), target);
+        control_x += width + 1;
+    }
+
+    let media_top = inner.y + 5;
+    let media_height = controls_y.saturating_sub(media_top);
+    let surface = crate::app::state::MediaSurface {
+        rect: Rect::new(inner.x, media_top, inner.width, media_height),
+        terminal_cells: (area.width, area.height),
+        cell_pixels: state.picker.font_size(),
+    };
+    if let Mode::Media(current) = &mut state.mode
+        && current.session == media.session
+    {
+        current.surface = Some(surface);
+    }
+
+    if full && media_height > 0 && media.error.is_none() {
+        let column_width = (inner.width / 24).max(1);
+        let bars_height = media_height.min(10);
+        let buffer = frame.buffer_mut();
+        for (index, level) in media.spectrum.iter().enumerate() {
+            let x = inner.x + index as u16 * column_width;
+            if x >= inner.x + inner.width {
+                break;
+            }
+            let height = (level.clamp(0.0, 1.0) * bars_height as f32).round() as u16;
+            for offset in 0..height {
+                let y = media_top + bars_height - 1 - offset;
+                buffer.set_stringn(x, y, "#", 1, Style::default().fg(ACCENT_SOFT));
+            }
+        }
+    } else if media.error.is_none() {
+        frame.render_widget(
+            Paragraph::new(Line::from(Span::styled(
+                if matches!(media.phase, MediaPhase::Preparing | MediaPhase::Starting) {
+                    "spectrum starting"
+                } else {
+                    "spectrum unavailable at this size"
+                },
+                muted_style(),
+            ))),
+            surface.rect,
+        );
+    }
+}
+
+fn format_time_duration(duration: std::time::Duration) -> String {
+    let seconds = duration.as_secs();
+    format!("{:02}:{:02}", seconds / 60, seconds % 60)
+}
+
 fn render_status(frame: &mut Frame, area: Rect, state: &AppState) {
     surface_fill(frame, area, SURFACE_2);
     if matches!(state.mode, Mode::Command) {
@@ -1180,6 +1355,7 @@ fn legend_items(
             }
             items
         }
+        Mode::Media(_) => vec![],
     }
 }
 
@@ -1221,6 +1397,7 @@ fn render_tip(frame: &mut Frame, area: Rect, state: &AppState) {
             "TIP  Type a command, e.g. mupdf, then Enter to run it on the focused entry"
         }
         Mode::Bookmarks(_) => "TIP  Type to fuzzy-search bookmarks, Up/Down to select, Enter to go",
+        Mode::Media(_) => "TIP  Space plays/pauses, arrows seek and set volume, Esc closes",
         _ => "TIP  Esc goes back",
     };
     let _ = state;
@@ -1665,7 +1842,7 @@ fn render_help(frame: &mut Frame, area: Rect, hits: &mut HitMap) {
         ("l / Right", "tile right"),
         ("Backspace", "parent directory"),
         ("F5", "refresh current directory"),
-        ("e / Enter", "open: enter folder or open file"),
+        ("e / Enter", "open: folder, media, or open-with"),
         ("r", "open with: prompt for a command to run"),
         ("double left click", "open: enter folder or open file"),
         ("single left click", "select and focus (never opens)"),
@@ -1688,6 +1865,11 @@ fn render_help(frame: &mut Frame, area: Rect, hits: &mut HitMap) {
         ("Esc", "cancel mode or modal"),
         ("?", "this help"),
         ("q", "quit"),
+        ("Space (media)", "play or pause the focused audio"),
+        ("Left/Right (media)", "seek 5 seconds"),
+        ("Up/Down (media)", "volume up/down"),
+        ("s (media)", "restart from the beginning"),
+        ("Esc/q (media)", "close the media modal"),
         (":copy <dest>", "copy selection"),
         (":move <dest>", "move selection"),
         (":rename <name>", "rename entry"),

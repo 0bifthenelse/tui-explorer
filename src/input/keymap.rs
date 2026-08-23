@@ -87,6 +87,16 @@ pub fn map_key(key: KeyEvent, state: &AppState) -> Option<Action> {
             }
             _ => None,
         },
+        Mode::Media(_) => match key.code {
+            KeyCode::Enter | KeyCode::Char(' ') => Some(Action::MediaTogglePause),
+            KeyCode::Left | KeyCode::Char('h') => Some(Action::MediaSeek(-5)),
+            KeyCode::Right | KeyCode::Char('l') => Some(Action::MediaSeek(5)),
+            KeyCode::Up | KeyCode::Char('+') => Some(Action::MediaVolume(5)),
+            KeyCode::Down | KeyCode::Char('-') => Some(Action::MediaVolume(-5)),
+            KeyCode::Char('s') => Some(Action::MediaStop),
+            KeyCode::Esc | KeyCode::Char('q') => Some(Action::MediaClose),
+            _ => None,
+        },
         Mode::Help => match key.code {
             KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('?') => Some(Action::Cancel),
             _ => None,
@@ -281,5 +291,42 @@ mod tests {
         let ctrl_d = KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL);
         assert!(matches!(map_key(ctrl_u, &s), Some(Action::HalfPageUp)));
         assert!(matches!(map_key(ctrl_d, &s), Some(Action::HalfPageDown)));
+    }
+    #[test]
+    fn media_keys_map_to_transport_actions() {
+        let mut state = state();
+        state.mode = Mode::Media(Box::new(crate::app::state::MediaState::preparing(
+            1,
+            std::path::PathBuf::from("/track.wav"),
+            crate::media::MediaKind::Audio,
+        )));
+        assert!(matches!(
+            map_key(key(KeyCode::Char(' ')), &state),
+            Some(Action::MediaTogglePause)
+        ));
+        assert!(matches!(
+            map_key(key(KeyCode::Left), &state),
+            Some(Action::MediaSeek(-5))
+        ));
+        assert!(matches!(
+            map_key(key(KeyCode::Right), &state),
+            Some(Action::MediaSeek(5))
+        ));
+        assert!(matches!(
+            map_key(key(KeyCode::Up), &state),
+            Some(Action::MediaVolume(5))
+        ));
+        assert!(matches!(
+            map_key(key(KeyCode::Down), &state),
+            Some(Action::MediaVolume(-5))
+        ));
+        assert!(matches!(
+            map_key(key(KeyCode::Char('s')), &state),
+            Some(Action::MediaStop)
+        ));
+        assert!(matches!(
+            map_key(key(KeyCode::Esc), &state),
+            Some(Action::MediaClose)
+        ));
     }
 }

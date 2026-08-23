@@ -115,7 +115,10 @@ fn run_in_pty(cols: u16, rows: u16, dir: &Path, keys: &[&str], settle_ms: u64) -
         .spawn()
         .expect("spawn script pty");
     let mut stdin = child.stdin.take().expect("pty stdin");
-    for _ in 0..200 {
+    // The binary queries terminal capabilities at startup (ending with a
+    // device status report request, `[5n`). Answer it exactly once so
+    // detection completes deterministically instead of timing out.
+    for _ in 0..500 {
         let query_seen = std::fs::read(&log)
             .ok()
             .is_some_and(|raw| raw.windows(3).any(|window| window == b"[5n"));
@@ -124,6 +127,7 @@ fn run_in_pty(cols: u16, rows: u16, dir: &Path, keys: &[&str], settle_ms: u64) -
         }
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
+    std::thread::sleep(std::time::Duration::from_millis(100));
     stdin
         .write_all(b"\x1b[0n")
         .expect("terminal query response");

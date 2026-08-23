@@ -1,8 +1,9 @@
 use std::path::PathBuf;
 
 use crate::app::action::Action;
-use crate::app::state::Password;
+use crate::app::state::{MediaSurface, Password};
 use crate::crypto::CryptoKind;
+use crate::media::{MediaCommand, MediaKind};
 use crate::operations::OperationPlan;
 
 #[derive(Debug)]
@@ -46,6 +47,21 @@ pub enum Effect {
     TagMove {
         from: PathBuf,
         to: PathBuf,
+    },
+    StartMedia {
+        session: u64,
+        path: PathBuf,
+        kind: MediaKind,
+        surface: MediaSurface,
+        resume_position: Option<f64>,
+        resume_paused: Option<bool>,
+    },
+    MediaCommand {
+        session: u64,
+        command: MediaCommand,
+    },
+    StopMedia {
+        session: u64,
     },
     Quit,
 }

@@ -1,7 +1,9 @@
+use ratatui::layout::Rect;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use crate::browser::Browser;
+use crate::media::{AfterStop, MediaKind, MediaPhase};
 use crate::operations::{OperationKind, OperationPlan};
 use crate::sidebar::{MountInfo, SidebarItem};
 use crate::tags::TagDef;
@@ -188,6 +190,52 @@ pub struct ContextMenuState {
     pub y: u16,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MediaSurface {
+    pub rect: Rect,
+    pub terminal_cells: (u16, u16),
+    pub cell_pixels: (u16, u16),
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct MediaState {
+    pub session: u64,
+    pub path: PathBuf,
+    pub kind: MediaKind,
+    pub phase: MediaPhase,
+    pub position: f64,
+    pub duration: Option<f64>,
+    pub volume: u8,
+    pub spectrum: [f32; 24],
+    pub surface: Option<MediaSurface>,
+    pub awaiting_surface_ready: bool,
+    pub resume_position: Option<f64>,
+    pub resume_paused: Option<bool>,
+    pub after_stop: Option<AfterStop>,
+    pub error: Option<String>,
+}
+
+impl MediaState {
+    pub fn preparing(session: u64, path: PathBuf, kind: MediaKind) -> Self {
+        MediaState {
+            session,
+            path,
+            kind,
+            phase: MediaPhase::Preparing,
+            position: 0.0,
+            duration: None,
+            volume: 100,
+            spectrum: [0.0; 24],
+            surface: None,
+            awaiting_surface_ready: true,
+            resume_position: None,
+            resume_paused: None,
+            after_stop: None,
+            error: None,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum Mode {
     Browser,
@@ -200,6 +248,7 @@ pub enum Mode {
     OpenWith(Box<OpenWithState>),
     Bookmarks(Box<BookmarkNavState>),
     Help,
+    Media(Box<MediaState>),
 }
 
 impl Clone for Mode {
@@ -221,6 +270,7 @@ impl Clone for Mode {
             Mode::OpenWith(o) => Mode::OpenWith(o.clone()),
             Mode::Bookmarks(b) => Mode::Bookmarks(b.clone()),
             Mode::Help => Mode::Help,
+            Mode::Media(media) => Mode::Media(media.clone()),
         }
     }
 }
@@ -238,6 +288,7 @@ impl Mode {
             Mode::OpenWith(_) => "OPEN WITH",
             Mode::Bookmarks(_) => "BOOKMARKS",
             Mode::Help => "HELP",
+            Mode::Media(_) => "MEDIA",
         }
     }
 
@@ -283,6 +334,7 @@ pub struct AppState {
     pub bookmarks: Vec<PathBuf>,
     pub preview: PreviewState,
     pub picker: ratatui_image::picker::Picker,
+    pub next_media_session: u64,
 }
 
 impl AppState {
@@ -314,6 +366,7 @@ impl AppState {
             bookmarks: Vec::new(),
             preview: PreviewState::default(),
             picker: ratatui_image::picker::Picker::from_fontsize((8, 16)),
+            next_media_session: 1,
         }
     }
 

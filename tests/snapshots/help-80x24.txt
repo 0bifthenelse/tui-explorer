@@ -1,23 +1,23 @@
  tui-explorer 0.1.0         tui-explorer is awesome!           Press ? for help
  Path: [ / ]>[ home ]>[ demo ]
 + HELP ------------------------------------------------------------------------+
-|j / Down          next row of tiles    :                 command mode         |
-|k / Up            previous row of til~ Esc               cancel mode or modal |
-|h / Left          tile left            ?                 this help            |
-|l / Right         tile right           q                 quit                 |
-|Backspace         parent directory     :copy <dest>      copy selection       |
-|F5                refresh current dir~ :move <dest>      move selection       |
-|e / Enter         open: enter folder ~ :rename <name>    rename entry         |
-|r                 open with: prompt f~ :delete           delete selection (c~ |
-|double left click open: enter folder ~ :tag <name>       assign tag           |
-|single left click select and focus (n~ :untag <name>     remove tag           |
-|g g               first entry          :tags             open tag picker      |
-|G                 last entry           :open             open entry           |
-|Ctrl-u / Ctrl-d   half page up / down  :open-with <cmd> ~run a command on th~ |
-|PageUp / PageDown full page up / down  :cd <path>        change directory     |
-|Space             toggle entry select~ :mkdir <name>     create a directory   |
-|v                 visual multi-select~ :touch <name>     create an empty fil~ |
-|.                 toggle hidden files  :selectall        select every entry   |
+|j / Down          next row of tiles    q                 quit                 |
+|k / Up            previous row of til~ Space (media)     play or pause the f~ |
+|h / Left          tile left            Left/Right (media)seek 5 seconds       |
+|l / Right         tile right           Up/Down (media)   volume up/down       |
+|Backspace         parent directory     s (media)         restart from the be~ |
+|F5                refresh current dir~ Esc/q (media)     close the media mod~ |
+|e / Enter         open: folder, media~ :copy <dest>      copy selection       |
+|r                 open with: prompt f~ :move <dest>      move selection       |
+|double left click open: enter folder ~ :rename <name>    rename entry         |
+|single left click select and focus (n~ :delete           delete selection (c~ |
+|g g               first entry          :tag <name>       assign tag           |
+|G                 last entry           :untag <name>     remove tag           |
+|Ctrl-u / Ctrl-d   half page up / down  :tags             open tag picker      |
+|PageUp / PageDown full page up / down  :open             open entry           |
+|Space             toggle entry select~ :open-with <cmd> ~run a command on th~ |
+|v                 visual multi-select~ :cd <path>        change directory     |
+|.                 toggle hidden files  :mkdir <name>     create a directory   |
 +------------------------------------------------------------------------------+
  HELP                                                                  5%  1/18
 | Esc close

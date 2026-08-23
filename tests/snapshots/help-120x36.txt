@@ -3,32 +3,32 @@
 PLACES ----------------|18 items (2 dirs, 16 files)  Sort: name (asc)
  Root                  ||   ______   ||   ______   || .--------. || .--------. || .--------. || .--------. |
 MOUNTS ---+ HELP --------------------------------------------------------------------------------------------+
-(no device|j / Down          next row of tiles              :                 command mode                   |
-TAGS -----|k / Up            previous row of tiles          Esc               cancel mode or modal           |
-(no tags y|h / Left          tile left                      ?                 this help                      |
-BOOKMARKS |l / Right         tile right                     q                 quit                           |
-(Ctrl-b bo|Backspace         parent directory               :copy <dest>      copy selection                 |
-          |F5                refresh current directory      :move <dest>      move selection                 |
-          |e / Enter         open: enter folder or open fi~ :rename <name>    rename entry                   |
-          |r                 open with: prompt for a comma~ :delete           delete selection (confirmed)   |
-          |double left click open: enter folder or open fi~ :tag <name>       assign tag                     |
-          |single left click select and focus (never opens) :untag <name>     remove tag                     |
-          |g g               first entry                    :tags             open tag picker                |
-          |G                 last entry                     :open             open entry                     |
-          |Ctrl-u / Ctrl-d   half page up / down            :open-with <cmd> ~run a command on the entry (a~ |
-          |PageUp / PageDown full page up / down            :cd <path>        change directory               |
-          |Space             toggle entry selection         :mkdir <name>     create a directory             |
-          |v                 visual multi-selection mode    :touch <name>     create an empty file / update~ |
-          |.                 toggle hidden files            :selectall        select every entry             |
-          |X                 encrypt / decrypt focused ent~ :invert           invert the current selection   |
-          |b                 toggle sidebar                 :deselect         clear the current selection    |
-          |p                 toggle preview panel           :sort <field>     sort by name, size, or modifi~ |
-          |B                 search bookmarks (fuzzy)       :refresh          reload current directory       |
-          |Ctrl-b            bookmark / unbookmark current~ :quit             quit                           |
-          |t                 toggle last used tag           :help             this help                      |
-          |T                 tag picker and manager         mouse right       context menu                   |
-          |/ / Ctrl-f        filter current directory file~ mouse wheel       scroll grid                    |
-          |                                                                                                  |
+(no device|j / Down          next row of tiles              q                 quit                           |
+TAGS -----|k / Up            previous row of tiles          Space (media)     play or pause the focused aud~ |
+(no tags y|h / Left          tile left                      Left/Right (media)seek 5 seconds                 |
+BOOKMARKS |l / Right         tile right                     Up/Down (media)   volume up/down                 |
+(Ctrl-b bo|Backspace         parent directory               s (media)         restart from the beginning     |
+          |F5                refresh current directory      Esc/q (media)     close the media modal          |
+          |e / Enter         open: folder, media, or open-~ :copy <dest>      copy selection                 |
+          |r                 open with: prompt for a comma~ :move <dest>      move selection                 |
+          |double left click open: enter folder or open fi~ :rename <name>    rename entry                   |
+          |single left click select and focus (never opens) :delete           delete selection (confirmed)   |
+          |g g               first entry                    :tag <name>       assign tag                     |
+          |G                 last entry                     :untag <name>     remove tag                     |
+          |Ctrl-u / Ctrl-d   half page up / down            :tags             open tag picker                |
+          |PageUp / PageDown full page up / down            :open             open entry                     |
+          |Space             toggle entry selection         :open-with <cmd> ~run a command on the entry (a~ |
+          |v                 visual multi-selection mode    :cd <path>        change directory               |
+          |.                 toggle hidden files            :mkdir <name>     create a directory             |
+          |X                 encrypt / decrypt focused ent~ :touch <name>     create an empty file / update~ |
+          |b                 toggle sidebar                 :selectall        select every entry             |
+          |p                 toggle preview panel           :invert           invert the current selection   |
+          |B                 search bookmarks (fuzzy)       :deselect         clear the current selection    |
+          |Ctrl-b            bookmark / unbookmark current~ :sort <field>     sort by name, size, or modifi~ |
+          |t                 toggle last used tag           :refresh          reload current directory       |
+          |T                 tag picker and manager         :quit             quit                           |
+          |/ / Ctrl-f        filter current directory file~ :help             this help                      |
+          |:                 command mode                   mouse right       context menu                   |
           +--------------------------------------------------------------------------------------------------+
                        |
                        |

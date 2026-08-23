@@ -5,6 +5,7 @@ pub mod crypto;
 pub mod filesystem;
 pub mod icons;
 pub mod input;
+pub mod media;
 pub mod operations;
 pub mod preview;
 pub mod sidebar;

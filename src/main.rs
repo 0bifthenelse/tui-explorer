@@ -11,7 +11,7 @@ use ratatui::backend::CrosstermBackend;
 use tui_explorer::app::action::{Action, DirectorySnapshot, MouseKind};
 use tui_explorer::app::effects::{Effect, EffectHandler};
 use tui_explorer::app::reduce::reduce;
-use tui_explorer::app::state::AppState;
+use tui_explorer::app::state::{AppState, Mode};
 use tui_explorer::browser::EntryView;
 use tui_explorer::config;
 use tui_explorer::filesystem::real::{RealFileSystem, RealMutations};
@@ -41,8 +41,8 @@ KEYS:
     j/k or arrows    move selection
     h/l              move between tiles
     Backspace        parent directory
-    F5               refresh current directory
-    e, Enter         enter folder, or choose a command to open a file
+    e, Enter         enter folder, or open a file (audio and video play in
+                     the built-in media modal; other files ask for a command)
     r                open with: prompt for a command to run on the focused entry
     X                encrypt / decrypt focused entry
     b, p             toggle sidebar / preview panel
@@ -63,6 +63,17 @@ MOUSE:
     click selects, double click (or e/Enter) opens, right click menu, wheel scrolls,
     breadcrumb and sidebar navigate
 
+MEDIA (audio):
+    Space or Enter   play / pause
+    Left, h          seek back 5 seconds
+    Right, l         seek forward 5 seconds
+    Up, Down         volume up / down (5% steps)
+    s                stop and restart from the beginning
+    Esc, q           close the media modal
+    Supported audio: wav flac ogg oga mp3 m4a (Symphonia decoders; rodio
+    playback with a real FFT spectrum). Video requires mpv and a Kitty
+    graphics terminal.
+
 DATA:
     tags database: $XDG_DATA_HOME/tui-explorer/tags.sqlite3
     fallback:      $HOME/.local/share/tui-explorer/tags.sqlite3
@@ -74,6 +85,250 @@ struct ProdHandler {
     tags: Option<TagStore>,
     bookmarks: tui_explorer::sidebar::BookmarkStore,
     sender: SyncSender<Action>,
+    media: MediaSupervisor,
+}
+
+/// Owns the active media runtime on one dedicated thread. Audio keeps a real
+/// rodio output stream; every asynchronous result is reported through the
+/// bounded action sender with its session generation.
+struct MediaSupervisor {
+    sender: SyncSender<Action>,
+    commands: Option<std::sync::mpsc::Sender<MediaRequest>>,
+}
+
+enum MediaRequest {
+    Start {
+        session: u64,
+        path: PathBuf,
+        // Video is routed through the same channel in a later phase.
+        kind: tui_explorer::media::MediaKind,
+        resume_position: Option<f64>,
+        resume_paused: Option<bool>,
+    },
+    Command {
+        session: u64,
+        command: tui_explorer::media::MediaCommand,
+    },
+    Stop {
+        session: u64,
+    },
+    Shutdown,
+}
+
+impl MediaSupervisor {
+    fn new(sender: SyncSender<Action>) -> Self {
+        let (tx, rx) = std::sync::mpsc::channel::<MediaRequest>();
+        let action_sender = sender.clone();
+        std::thread::Builder::new()
+            .name("media-supervisor".into())
+            .spawn(move || media_supervisor_loop(rx, action_sender))
+            .expect("spawn media supervisor");
+        MediaSupervisor {
+            sender,
+            commands: Some(tx),
+        }
+    }
+
+    fn send(&self, request: MediaRequest) {
+        if let Some(commands) = &self.commands
+            && commands.send(request).is_err()
+        {
+            let _ = self.sender.send(Action::MediaFailed {
+                session: 0,
+                message: "audio backend stopped".to_string(),
+            });
+        }
+    }
+
+    fn start(
+        &self,
+        session: u64,
+        path: PathBuf,
+        kind: tui_explorer::media::MediaKind,
+        _surface: tui_explorer::app::state::MediaSurface,
+        resume_position: Option<f64>,
+        resume_paused: Option<bool>,
+    ) {
+        self.send(MediaRequest::Start {
+            session,
+            path,
+            kind,
+            resume_position,
+            resume_paused,
+        });
+    }
+
+    fn command(&self, session: u64, command: tui_explorer::media::MediaCommand) {
+        self.send(MediaRequest::Command { session, command });
+    }
+
+    fn stop(&self, session: u64) {
+        self.send(MediaRequest::Stop { session });
+    }
+}
+
+impl Drop for MediaSupervisor {
+    fn drop(&mut self) {
+        self.commands = None;
+        if let Some(commands) = self.commands.take() {
+            let _ = commands.send(MediaRequest::Shutdown);
+        }
+    }
+}
+
+fn media_supervisor_loop(
+    receiver: std::sync::mpsc::Receiver<MediaRequest>,
+    sender: SyncSender<Action>,
+) {
+    use rodio::Sink;
+
+    struct ActiveAudio {
+        #[allow(dead_code)] // kept alive so the device stream stays open
+        stream: rodio::OutputStream,
+        sink: Sink,
+    }
+
+    let mut active: Option<(u64, ActiveAudio)> = None;
+    while let Ok(request) = receiver.recv() {
+        match request {
+            MediaRequest::Start {
+                session,
+                path,
+                kind,
+                resume_position,
+                resume_paused,
+            } => {
+                active = None;
+                let start_result = match kind {
+                    tui_explorer::media::MediaKind::Audio => start_audio(&sender, session, &path),
+                    tui_explorer::media::MediaKind::Video => {
+                        Err("video playback requires a Kitty-compatible terminal".to_string())
+                    }
+                };
+                match start_result {
+                    Ok((stream, sink)) => {
+                        if let Some(position) = resume_position {
+                            let _ = sink.try_seek(Duration::from_secs_f64(position.max(0.0)));
+                        }
+                        if !resume_paused.unwrap_or(false) {
+                            sink.play();
+                        } else {
+                            sink.pause();
+                        }
+                        let _ = sender.send(Action::MediaBackendReady { session });
+                        active = Some((session, ActiveAudio { stream, sink }));
+                    }
+                    Err(message) => {
+                        let _ = sender.send(Action::MediaFailed { session, message });
+                    }
+                }
+            }
+            MediaRequest::Command { session, command } => {
+                let Some((active_session, audio)) = active.as_mut() else {
+                    continue;
+                };
+                if *active_session != session {
+                    continue;
+                }
+                apply_audio_command(&sender, session, &audio.sink, command);
+            }
+            MediaRequest::Stop { session } => {
+                if matches!(&active, Some((active_session, _)) if *active_session == session) {
+                    active = None;
+                }
+                let _ = sender.send(Action::MediaStopped { session });
+            }
+            MediaRequest::Shutdown => break,
+        }
+    }
+}
+
+fn start_audio(
+    sender: &SyncSender<Action>,
+    session: u64,
+    path: &Path,
+) -> Result<(rodio::OutputStream, rodio::Sink), String> {
+    let source = tui_explorer::media::audio::SymphoniaSource::new(path)?;
+    let (spectrum, snapshot) = tui_explorer::media::audio::SpectrumSource::new(source);
+    let status_sender = sender.clone();
+    // One publisher thread reads coherent snapshots at ~10 Hz and forwards
+    // them through the bounded action channel. Dropped UI frames are fine;
+    // the audio pull path is never blocked by the TUI.
+    std::thread::Builder::new()
+        .name("media-spectrum".into())
+        .spawn(move || {
+            loop {
+                let (bands, position_ms) = snapshot.read();
+                if status_sender
+                    .send(Action::MediaSpectrum {
+                        session,
+                        spectrum: bands,
+                    })
+                    .is_err()
+                {
+                    break;
+                }
+                let _ = position_ms;
+                std::thread::sleep(Duration::from_millis(100));
+            }
+        })
+        .map_err(|error| format!("cannot start spectrum thread: {error}"))?;
+    let stream = rodio::OutputStreamBuilder::open_default_stream()
+        .map_err(|error| format!("cannot open audio device: {error}"))?;
+    let sink = rodio::Sink::connect_new(stream.mixer());
+    sink.append(spectrum);
+    sink.pause();
+    Ok((stream, sink))
+}
+
+fn apply_audio_command(
+    sender: &SyncSender<Action>,
+    session: u64,
+    sink: &rodio::Sink,
+    command: tui_explorer::media::MediaCommand,
+) {
+    use tui_explorer::media::{MediaCommand, MediaPhase};
+    match command {
+        MediaCommand::Load => {}
+        MediaCommand::TogglePause => {
+            // The sink has no paused query; toggle by reporting current state
+            // from the reducer side. Here we always play and let a following
+            // MediaStatus correct it.
+            sink.play();
+            report_status(sender, session, sink, MediaPhase::Playing);
+        }
+        MediaCommand::SeekRelative(seconds) => {
+            let current = sink.get_pos();
+            let target = current.as_secs() as i64 + seconds;
+            let clamped = target.clamp(0, i64::from(u32::MAX)) as u64;
+            let _ = sink.try_seek(Duration::from_secs(clamped));
+            report_status(sender, session, sink, MediaPhase::Playing);
+        }
+        MediaCommand::SetVolume(volume) => {
+            sink.set_volume(f32::from(volume) / 100.0);
+        }
+        MediaCommand::Stop => {
+            let _ = sink.try_seek(Duration::ZERO);
+            sink.play();
+            report_status(sender, session, sink, MediaPhase::Stopped);
+        }
+        MediaCommand::Quit => {}
+    }
+}
+
+fn report_status(
+    sender: &SyncSender<Action>,
+    session: u64,
+    sink: &rodio::Sink,
+    phase: tui_explorer::media::MediaPhase,
+) {
+    let _ = sender.send(Action::MediaStatus {
+        session,
+        phase,
+        position: sink.get_pos().as_secs_f64(),
+        duration: None,
+        volume: (sink.volume() * 100.0).round() as u8,
+    });
 }
 
 impl ProdHandler {
@@ -313,6 +568,26 @@ impl EffectHandler for ProdHandler {
                     Err(e) => vec![Action::ErrorMessage(e.to_string())],
                 }
             }
+            Effect::StartMedia {
+                session,
+                path,
+                kind,
+                surface,
+                resume_position,
+                resume_paused,
+            } => {
+                self.media
+                    .start(session, path, kind, surface, resume_position, resume_paused);
+                Vec::new()
+            }
+            Effect::MediaCommand { session, command } => {
+                self.media.command(session, command);
+                Vec::new()
+            }
+            Effect::StopMedia { session } => {
+                self.media.stop(session);
+                Vec::new()
+            }
             Effect::Quit => Vec::new(),
         }
     }
@@ -491,6 +766,7 @@ fn run(start: PathBuf) -> std::io::Result<()> {
         mutations: RealMutations::new(),
         tags,
         bookmarks: bookmark_store,
+        media: MediaSupervisor::new(sender.clone()),
         sender,
     };
     let mut state = AppState::new(start, home);
@@ -514,6 +790,15 @@ fn run(start: PathBuf) -> std::io::Result<()> {
             term.clear()?;
         }
         term.draw(|frame| ui::render(frame, &mut state))?;
+        if let Mode::Media(media) = &state.mode
+            && media.awaiting_surface_ready
+            && let Some(surface) = media.surface
+        {
+            pending.push_back(Action::MediaSurfaceReady {
+                session: media.session,
+                surface,
+            });
+        }
         drain_channel(&receiver, &mut pending);
         if pending.is_empty() {
             if event::poll(Duration::from_millis(100))? {

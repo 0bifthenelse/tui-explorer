@@ -16,6 +16,7 @@ Named tags (such as `[src]` or `[fav]`) can be attached to any file or directory
 - File and folder encryption with the `age` crate's passphrase API (`X`): files become `name.ext.age`, folders are tar-archived to `name.tar.age`; masked password dialog, atomic temp-file output, no source deletion, no silent overwrites, safe archive extraction (no `..` or absolute paths, symlinks never followed)
 - Image previews in the panel (PNG, JPEG, GIF first frame, WebP, BMP) via `ratatui-image`; capability and cell-pixel detection happen before the TUI starts, Kitty graphics are used when detected, half-blocks provide the safe fallback, and image decoding stays off the render loop
 - Text and directory previews in the same panel, cached per focused entry and invalidated on mtime/size changes
+- Direct audio playback with a real PCM-derived FFT spectrum: supported files (wav, flac, ogg, oga, mp3, m4a) open straight into a media modal with transport controls, seek, volume, and a 24-band logarithmic visualization (Symphonia decoders, rodio playback; the file is decoded exactly once)
 - Directory browsing with breadcrumb, metadata columns, and symlink, executable, hidden, socket, pipe, and device distinctions
 - Full Vim-style keyboard control plus complete mouse navigation; no operation requires a mouse
 - Multi-selection with visual mode
@@ -62,7 +63,7 @@ Compact layout on a small terminal (SVG, 60x16 cells):
 | `l` / Right | move one tile right |
 | Backspace | open parent directory |
 | `F5` | refresh the current directory |
-| `e` / Enter | enter directory, or prompt for a command to open a file (the only keyboard open actions) |
+| `e` / Enter | enter directory, or open a file (audio and video play in the media modal; other files prompt for a command) |
 | `r` | open with: prompt for a command to run on the focused entry |
 | `X` | encrypt / decrypt the focused entry (masked password dialog) |
 | `b` | toggle the sidebar |
@@ -92,6 +93,19 @@ Mouse controls:
 - Mouse wheel: scroll the list
 - Click a tag badge in the details panel: open the tag picker
 - Click outside a modal: dismiss it (only when safe, destructive confirmations always cancel)
+
+Media controls (in the media modal):
+
+| Key | Action |
+| --- | --- |
+| Space / Enter | play or pause |
+| Left / `h` | seek back 5 seconds |
+| Right / `l` | seek forward 5 seconds |
+| Up / Down | volume up / down in 5% steps (`+` / `-` also work) |
+| `s` | stop and restart from the beginning |
+| Esc / `q` | close the media modal |
+
+- Supported audio: `wav`, `flac`, `ogg`, `oga`, `mp3`, `m4a`. Video (mp4, mkv, webm, and more) requires `mpv` and a Kitty graphics terminal.
 
 ## Encryption
 
@@ -315,6 +329,8 @@ This writes two kinds of artifacts:
 ## Packaging notes
 
 - Default build uses bundled SQLite (`bundled-sqlite` feature) for standalone binaries
+- Audio playback needs ALSA headers at build time: Gentoo `media-libs/alsa-lib`, Arch `alsa-lib`, Debian/Ubuntu `libasound2-dev`
+- Direct video playback additionally requires the `mpv` player at runtime: Gentoo `media-video/mpv`, Arch `mpv`, Debian/Ubuntu `mpv`
 - Distribution packages can link the system SQLite instead:
 
 ```
@@ -332,6 +348,7 @@ Automated tests never exercise the real mutation backend by design. The followin
 - Opening files through the command prompt on a live terminal
 - Tag database creation, permissions, and persistence across restarts on a real home directory
 - Kitty/Sixel/iTerm2 pixel output on a graphics terminal (headless tests exercise the half-block fallback only)
+- Live audio output through a real ALSA device and live mpv/Kitty video playback (automated tests use synthetic in-memory PCM and never claim device coverage)
 
 ## Current limitations
 

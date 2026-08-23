@@ -1049,3 +1049,101 @@ fn directory_encrypts_and_decrypts_through_ui() {
     assert!(tree.join("sub/empty").is_dir(), "empty dirs preserved");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn opening_media_enters_preparing_mode_and_starts_after_surface() {
+    let (mut state, mut handler) = loaded(120, 36);
+    drive(&mut state, &mut handler, [Action::GotoFirst]);
+    let downs = vec![Action::MoveDown; 16];
+    drive(&mut state, &mut handler, downs);
+    drive(&mut state, &mut handler, [Action::OpenFocused]);
+    let Mode::Media(media) = &state.mode else {
+        panic!("expected media mode");
+    };
+    assert_eq!(media.phase, tui_explorer::media::MediaPhase::Preparing);
+    assert!(media.awaiting_surface_ready);
+    assert!(media.surface.is_none());
+    let session = media.session;
+
+    let surface = tui_explorer::app::state::MediaSurface {
+        rect: ratatui::layout::Rect::new(0, 0, 40, 8),
+        terminal_cells: (120, 36),
+        cell_pixels: (8, 16),
+    };
+    drive(
+        &mut state,
+        &mut handler,
+        [Action::MediaSurfaceReady { session, surface }],
+    );
+    assert_eq!(
+        handler.started_media.len(),
+        1,
+        "one StartMedia after the surface"
+    );
+    // The audio path starts playback directly after StartMedia; the Load
+    // command is only meaningful for the later mpv video backend.
+    assert_eq!(
+        handler
+            .media_commands
+            .iter()
+            .filter(|(_, command)| *command == tui_explorer::media::MediaCommand::Load)
+            .count(),
+        1,
+        "exactly one Load follows MediaBackendReady"
+    );
+}
+
+/// Focuses the demo `song.mp3` entry (visible position 16).
+fn focus_song(state: &mut AppState, handler: &mut SyncHandler) {
+    drive(state, handler, [Action::GotoFirst]);
+    drive(state, handler, vec![Action::MoveDown; 16]);
+}
+
+#[test]
+fn stale_media_results_are_rejected_by_session() {
+    let (mut state, mut handler) = loaded(120, 36);
+    focus_song(&mut state, &mut handler);
+    drive(&mut state, &mut handler, [Action::OpenFocused]);
+    let session = match &state.mode {
+        Mode::Media(media) => media.session,
+        _ => panic!("expected media mode"),
+    };
+    drive(
+        &mut state,
+        &mut handler,
+        [Action::MediaSpectrum {
+            session: session + 1,
+            spectrum: [0.9; 24],
+        }],
+    );
+    let Mode::Media(media) = &state.mode else {
+        panic!("expected media mode");
+    };
+    assert!(
+        media.spectrum.iter().all(|value| *value == 0.0),
+        "stale spectrum must not apply"
+    );
+    assert!(handler.started_media.is_empty());
+}
+
+#[test]
+fn media_close_stops_then_returns_to_browser_exactly_once() {
+    let (mut state, mut handler) = loaded(120, 36);
+    focus_song(&mut state, &mut handler);
+    drive(&mut state, &mut handler, [Action::OpenFocused]);
+    let session = match &state.mode {
+        Mode::Media(media) => media.session,
+        _ => panic!("expected media mode"),
+    };
+    drive(&mut state, &mut handler, [Action::MediaClose]);
+    assert_eq!(
+        handler.stopped_media,
+        vec![session],
+        "close emits exactly one StopMedia"
+    );
+    drive(&mut state, &mut handler, [Action::MediaStopped { session }]);
+    assert!(matches!(state.mode, Mode::Browser));
+    drive(&mut state, &mut handler, [Action::MediaStopped { session }]);
+    assert!(matches!(state.mode, Mode::Browser), "stale stop ignored");
+    assert_eq!(handler.stopped_media.len(), 1);
+}

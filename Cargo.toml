@@ -27,6 +27,9 @@ tar = "0.4"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp"] }
 ratatui-image = "5"
 libc = "0.2"
+rodio = { version = "0.21.1", default-features = false, features = ["playback"] }
+symphonia = { version = "0.5.4", default-features = false, features = ["aac", "adpcm", "alac", "flac", "isomp4", "mp3", "ogg", "pcm", "vorbis", "wav"] }
+rustfft = "6.4.1"
 
 [profile.release]
 lto = true

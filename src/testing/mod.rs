@@ -173,6 +173,9 @@ pub struct SyncHandler {
     pub mutations: RecordingMutations,
     pub tags: TagStore,
     pub opened_with: Vec<(PathBuf, String, Vec<String>)>,
+    pub started_media: Vec<(u64, PathBuf)>,
+    pub media_commands: Vec<(u64, crate::media::MediaCommand)>,
+    pub stopped_media: Vec<u64>,
     pub quit: bool,
     pub now: i64,
     pub bookmarks: Vec<PathBuf>,
@@ -189,6 +192,9 @@ impl SyncHandler {
             opened_with: Vec::new(),
             quit: false,
             now: 1_700_000_000,
+            started_media: Vec::new(),
+            media_commands: Vec::new(),
+            stopped_media: Vec::new(),
             bookmarks: Vec::new(),
             bookmark_store: crate::sidebar::MemoryBookmarks::default(),
         }
@@ -385,6 +391,18 @@ impl EffectHandler for SyncHandler {
                 Ok(_) => Vec::new(),
                 Err(e) => vec![Action::ErrorMessage(e.to_string())],
             },
+            Effect::StartMedia { session, path, .. } => {
+                self.started_media.push((session, path));
+                vec![Action::MediaBackendReady { session }]
+            }
+            Effect::MediaCommand { session, command } => {
+                self.media_commands.push((session, command));
+                Vec::new()
+            }
+            Effect::StopMedia { session } => {
+                self.stopped_media.push(session);
+                vec![Action::MediaStopped { session }]
+            }
             Effect::Quit => {
                 self.quit = true;
                 Vec::new()

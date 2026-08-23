@@ -36,6 +36,13 @@ pub enum HitTarget {
     PickerDelete,
     PickerClose,
     ContextItem(usize),
+    MediaTogglePause,
+    MediaSeekBack,
+    MediaSeekForward,
+    MediaVolumeDown,
+    MediaVolumeUp,
+    MediaStop,
+    MediaClose,
     Blocker,
     Details,
 }

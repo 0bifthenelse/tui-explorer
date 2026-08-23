@@ -5,13 +5,14 @@ use crate::app::action::{Action, ConflictDecision, DirectorySnapshot, MouseKind}
 use crate::app::effects::Effect;
 use crate::app::state::{
     AppState, BookmarkNavState, ConfirmAction, ConfirmState, ConflictState, ContextItem,
-    ContextMenuState, Mode, OpenWithState, OperationState, Password, PasswordPurpose,
+    ContextMenuState, MediaState, Mode, OpenWithState, OperationState, Password, PasswordPurpose,
     PasswordState, PreviewContent, StatusMessage, TagPickerState,
 };
 use crate::browser::SortMode;
 use crate::crypto::CryptoKind;
 use crate::filesystem::EntryKind;
 use crate::input::command::{self, Command};
+use crate::media::{AfterStop, MediaCommand, MediaPhase, classify_path};
 use crate::operations::{
     ConflictPolicy, OpOutcome, OperationKind, OperationPlan, OperationReport, validate,
     validate_rename,
@@ -277,6 +278,114 @@ fn reduce_inner(state: &mut AppState, action: Action) -> Vec<Effect> {
             }
             Vec::new()
         }
+        Action::MediaSurfaceReady { session, surface } => {
+            let Mode::Media(media) = &mut state.mode else {
+                return Vec::new();
+            };
+            if media.session != session
+                || media.phase != MediaPhase::Preparing
+                || !media.awaiting_surface_ready
+            {
+                return Vec::new();
+            }
+            media.surface = Some(surface);
+            media.awaiting_surface_ready = false;
+            vec![Effect::StartMedia {
+                session,
+                path: media.path.clone(),
+                kind: media.kind,
+                surface,
+                resume_position: media.resume_position,
+                resume_paused: media.resume_paused,
+            }]
+        }
+        Action::MediaBackendReady { session } => {
+            let Mode::Media(media) = &mut state.mode else {
+                return Vec::new();
+            };
+            if media.session != session {
+                return Vec::new();
+            }
+            media.error = None;
+            media.phase = MediaPhase::Starting;
+            vec![Effect::MediaCommand {
+                session,
+                command: MediaCommand::Load,
+            }]
+        }
+        Action::MediaStatus {
+            session,
+            phase,
+            position,
+            duration,
+            volume,
+        } => {
+            if let Mode::Media(media) = &mut state.mode
+                && media.session == session
+            {
+                media.phase = phase;
+                media.position = position.max(0.0);
+                media.duration = duration;
+                media.volume = volume.min(100);
+                if matches!(phase, MediaPhase::Playing) {
+                    media.error = None;
+                }
+            }
+            Vec::new()
+        }
+        Action::MediaSpectrum { session, spectrum } => {
+            if let Mode::Media(media) = &mut state.mode
+                && media.session == session
+            {
+                media.spectrum = spectrum.map(|value| value.clamp(0.0, 1.0));
+            }
+            Vec::new()
+        }
+        Action::MediaEnded { session } => {
+            let Mode::Media(media) = &mut state.mode else {
+                return Vec::new();
+            };
+            if media.session != session {
+                return Vec::new();
+            }
+            let name = media
+                .path
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_else(|| media.path.display().to_string());
+            state.message = Some(StatusMessage::info(format!("finished {name}")));
+            media.phase = MediaPhase::Stopping;
+            media.after_stop = Some(AfterStop::Close);
+            vec![Effect::StopMedia { session }]
+        }
+        Action::MediaFailed { session, message } => {
+            let Mode::Media(media) = &mut state.mode else {
+                return Vec::new();
+            };
+            if media.session != session {
+                return Vec::new();
+            }
+            media.error = Some(message.clone());
+            media.phase = MediaPhase::Stopping;
+            media.after_stop = Some(AfterStop::ShowError(message));
+            vec![Effect::StopMedia { session }]
+        }
+        Action::MediaStopped { session } => media_stopped(state, session),
+        Action::MediaTogglePause => media_command(state, MediaCommand::TogglePause),
+        Action::MediaSeek(seconds) => media_command(state, MediaCommand::SeekRelative(seconds)),
+        Action::MediaVolume(delta) => {
+            let Mode::Media(media) = &mut state.mode else {
+                return Vec::new();
+            };
+            let volume = (media.volume as i16 + delta as i16).clamp(0, 100) as u8;
+            media.volume = volume;
+            vec![Effect::MediaCommand {
+                session: media.session,
+                command: MediaCommand::SetVolume(volume),
+            }]
+        }
+        Action::MediaStop => media_command(state, MediaCommand::Stop),
+        Action::MediaClose => close_media(state, AfterStop::Close),
         Action::QuickTag => quick_tag(state),
         Action::OpenTagPicker => open_picker(state),
         Action::EnterCommand => {
@@ -318,6 +427,8 @@ fn reduce_inner(state: &mut AppState, action: Action) -> Vec<Effect> {
         Action::Quit => {
             if matches!(state.mode, Mode::Browser) {
                 vec![Effect::Quit]
+            } else if matches!(state.mode, Mode::Media(_)) {
+                close_media(state, AfterStop::Quit)
             } else {
                 Vec::new()
             }
@@ -575,6 +686,70 @@ fn navigate(state: &mut AppState, dir: PathBuf) -> Vec<Effect> {
     vec![Effect::LoadDirectory(dir)]
 }
 
+fn media_command(state: &mut AppState, command: MediaCommand) -> Vec<Effect> {
+    let Mode::Media(media) = &state.mode else {
+        return Vec::new();
+    };
+    if matches!(
+        media.phase,
+        MediaPhase::Preparing | MediaPhase::Stopping | MediaPhase::Error
+    ) {
+        return Vec::new();
+    }
+    vec![Effect::MediaCommand {
+        session: media.session,
+        command,
+    }]
+}
+
+fn close_media(state: &mut AppState, after_stop: AfterStop) -> Vec<Effect> {
+    let Mode::Media(media) = &mut state.mode else {
+        return Vec::new();
+    };
+    if media.phase == MediaPhase::Stopping {
+        return Vec::new();
+    }
+    media.phase = MediaPhase::Stopping;
+    media.after_stop = Some(after_stop);
+    vec![Effect::StopMedia {
+        session: media.session,
+    }]
+}
+
+fn media_stopped(state: &mut AppState, session: u64) -> Vec<Effect> {
+    let Mode::Media(media) = &mut state.mode else {
+        return Vec::new();
+    };
+    if media.session != session {
+        return Vec::new();
+    }
+    let after_stop = media.after_stop.take().unwrap_or(AfterStop::Close);
+    match after_stop {
+        AfterStop::Close => {
+            state.mode = Mode::Browser;
+            Vec::new()
+        }
+        AfterStop::Quit => {
+            state.mode = Mode::Browser;
+            vec![Effect::Quit]
+        }
+        AfterStop::RestartAfterResize { position, paused } => {
+            media.phase = MediaPhase::Preparing;
+            media.position = position;
+            media.surface = None;
+            media.awaiting_surface_ready = true;
+            media.resume_position = Some(position);
+            media.resume_paused = Some(paused);
+            Vec::new()
+        }
+        AfterStop::ShowError(message) => {
+            media.phase = MediaPhase::Error;
+            media.error = Some(message);
+            Vec::new()
+        }
+    }
+}
+
 fn open_focused(state: &mut AppState) -> Vec<Effect> {
     browser_only_fx(state, |s| {
         let Some(view) = s.browser.focused() else {
@@ -584,7 +759,13 @@ fn open_focused(state: &mut AppState) -> Vec<Effect> {
         match &view.entry.kind {
             EntryKind::Directory => navigate(s, path),
             _ => {
-                prompt_open_with(s, path);
+                if let Some(kind) = classify_path(&path) {
+                    let session = s.next_media_session;
+                    s.next_media_session = s.next_media_session.wrapping_add(1).max(1);
+                    s.mode = Mode::Media(Box::new(MediaState::preparing(session, path, kind)));
+                } else {
+                    prompt_open_with(s, path);
+                }
                 Vec::new()
             }
         }
@@ -1095,6 +1276,7 @@ fn context_apply(state: &mut AppState, item: ContextItem) -> Vec<Effect> {
 
 fn cancel(state: &mut AppState) -> Vec<Effect> {
     match &state.mode {
+        Mode::Media(_) => return close_media(state, AfterStop::Close),
         Mode::Command
         | Mode::Confirm(_)
         | Mode::Conflict(_)
@@ -1332,6 +1514,34 @@ fn mouse(state: &mut AppState, kind: MouseKind, x: u16, y: u16) -> Vec<Effect> {
                 }
                 reduce(state, Action::ContextChoose)
             }
+            _ => Vec::new(),
+        },
+        HitTarget::MediaTogglePause => match kind {
+            MouseKind::Left => reduce(state, Action::MediaTogglePause),
+            _ => Vec::new(),
+        },
+        HitTarget::MediaSeekBack => match kind {
+            MouseKind::Left => reduce(state, Action::MediaSeek(-5)),
+            _ => Vec::new(),
+        },
+        HitTarget::MediaSeekForward => match kind {
+            MouseKind::Left => reduce(state, Action::MediaSeek(5)),
+            _ => Vec::new(),
+        },
+        HitTarget::MediaVolumeDown => match kind {
+            MouseKind::Left => reduce(state, Action::MediaVolume(-5)),
+            _ => Vec::new(),
+        },
+        HitTarget::MediaVolumeUp => match kind {
+            MouseKind::Left => reduce(state, Action::MediaVolume(5)),
+            _ => Vec::new(),
+        },
+        HitTarget::MediaStop => match kind {
+            MouseKind::Left => reduce(state, Action::MediaStop),
+            _ => Vec::new(),
+        },
+        HitTarget::MediaClose => match kind {
+            MouseKind::Left => reduce(state, Action::MediaClose),
             _ => Vec::new(),
         },
         HitTarget::Details => Vec::new(),

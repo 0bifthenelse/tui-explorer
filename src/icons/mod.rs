@@ -253,15 +253,6 @@ const EXTENSIONS: &[(&str, IconKind)] = &[
     ("bmp", IconKind::Image),
     ("svg", IconKind::Image),
     ("webp", IconKind::Image),
-    ("mp3", IconKind::Audio),
-    ("flac", IconKind::Audio),
-    ("ogg", IconKind::Audio),
-    ("wav", IconKind::Audio),
-    ("mp4", IconKind::Video),
-    ("mkv", IconKind::Video),
-    ("webm", IconKind::Video),
-    ("avi", IconKind::Video),
-    ("mov", IconKind::Video),
     ("zip", IconKind::Archive),
     ("tar", IconKind::Archive),
     ("gz", IconKind::Archive),
@@ -467,6 +458,12 @@ impl IconResolver {
             _ => {}
         }
         let lower = entry.name.to_string_lossy().to_lowercase();
+        if let Some(kind) = crate::media::classify_path(&entry.path) {
+            return match kind {
+                crate::media::MediaKind::Audio => IconKind::Audio,
+                crate::media::MediaKind::Video => IconKind::Video,
+            };
+        }
         if let Some((_, kind)) = EXACT_NAMES.iter().find(|(n, _)| *n == lower) {
             return *kind;
         }
@@ -579,6 +576,23 @@ mod tests {
         for (name, kind, want) in cases {
             let got = resolver.resolve(&entry(name, kind.clone()));
             assert_eq!(got, *want, "name={name}");
+        }
+    }
+
+    #[test]
+    fn every_media_extension_uses_the_canonical_classifier() {
+        let resolver = IconResolver::default();
+        for extension in crate::media::AUDIO_EXTENSIONS {
+            for extension in [extension.to_string(), extension.to_ascii_uppercase()] {
+                let entry = entry(&format!("track.{extension}"), EntryKind::File);
+                assert_eq!(resolver.resolve(&entry), IconKind::Audio);
+            }
+        }
+        for extension in crate::media::VIDEO_EXTENSIONS {
+            for extension in [extension.to_string(), extension.to_ascii_uppercase()] {
+                let entry = entry(&format!("clip.{extension}"), EntryKind::File);
+                assert_eq!(resolver.resolve(&entry), IconKind::Video);
+            }
         }
     }
 

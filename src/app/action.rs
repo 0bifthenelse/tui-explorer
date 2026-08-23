@@ -1,7 +1,9 @@
 use std::path::PathBuf;
 
+use crate::app::state::MediaSurface;
 use crate::browser::EntryView;
 use crate::crypto::CryptoOutcome;
+use crate::media::MediaPhase;
 use crate::operations::{OperationPlan, OperationReport};
 use crate::preview::PreviewLoaded;
 use crate::tags::TagDef;
@@ -71,6 +73,39 @@ pub enum Action {
         key: (PathBuf, i64, u64),
         result: PreviewLoaded,
     },
+    MediaSurfaceReady {
+        session: u64,
+        surface: MediaSurface,
+    },
+    MediaBackendReady {
+        session: u64,
+    },
+    MediaStatus {
+        session: u64,
+        phase: MediaPhase,
+        position: f64,
+        duration: Option<f64>,
+        volume: u8,
+    },
+    MediaSpectrum {
+        session: u64,
+        spectrum: [f32; 24],
+    },
+    MediaEnded {
+        session: u64,
+    },
+    MediaFailed {
+        session: u64,
+        message: String,
+    },
+    MediaStopped {
+        session: u64,
+    },
+    MediaTogglePause,
+    MediaSeek(i64),
+    MediaVolume(i8),
+    MediaStop,
+    MediaClose,
     BookmarksChanged {
         bookmarks: Vec<PathBuf>,
         message: String,
