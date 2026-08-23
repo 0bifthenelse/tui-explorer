@@ -1629,9 +1629,7 @@ fn drag_drop_target_with_sources(
     }
     match state.hit_map.hit(x, y)? {
         HitTarget::Row(pos) => {
-            let Some((_, view)) = state.browser.visible_entries().nth(pos) else {
-                return None;
-            };
+            let (_, view) = state.browser.visible_entries().nth(pos)?;
             if !view.entry.kind.is_dir() {
                 return None;
             }

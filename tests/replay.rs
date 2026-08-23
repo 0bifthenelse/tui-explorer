@@ -1322,10 +1322,6 @@ fn drag_moves_file_to_directory_target() {
     let file_pos = first_file_pos(&state);
     let src = drag_rect(&state, file_pos);
     let dst = drag_rect(&state, 0);
-    let source_path = state.browser.entries[state.browser.visible_indices()[file_pos]]
-        .entry
-        .path
-        .clone();
     drive(
         &mut state,
         &mut handler,

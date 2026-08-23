@@ -213,7 +213,7 @@ pub fn render(frame: &mut Frame, state: &mut AppState) {
             return;
         }
         // Narrow: one combined header/path row, grid, status, reduced
-        // legend. No tip, sidebar, or preview — there is no room, and
+        // legend. No tip, sidebar, or preview: there is no room, and
         // `legend_items` already drops the sidebar/preview/open-with keys
         // for this tier.
         Tier::Narrow => render_narrow_shell(frame, area, state),
@@ -409,8 +409,8 @@ fn render_header_path_narrow(frame: &mut Frame, area: Rect, state: &AppState) {
 }
 
 /// The `Compact`/`Standard`/`Wide` shell: header, path bar, optional
-/// sidebar, grid, optional preview, status, legend, and — only when
-/// `show_tip` is set (`Compact` only) — a tip row. `sidebar_visible` and
+/// sidebar, grid, optional preview, status, legend, and (only when
+/// `show_tip` is set, i.e. Compact only) a tip row. `sidebar_visible` and
 /// `preview_visible` already encode each tier's default, so this one shell
 /// produces the right panels for all three tiers.
 fn render_chrome_shell(frame: &mut Frame, area: Rect, state: &mut AppState, show_tip: bool) {
