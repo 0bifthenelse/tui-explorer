@@ -8,13 +8,13 @@ A fast, open-source terminal file explorer for Linux with mouse support for GUI-
 
 tui-explorer turns your terminal into a focused desktop-style file manager. Its dark ink-and-paper shell uses restrained signal orange for the current path, focused tile, mode, and primary actions. The layout scales from a compact single-panel browser to a framed three-panel workspace with places, files, and preview details. Drive it entirely with Vim-style motions or use the mouse: click to select, double-click to open, right-click for a context menu, scroll with the wheel, and click the breadcrumb to jump to any parent directory. All icons are plain ASCII art drawn by the application's own icon engine, so the interface needs no Nerd Fonts, emoji support, or desktop icon themes.
 
-Named tags (such as `[src]` or `[fav]`) can be attached to any file or directory and are stored in a local SQLite database, so they survive restarts. Files and folders can be encrypted and decrypted in place with the `age` crate's passphrase API, and image files render a live preview in the details panel on terminals that support Kitty, Sixel, or iTerm2 graphics (with a half-block fallback everywhere else).
+Named tags (such as `[src]` or `[fav]`) can be attached to any file or directory and are stored in a local SQLite database, so they survive restarts. Files and folders can be encrypted and decrypted in place with the `age` crate's passphrase API. Image files render in the details panel with automatically detected terminal graphics, preferring Kitty when available and falling back to half-block cells when capability detection fails.
 
 ## Features
 
 - Responsive premium shell: clickable breadcrumb, framed ASCII icon grid, places/mounts/tags/bookmarks sidebar, metadata preview, status bar, command bar, and explicit focused, selected, and error states
 - File and folder encryption with the `age` crate's passphrase API (`X`): files become `name.ext.age`, folders are tar-archived to `name.tar.age`; masked password dialog, atomic temp-file output, no source deletion, no silent overwrites, safe archive extraction (no `..` or absolute paths, symlinks never followed)
-- Image previews in the panel (PNG, JPEG, GIF first frame, WebP, BMP) via `ratatui-image` with Kitty/Sixel/iTerm2 protocol detection and a half-block fallback; decode happens off the render loop
+- Image previews in the panel (PNG, JPEG, GIF first frame, WebP, BMP) via `ratatui-image`; capability and cell-pixel detection happen before the TUI starts, Kitty graphics are used when detected, half-blocks provide the safe fallback, and image decoding stays off the render loop
 - Text and directory previews in the same panel, cached per focused entry and invalidated on mtime/size changes
 - Directory browsing with breadcrumb, metadata columns, and symlink, executable, hidden, socket, pipe, and device distinctions
 - Full Vim-style keyboard control plus complete mouse navigation; no operation requires a mouse
@@ -105,7 +105,7 @@ Press `X` on any entry. Regular files and folders are encrypted with the maintai
 ## Configuration
 
 - `TUI_EXPLORER_DOUBLE_CLICK_MS`: double-click threshold in milliseconds (default 500)
-- `TUI_EXPLORER_IMAGE_PROTOCOL`: choose the image preview protocol (`halfblocks`, `kitty`, `sixel`, or `iterm2`). The stable cell-based `halfblocks` renderer is always the default; native Kitty/Sixel/iTerm2 graphics are explicit opt-ins because incorrect terminal geometry can overdraw a TUI.
+- `TUI_EXPLORER_IMAGE_PROTOCOL`: override automatic image protocol detection with `halfblocks`, `kitty`, `sixel`, or `iterm2`. Without an override, tui-explorer queries terminal capabilities and cell-pixel geometry, prefers Kitty when detected, and uses the 8x16 half-block fallback if the query fails. An invalid override also selects half-blocks.
 - Bookmarks are stored in `$XDG_DATA_HOME/tui-explorer/bookmarks.txt`, tags in `tags.sqlite3` alongside it
 
 ## Command mode

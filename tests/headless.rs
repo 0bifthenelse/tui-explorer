@@ -115,6 +115,19 @@ fn run_in_pty(cols: u16, rows: u16, dir: &Path, keys: &[&str], settle_ms: u64) -
         .spawn()
         .expect("spawn script pty");
     let mut stdin = child.stdin.take().expect("pty stdin");
+    for _ in 0..200 {
+        let query_seen = std::fs::read(&log)
+            .ok()
+            .is_some_and(|raw| raw.windows(3).any(|window| window == b"[5n"));
+        if query_seen {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    stdin
+        .write_all(b"\x1b[0n")
+        .expect("terminal query response");
+    stdin.flush().expect("flush terminal query response");
     std::thread::sleep(std::time::Duration::from_millis(1200));
     for key in keys {
         stdin.write_all(key.as_bytes()).expect("write key");

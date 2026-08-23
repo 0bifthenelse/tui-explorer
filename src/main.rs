@@ -318,31 +318,42 @@ impl EffectHandler for ProdHandler {
     }
 }
 
-/// Choose a graphics protocol without emitting terminal capability queries.
-/// Native protocols are deliberately opt-in: incorrect terminal detection or
-/// pixel geometry can overdraw the surrounding TUI, while half-blocks stay
-/// inside Ratatui's cell buffer on every terminal.
-fn image_protocol(override_: Option<&str>) -> ratatui_image::picker::ProtocolType {
+fn image_protocol(value: &str) -> ratatui_image::picker::ProtocolType {
     use ratatui_image::picker::ProtocolType;
-    match override_
-        .map(str::trim)
-        .map(str::to_ascii_lowercase)
-        .as_deref()
-    {
-        Some("kitty") => ProtocolType::Kitty,
-        Some("sixel") => ProtocolType::Sixel,
-        Some("iterm2") => ProtocolType::Iterm2,
-        Some("halfblocks") => ProtocolType::Halfblocks,
+    match value.trim().to_ascii_lowercase().as_str() {
+        "kitty" => ProtocolType::Kitty,
+        "sixel" => ProtocolType::Sixel,
+        "iterm2" => ProtocolType::Iterm2,
+        "halfblocks" => ProtocolType::Halfblocks,
         _ => ProtocolType::Halfblocks,
     }
 }
 
-fn detect_picker() -> ratatui_image::picker::Picker {
-    use ratatui_image::picker::Picker;
-    let mut picker = Picker::from_fontsize((8, 16));
-    let override_ = std::env::var("TUI_EXPLORER_IMAGE_PROTOCOL").ok();
-    picker.set_protocol_type(image_protocol(override_.as_deref()));
+fn detect_picker_with<E, F>(override_: Option<&str>, query: F) -> ratatui_image::picker::Picker
+where
+    F: FnOnce() -> Result<ratatui_image::picker::Picker, E>,
+{
+    use ratatui_image::picker::{Picker, ProtocolType};
+    let mut picker = match query() {
+        Ok(picker) => picker,
+        Err(_) => {
+            let mut fallback = Picker::from_fontsize((8, 16));
+            fallback.set_protocol_type(ProtocolType::Halfblocks);
+            fallback
+        }
+    };
+    if let Some(value) = override_ {
+        picker.set_protocol_type(image_protocol(value));
+    }
     picker
+}
+
+fn detect_picker() -> ratatui_image::picker::Picker {
+    let override_ = std::env::var("TUI_EXPLORER_IMAGE_PROTOCOL").ok();
+    detect_picker_with(
+        override_.as_deref(),
+        ratatui_image::picker::Picker::from_query_stdio,
+    )
 }
 
 /// Runs the user-supplied program from the interactive "open with" prompt
@@ -467,14 +478,11 @@ fn run(start: PathBuf) -> std::io::Result<()> {
             TagStore::open_in_memory().ok()
         }
     };
+    let picker = detect_picker();
     let mut session = TerminalSession::enter(CrosstermTty::new())?;
     terminal::install_panic_hook();
     let backend = CrosstermBackend::new(std::io::stdout());
     let mut term = Terminal::new(backend)?;
-    // Use the cell-based renderer unless a native graphics protocol is
-    // explicitly selected. This is deterministic and never emits protocol
-    // data into terminals that did not opt in.
-    let picker = detect_picker();
     let (sender, receiver) = sync_channel::<Action>(64);
     let bookmark_store = tui_explorer::sidebar::BookmarkStore::new(config::bookmarks_path(&dirs));
     let bookmarks = bookmark_store.load();
@@ -603,14 +611,28 @@ fn main() -> ExitCode {
 
 #[cfg(test)]
 mod tests {
-    use super::image_protocol;
-    use ratatui_image::picker::ProtocolType;
+    use super::{detect_picker_with, image_protocol};
+    use ratatui_image::picker::{Picker, ProtocolType};
+
+    fn picker(protocol: ProtocolType, font_size: (u16, u16)) -> Picker {
+        let mut picker = Picker::from_fontsize(font_size);
+        picker.set_protocol_type(protocol);
+        picker
+    }
 
     #[test]
-    fn image_protocol_defaults_to_halfblocks() {
-        assert_eq!(image_protocol(None), ProtocolType::Halfblocks);
-        assert_eq!(image_protocol(Some("")), ProtocolType::Halfblocks);
-        assert_eq!(image_protocol(Some("unknown")), ProtocolType::Halfblocks);
+    fn picker_query_success_is_preserved_without_override() {
+        let picker =
+            detect_picker_with(None, || Ok::<_, &str>(picker(ProtocolType::Kitty, (9, 18))));
+        assert_eq!(picker.protocol_type(), ProtocolType::Kitty);
+        assert_eq!(picker.font_size(), (9, 18));
+    }
+
+    #[test]
+    fn picker_query_error_uses_halfblock_fallback_geometry() {
+        let picker = detect_picker_with(None, || Err::<Picker, _>("query failed"));
+        assert_eq!(picker.protocol_type(), ProtocolType::Halfblocks);
+        assert_eq!(picker.font_size(), (8, 16));
     }
 
     #[test]
@@ -622,7 +644,21 @@ mod tests {
             ("iterm2", ProtocolType::Iterm2),
             (" KITTY ", ProtocolType::Kitty),
         ] {
-            assert_eq!(image_protocol(Some(value)), expected, "override {value}");
+            let picker = detect_picker_with(Some(value), || {
+                Ok::<_, &str>(picker(ProtocolType::Sixel, (7, 14)))
+            });
+            assert_eq!(picker.protocol_type(), expected, "override {value}");
         }
+    }
+
+    #[test]
+    fn invalid_override_forces_halfblocks_after_successful_query() {
+        for value in ["", "unknown"] {
+            let picker = detect_picker_with(Some(value), || {
+                Ok::<_, &str>(picker(ProtocolType::Kitty, (9, 18)))
+            });
+            assert_eq!(picker.protocol_type(), ProtocolType::Halfblocks);
+        }
+        assert_eq!(image_protocol("invalid"), ProtocolType::Halfblocks);
     }
 }

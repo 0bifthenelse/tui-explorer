@@ -953,10 +953,10 @@ fn render_preview(frame: &mut Frame, area: Rect, state: &mut AppState) {
         tag_style(),
     )));
     let tag_y = inner.y + lines.len() as u16 - 1;
-    let title = " Preview ";
+    let title = format!(" Preview ({:?}) ", state.picker.protocol_type());
     let dashes = width.saturating_sub(title.len());
     lines.push(Line::from(vec![
-        Span::styled(title.to_string(), Style::default().fg(TEXT_PRIMARY)),
+        Span::styled(title, Style::default().fg(TEXT_PRIMARY)),
         Span::styled("-".repeat(dashes), muted_style()),
     ]));
     let meta_height = lines.len() as u16;
@@ -972,21 +972,27 @@ fn render_preview(frame: &mut Frame, area: Rect, state: &mut AppState) {
         inner.width,
         inner.height.saturating_sub(meta_height),
     );
-    if content_area.height == 0 {
+    if content_area.width < 3 || content_area.height < 3 {
         return;
     }
-    // Always clear stale cells first: terminal-graphics-protocol pixels from
-    // a previously previewed image are painted out-of-band and are not
-    // erased by ratatui's normal cell diffing when the content kind changes.
     frame.render_widget(Clear, content_area);
+    let content_frame = Block::default()
+        .borders(Borders::ALL)
+        .border_set(ASCII_BORDERS)
+        .border_style(Style::default().fg(BORDER_SUBTLE))
+        .style(Style::default().bg(SURFACE_1));
+    let content_inner = content_frame.inner(content_area);
+    frame.render_widget(content_frame, content_area);
+    let content_width = content_inner.width as usize;
+    let mut encoding_result = None;
     match &mut state.preview.content {
         Some(PreviewContent::Text { lines, truncated }) => {
             let mut out: Vec<Line> = lines
                 .iter()
-                .take(content_area.height as usize)
-                .map(|l| {
+                .take(content_inner.height as usize)
+                .map(|line| {
                     Line::from(Span::styled(
-                        truncate(l, width),
+                        truncate(line, content_width),
                         Style::default().fg(TEXT_SECONDARY),
                     ))
                 })
@@ -994,35 +1000,51 @@ fn render_preview(frame: &mut Frame, area: Rect, state: &mut AppState) {
             if *truncated {
                 out.push(Line::from(Span::styled("... (truncated)", muted_style())));
             }
-            frame.render_widget(Paragraph::new(out), content_area);
+            frame.render_widget(Paragraph::new(out), content_inner);
         }
         Some(PreviewContent::Directory(names)) => {
             let out: Vec<Line> = names
                 .iter()
-                .take(content_area.height as usize)
-                .map(|n| Line::from(Span::styled(truncate(n, width), base_style())))
+                .take(content_inner.height as usize)
+                .map(|name| Line::from(Span::styled(truncate(name, content_width), base_style())))
                 .collect();
-            frame.render_widget(Paragraph::new(out), content_area);
+            frame.render_widget(Paragraph::new(out), content_inner);
         }
         Some(PreviewContent::Image(proto)) => {
-            let widget = ratatui_image::StatefulImage::new();
-            frame.render_stateful_widget(widget, content_area, proto.as_mut());
+            frame.render_stateful_widget(
+                ratatui_image::StatefulImage::new(),
+                content_inner,
+                proto.as_mut(),
+            );
+            encoding_result = proto.last_encoding_result();
         }
-        Some(PreviewContent::Unavailable(msg)) => {
-            // A no-preview explanation is user-facing content, not decoration.
-            // Keep it readable even in terminal palettes where DarkGray maps
-            // to the background color.
+        Some(PreviewContent::Unavailable(message)) => {
             frame.render_widget(
-                Paragraph::new(Line::from(Span::styled(truncate(msg, width), base_style()))),
-                content_area,
+                Paragraph::new(Line::from(Span::styled(
+                    truncate(message, content_width),
+                    base_style(),
+                ))),
+                content_inner,
             );
         }
         None => {
             frame.render_widget(
                 Paragraph::new(Line::from(Span::styled("loading...", muted_style()))),
-                content_area,
+                content_inner,
             );
         }
+    }
+    apply_image_encoding_result(state, encoding_result);
+}
+
+fn apply_image_encoding_result(
+    state: &mut AppState,
+    result: Option<std::result::Result<(), ratatui_image::errors::Errors>>,
+) {
+    if let Some(Err(error)) = result {
+        state.preview.content = Some(PreviewContent::Unavailable(format!(
+            "image preview failed: {error}"
+        )));
     }
 }
 
@@ -1730,4 +1752,46 @@ fn help_entry_spans(entry: &(&str, &str), width: usize) -> Vec<Span<'static>> {
         Span::styled(pad_right(entry.0, key_width), tag_style()),
         Span::styled(desc, base_style()),
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use super::apply_image_encoding_result;
+    use crate::app::state::{AppState, PreviewContent};
+
+    #[test]
+    fn image_encoding_failure_replaces_preview_on_next_frame() {
+        let mut state = AppState::new(PathBuf::from("/"), PathBuf::from("/"));
+        state.preview.content = Some(PreviewContent::Text {
+            lines: vec!["old preview".to_string()],
+            truncated: false,
+        });
+        apply_image_encoding_result(
+            &mut state,
+            Some(Err(ratatui_image::errors::Errors::Sixel(
+                "encoder stopped".to_string(),
+            ))),
+        );
+        assert!(matches!(
+            &state.preview.content,
+            Some(PreviewContent::Unavailable(message))
+                if message == "image preview failed: Sixel error: encoder stopped"
+        ));
+    }
+
+    #[test]
+    fn successful_image_encoding_keeps_preview_content() {
+        let mut state = AppState::new(PathBuf::from("/"), PathBuf::from("/"));
+        state.preview.content = Some(PreviewContent::Text {
+            lines: vec!["current preview".to_string()],
+            truncated: false,
+        });
+        apply_image_encoding_result(&mut state, Some(Ok(())));
+        assert!(matches!(
+            &state.preview.content,
+            Some(PreviewContent::Text { .. })
+        ));
+    }
 }

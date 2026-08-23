@@ -5,9 +5,11 @@ use ratatui::style::Modifier;
 use std::path::{Path, PathBuf};
 
 use tui_explorer::app::action::Action;
-use tui_explorer::app::state::{AppState, Mode, OperationState};
+use tui_explorer::app::reduce::reduce;
+use tui_explorer::app::state::{AppState, Mode, OperationState, PreviewContent};
 use tui_explorer::filesystem::EntryKind;
 use tui_explorer::operations::OperationKind;
+use tui_explorer::preview::PreviewLoaded;
 use tui_explorer::testing::builders::{
     FIXED_TIME, demo_fs, demo_fs_with_non_utf8, demo_state, entry,
 };
@@ -15,8 +17,8 @@ use tui_explorer::testing::{MemoryFileSystem, SyncHandler, drive};
 use tui_explorer::ui;
 use tui_explorer::ui::hit::HitTarget;
 use tui_explorer::ui::palette::{
-    ACCENT, ACCENT_SOFT, BORDER_STRONG, DANGER, FOCUS_BG, SELECTED_BG, SURFACE_2, SURFACE_3,
-    TEXT_PRIMARY,
+    ACCENT, ACCENT_SOFT, BORDER_STRONG, BORDER_SUBTLE, DANGER, FOCUS_BG, SELECTED_BG, SURFACE_2,
+    SURFACE_3, TEXT_PRIMARY,
 };
 
 fn buffer_text(terminal: &Terminal<TestBackend>) -> String {
@@ -752,6 +754,112 @@ fn overlays_at_standard_size() {
     );
     let text = render(&mut state, 80, 24);
     assert_snapshot("confirm-80x24", &text);
+}
+
+#[test]
+fn image_preview_reports_protocol_and_keeps_content_inside_frame() {
+    let (mut state, _) = loaded(160, 48);
+    state.preview.content = Some(PreviewContent::Image(Box::new(
+        state
+            .picker
+            .new_resize_protocol(image::DynamicImage::ImageRgb8(image::RgbImage::from_pixel(
+                8,
+                6,
+                image::Rgb([200, 30, 30]),
+            ))),
+    )));
+    let terminal = rendered_terminal(&mut state, 160, 48);
+    let text = buffer_text(&terminal);
+    assert!(text.contains("Preview (Halfblocks)"));
+    let buffer = terminal.backend().buffer();
+    let frame_origin = (0..buffer.area.height)
+        .flat_map(|y| (124..buffer.area.width).map(move |x| (x, y)))
+        .find(|&(x, y)| {
+            let cell = &buffer[(x, y)];
+            cell.symbol() == "+" && cell.fg == BORDER_SUBTLE
+        })
+        .expect("preview content frame");
+    let image_cell = (0..buffer.area.height)
+        .flat_map(|y| (124..buffer.area.width).map(move |x| (x, y)))
+        .find(|&(x, y)| buffer[(x, y)].symbol() == "▀")
+        .expect("half-block image cell");
+    assert!(image_cell.0 > frame_origin.0);
+    assert!(image_cell.1 > frame_origin.1);
+}
+
+#[test]
+fn image_preview_rejects_stale_result_and_reuses_protocol_across_resize() {
+    let (mut state, _) = loaded(160, 48);
+    let key = state.focused_preview_key().expect("focused preview key");
+    reduce(
+        &mut state,
+        Action::PreviewLoaded {
+            key: key.clone(),
+            result: PreviewLoaded::Image(image::DynamicImage::ImageRgb8(
+                image::RgbImage::from_pixel(8, 6, image::Rgb([30, 200, 30])),
+            )),
+        },
+    );
+    let pointer_before = match &state.preview.content {
+        Some(PreviewContent::Image(protocol)) => protocol.as_ref() as *const _,
+        other => panic!("expected image preview, got {other:?}"),
+    };
+    let _ = render(&mut state, 160, 48);
+    let _ = render(&mut state, 200, 60);
+    let pointer_after = match &state.preview.content {
+        Some(PreviewContent::Image(protocol)) => protocol.as_ref() as *const _,
+        other => panic!("expected image preview after resize, got {other:?}"),
+    };
+    assert_eq!(pointer_before, pointer_after);
+
+    reduce(
+        &mut state,
+        Action::PreviewLoaded {
+            key: (PathBuf::from("/stale"), 0, 0),
+            result: PreviewLoaded::Text {
+                lines: vec!["stale".to_string()],
+                truncated: false,
+            },
+        },
+    );
+    assert!(matches!(
+        &state.preview.content,
+        Some(PreviewContent::Image(_))
+    ));
+
+    reduce(
+        &mut state,
+        Action::PreviewLoaded {
+            key,
+            result: PreviewLoaded::Text {
+                lines: vec!["replacement text".to_string()],
+                truncated: false,
+            },
+        },
+    );
+    let text = render(&mut state, 160, 48);
+    assert!(text.contains("replacement text"));
+    assert!(!text.contains('▀'));
+}
+
+#[test]
+fn hiding_preview_discards_protocol_state() {
+    let (mut state, _) = loaded(160, 48);
+    state.preview.key = state.focused_preview_key();
+    state.preview.content = Some(PreviewContent::Image(Box::new(
+        state
+            .picker
+            .new_resize_protocol(image::DynamicImage::ImageRgb8(image::RgbImage::from_pixel(
+                8,
+                6,
+                image::Rgb([30, 30, 200]),
+            ))),
+    )));
+    state.show_preview = Some(false);
+    let text = render(&mut state, 160, 48);
+    assert!(!text.contains("Preview ("));
+    assert!(state.preview.key.is_none());
+    assert!(state.preview.content.is_none());
 }
 
 #[test]
