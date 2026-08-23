@@ -205,7 +205,15 @@ fn encrypt_stream(
         .take()
         .ok_or_else(|| io::Error::other("temp output missing writer"))?;
     let mut age_writer = encryptor.wrap_output(writer)?;
-    copy_with_cancel(reader, &mut age_writer, cancel)?;
+    if let Err(error) = copy_with_cancel(reader, &mut age_writer, cancel) {
+        drop(age_writer);
+        match std::fs::remove_file(&out.temp) {
+            Ok(()) => out.done = true,
+            Err(cleanup) if cleanup.kind() == io::ErrorKind::NotFound => out.done = true,
+            Err(cleanup) => return Err(CryptoError::Io(cleanup)),
+        }
+        return Err(error);
+    }
     // Finalize the age stream, then recover the underlying writer.
     out.writer = Some(age_writer.finish()?);
     out.finalize()
