@@ -6,13 +6,13 @@ A fast, open-source terminal file explorer for Linux with mouse support for GUI-
 
 ## What it is
 
-tui-explorer turns your terminal into a file manager that feels like a small desktop application. You can drive it entirely with the keyboard using Vim-style motions, or point and click with the mouse: click to select, double-click to open, right-click for a context menu, scroll with the wheel, and click the breadcrumb to jump to any parent directory. All icons are plain ASCII art drawn by the application's own icon engine, so it works in any terminal without Nerd Fonts, emoji support, or desktop icon themes.
+tui-explorer turns your terminal into a focused desktop-style file manager. Its dark ink-and-paper shell uses restrained signal orange for the current path, focused tile, mode, and primary actions. The layout scales from a compact single-panel browser to a framed three-panel workspace with places, files, and preview details. Drive it entirely with Vim-style motions or use the mouse: click to select, double-click to open, right-click for a context menu, scroll with the wheel, and click the breadcrumb to jump to any parent directory. All icons are plain ASCII art drawn by the application's own icon engine, so the interface needs no Nerd Fonts, emoji support, or desktop icon themes.
 
 Named tags (such as `[src]` or `[fav]`) can be attached to any file or directory and are stored in a local SQLite database, so they survive restarts. Files and folders can be encrypted and decrypted in place with the `age` crate's passphrase API, and image files render a live preview in the details panel on terminals that support Kitty, Sixel, or iTerm2 graphics (with a half-block fallback everywhere else).
 
 ## Features
 
-- Thunar-style layout: places/mounts/tags/bookmarks sidebar, clickable breadcrumb, responsive ASCII-art icon grid, metadata/preview panel, status and command bars
+- Responsive premium shell: clickable breadcrumb, framed ASCII icon grid, places/mounts/tags/bookmarks sidebar, metadata preview, status bar, command bar, and explicit focused, selected, and error states
 - File and folder encryption with the `age` crate's passphrase API (`X`): files become `name.ext.age`, folders are tar-archived to `name.tar.age`; masked password dialog, atomic temp-file output, no source deletion, no silent overwrites, safe archive extraction (no `..` or absolute paths, symlinks never followed)
 - Image previews in the panel (PNG, JPEG, GIF first frame, WebP, BMP) via `ratatui-image` with Kitty/Sixel/iTerm2 protocol detection and a half-block fallback; decode happens off the render loop
 - Text and directory previews in the same panel, cached per focused entry and invalidated on mtime/size changes
@@ -300,7 +300,7 @@ The real binary is tested end-to-end without a display server: `tests/headless.r
 
 ## Regenerating screenshots
 
-The README screenshots are built from synthetic demo data and rendered through the deterministic test backend — no display server, no real user files:
+The README screenshots are built from synthetic demo data and rendered through the deterministic test backend. No display server or real user files are involved:
 
 ```
 cargo run --bin screenshots

@@ -1,12 +1,12 @@
- tui-explorer 0.1.0    Press ? for help
- Path: [ / ]>[ home ]>[ demo ]
-18 items (2 dirs, 16 files)  Sort: name
-    ______        ______
-   /______/_     /______/_
-  |        |    |        |
-  |      \ |    |        |
-  +-------\+    +--------+
- docs          src
+ tui-explorer /home/demo
+18 items  Sort: name (asc)
+|  docs  dir                           |
+|  src  dir                            |
+|  a very long file name that keeps go~|
+|  app.tsx  5.0K                       |
+|  archive.tar.gz  1.0M                |
+|  build.sh  256B                      |
+|  Cargo.lock  50K                     |
+|  Cargo.toml  734B                    |
  BROWSER                       5%  1/18
 | e/Enter Open | X Crypt | Bsp Up
-TIP  Double-click or Enter/e to open * ~

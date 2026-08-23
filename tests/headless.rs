@@ -122,9 +122,9 @@ fn run_in_pty(cols: u16, rows: u16, dir: &Path, keys: &[&str], settle_ms: u64) -
         std::thread::sleep(std::time::Duration::from_millis(350));
     }
     std::thread::sleep(std::time::Duration::from_millis(settle_ms));
-    // Trigger one final full redraw and give the pty+logger time to flush
-    // before tearing down, so the captured frame is complete.
-    stdin.write_all(b"\x0c").ok(); // Ctrl-L (unhandled, forces a poll cycle)
+    // Request one final full redraw and give the pty logger time to flush
+    // before teardown so the captured frame is complete.
+    stdin.write_all(b"\x0c").ok(); // Ctrl-L
     stdin.flush().ok();
     std::thread::sleep(std::time::Duration::from_millis(400));
     drop(stdin);
@@ -146,7 +146,9 @@ fn assert_layout_landmarks(screen: &str, cols: u16, context: &str) {
         "{context}: grid header"
     );
     assert!(screen.contains("Open"), "{context}: legend open action");
-    assert!(screen.contains("TIP"), "{context}: tip line");
+    if cols < 100 {
+        assert!(screen.contains("TIP"), "{context}: compact tip line");
+    }
     if cols >= 100 {
         assert!(screen.contains("PLACES"), "{context}: sidebar at {cols}");
     }

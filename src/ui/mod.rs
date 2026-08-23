@@ -1,5 +1,6 @@
 pub mod format;
 pub mod hit;
+pub mod palette;
 
 use std::path::Path;
 
@@ -27,6 +28,11 @@ use crate::icons::{IconResolver, IconVariant, TILE_ART_HEIGHT, TILE_ART_WIDTH, t
 use crate::sidebar::{self, SidebarItem};
 use crate::ui::format::{format_mode, format_size, format_time, kind_label, pad_right, truncate};
 use crate::ui::hit::{HitMap, HitTarget, LegendAction};
+use crate::ui::palette::{
+    ACCENT, ACCENT_HOVER, ACCENT_SOFT, BORDER_STRONG, BORDER_SUBTLE, DANGER, FOCUS_BG, ROOT_INK,
+    SELECTED_BG, SURFACE_0, SURFACE_1, SURFACE_2, SURFACE_3, TEXT_MUTED, TEXT_PRIMARY,
+    TEXT_SECONDARY,
+};
 
 /// Tile geometry for the icon grid.
 const TILE_W: u16 = TILE_ART_WIDTH as u16 + 2;
@@ -58,55 +64,138 @@ pub fn tier_for(width: u16, height: u16) -> Tier {
     }
 }
 
-/// Sidebar visibility: automatic per terminal size unless the user toggled
-/// it (`b`). Auto shows it from 100x16 up (medium and wide layouts).
+/// Sidebar visibility: the tier sets the default, the user's `b` toggle can
+/// override it except at `Narrow`/`TooSmall`, where there is no room for a
+/// sidebar at all. `Compact` never auto-shows it; `Standard`/`Wide` do.
 pub fn sidebar_visible(width: u16, height: u16, override_: Option<bool>) -> bool {
-    override_.unwrap_or(width >= 100 && height >= 16)
+    match tier_for(width, height) {
+        Tier::TooSmall | Tier::Narrow => false,
+        Tier::Compact => override_.unwrap_or(false),
+        Tier::Standard | Tier::Wide => override_.unwrap_or(true),
+    }
 }
 
-/// Preview panel visibility: automatic per terminal size unless toggled
-/// (`p`). Auto shows it on wide layouts (130x28 and up).
+/// Preview visibility: same override rule as `sidebar_visible`. `Narrow`
+/// and `TooSmall` never show it; `Compact`/`Standard` default to hidden;
+/// `Wide` is the only tier where it auto-shows.
 pub fn preview_visible(width: u16, height: u16, override_: Option<bool>) -> bool {
-    override_.unwrap_or(width >= 130 && height >= 28)
+    match tier_for(width, height) {
+        Tier::TooSmall | Tier::Narrow => false,
+        Tier::Compact | Tier::Standard => override_.unwrap_or(false),
+        Tier::Wide => override_.unwrap_or(true),
+    }
 }
 
+/// Body text on a surface: the default readable tone for most labels.
 fn base_style() -> Style {
-    Style::default().fg(Color::Gray)
+    Style::default().fg(TEXT_SECONDARY)
 }
 
+/// Directory names and headline text: bold primary text, per the palette
+/// contract (no separate directory hue).
 fn dir_style() -> Style {
     Style::default()
-        .fg(Color::Cyan)
+        .fg(TEXT_PRIMARY)
         .add_modifier(Modifier::BOLD)
 }
 
+/// Focused-but-not-selected tile: warm focus fill plus primary text.
 fn focused_style() -> Style {
-    Style::default().bg(Color::DarkGray).fg(Color::White)
+    Style::default().bg(FOCUS_BG).fg(TEXT_PRIMARY)
 }
 
+/// Selected tile fill.
 fn selected_style() -> Style {
     Style::default()
-        .bg(Color::Blue)
-        .fg(Color::White)
+        .bg(SELECTED_BG)
+        .fg(TEXT_PRIMARY)
         .add_modifier(Modifier::BOLD)
+}
+
+/// Combined focus+selection: keeps the selected fill and swaps the label to
+/// the accent color. The accent tile border itself is drawn separately by
+/// `render_grid`.
+fn focused_selected_style() -> Style {
+    Style::default()
+        .bg(SELECTED_BG)
+        .fg(ACCENT)
+        .add_modifier(Modifier::BOLD)
+}
+
+/// The signal-orange accent rail: focused tile border, current breadcrumb
+/// segment, mode chip, active media control (media reserved for a later
+/// phase).
+fn accent_border_style() -> Style {
+    Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)
 }
 
 fn tag_style() -> Style {
-    Style::default().fg(Color::Yellow)
+    Style::default().fg(ACCENT_SOFT)
 }
 
+/// Errors are never color-only: pair `DANGER` with bold and a literal
+/// `[!]` prefix wherever this style renders a message.
 fn error_style() -> Style {
-    Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)
+    Style::default().fg(DANGER).add_modifier(Modifier::BOLD)
 }
 
 fn muted_style() -> Style {
-    Style::default().fg(Color::DarkGray)
+    Style::default().fg(TEXT_MUTED)
 }
 
+/// Legend keys and other hover-adjacent hints.
 fn key_style() -> Style {
     Style::default()
-        .fg(Color::Cyan)
+        .fg(ACCENT_HOVER)
         .add_modifier(Modifier::BOLD)
+}
+
+/// Sidebar/section headings.
+fn heading_style() -> Style {
+    Style::default().fg(TEXT_MUTED)
+}
+
+/// Preview metadata labels (type, size, modified, perms).
+fn preview_meta_style() -> Style {
+    Style::default().fg(TEXT_SECONDARY)
+}
+
+/// The mode chip in the status bar: accent text on root ink, always solid.
+fn mode_chip_style() -> Style {
+    Style::default()
+        .fg(ACCENT)
+        .bg(ROOT_INK)
+        .add_modifier(Modifier::BOLD)
+}
+
+/// The current breadcrumb segment: the only breadcrumb touched by the
+/// accent rail.
+fn breadcrumb_current_style() -> Style {
+    Style::default()
+        .fg(ACCENT_HOVER)
+        .add_modifier(Modifier::BOLD)
+}
+
+fn breadcrumb_style() -> Style {
+    Style::default().fg(TEXT_SECONDARY)
+}
+
+/// Fills `area` with a flat surface color. Later widgets patch their own
+/// foreground on top without erasing this fill (styles compose via
+/// `Style::patch`, so only fields callers actually set override it).
+fn surface_fill(frame: &mut Frame, area: Rect, color: Color) {
+    frame.render_widget(Block::default().style(Style::default().bg(color)), area);
+}
+
+/// Frame/background/title treatment shared by every modal overlay:
+/// `SURFACE_3` fill, `BORDER_STRONG` frame, caller-chosen title accent.
+fn overlay_block(title: &str, accent: Style) -> Block<'static> {
+    Block::default()
+        .borders(Borders::ALL)
+        .border_set(ASCII_BORDERS)
+        .border_style(Style::default().fg(BORDER_STRONG))
+        .style(Style::default().bg(SURFACE_3))
+        .title(Span::styled(format!(" {title} "), accent))
 }
 
 pub fn render(frame: &mut Frame, state: &mut AppState) {
@@ -114,61 +203,30 @@ pub fn render(frame: &mut Frame, state: &mut AppState) {
     state.width = area.width;
     state.height = area.height;
     state.hit_map.clear();
+    surface_fill(frame, area, SURFACE_0);
     let tier = tier_for(area.width, area.height);
-    if tier == Tier::TooSmall {
-        render_too_small(frame, area);
-        state.grid_cols = 1;
-        state.list_viewport = 1;
-        return;
+    match tier {
+        Tier::TooSmall => {
+            render_too_small(frame, area);
+            state.grid_cols = 1;
+            state.list_viewport = 1;
+            return;
+        }
+        // Narrow: one combined header/path row, grid, status, reduced
+        // legend. No tip, sidebar, or preview — there is no room, and
+        // `legend_items` already drops the sidebar/preview/open-with keys
+        // for this tier.
+        Tier::Narrow => render_narrow_shell(frame, area, state),
+        // Compact: header, a separate path bar, grid, status, legend, and
+        // tip. No side panel auto-shows (`sidebar_visible`/`preview_visible`
+        // default both to hidden here), but the user's `b`/`p` toggles
+        // still work if there is room.
+        Tier::Compact => render_chrome_shell(frame, area, state, true),
+        // Standard/Wide: header, path bar, grid, status, legend, no tip.
+        // `sidebar_visible`/`preview_visible` supply the per-tier default
+        // (Standard: sidebar on, preview off; Wide: both on).
+        Tier::Standard | Tier::Wide => render_chrome_shell(frame, area, state, false),
     }
-
-    let header = Rect::new(area.x, area.y, area.width, 1);
-    let path_bar = Rect::new(area.x, area.y + 1, area.width, 1);
-    let tip = Rect::new(area.x, area.y + area.height - 1, area.width, 1);
-    let legend = Rect::new(area.x, area.y + area.height - 2, area.width, 1);
-    let status = Rect::new(area.x, area.y + area.height - 3, area.width, 1);
-    let main = Rect::new(
-        area.x,
-        area.y + 2,
-        area.width,
-        area.height.saturating_sub(5),
-    );
-
-    render_header(frame, header, state);
-    render_path_bar(frame, path_bar, state);
-
-    let show_sidebar = sidebar_visible(area.width, area.height, state.show_sidebar)
-        && main.width >= SIDEBAR_WIDTH + TILE_W + 4;
-    let show_preview = preview_visible(area.width, area.height, state.show_preview)
-        && main.width >= PREVIEW_WIDTH + TILE_W + 4;
-
-    let mut grid_area = main;
-    if show_sidebar {
-        let sb = Rect::new(main.x, main.y, SIDEBAR_WIDTH.min(main.width), main.height);
-        render_sidebar(frame, sb, state);
-        grid_area.x += sb.width;
-        grid_area.width = grid_area.width.saturating_sub(sb.width);
-    } else {
-        state.sidebar_items.clear();
-    }
-    if show_preview {
-        let pw = PREVIEW_WIDTH.min(grid_area.width.saturating_sub(TILE_W + 2));
-        let pv = Rect::new(
-            grid_area.x + grid_area.width - pw,
-            grid_area.y,
-            pw,
-            grid_area.height,
-        );
-        grid_area.width = grid_area.width.saturating_sub(pw);
-        render_preview(frame, pv, state);
-    } else {
-        state.preview.key = None;
-        state.preview.content = None;
-    }
-    render_grid(frame, grid_area, state);
-    render_status(frame, status, state);
-    render_legend(frame, legend, state);
-    render_tip(frame, tip, state);
 
     match &state.mode {
         Mode::Confirm(confirm) => render_confirm(frame, area, confirm, &mut state.hit_map),
@@ -211,10 +269,136 @@ pub fn render(frame: &mut Frame, state: &mut AppState) {
     }
 }
 
+/// The `Narrow`-tier shell: a single combined header/path row on top, the
+/// grid, a status row, and a reduced legend on the bottom. Never shows a
+/// tip, sidebar, or preview panel.
+fn render_narrow_shell(frame: &mut Frame, area: Rect, state: &mut AppState) {
+    let header_path = Rect::new(area.x, area.y, area.width, 1);
+    let status = Rect::new(
+        area.x,
+        area.y + area.height.saturating_sub(2),
+        area.width,
+        1,
+    );
+    let legend = Rect::new(
+        area.x,
+        area.y + area.height.saturating_sub(1),
+        area.width,
+        1,
+    );
+    let grid = Rect::new(
+        area.x,
+        area.y + 1,
+        area.width,
+        area.height.saturating_sub(3),
+    );
+    render_header_path_narrow(frame, header_path, state);
+    render_narrow_grid(frame, grid, state);
+    render_status(frame, status, state);
+    render_legend(frame, legend, state);
+    state.sidebar_items.clear();
+    state.preview.key = None;
+    state.preview.content = None;
+}
+
+/// Combined header + path summary used only by the `Narrow` shell: the app
+/// title and the current directory condensed onto one line, since a
+/// clickable breadcrumb and a full-width title do not both fit.
+fn render_header_path_narrow(frame: &mut Frame, area: Rect, state: &AppState) {
+    surface_fill(frame, area, SURFACE_2);
+    let cwd = state.browser.cwd.display().to_string();
+    let hidden = if state.browser.show_hidden {
+        " [.+]"
+    } else {
+        ""
+    };
+    let path_budget = (area.width as usize).saturating_sub(15 + hidden.chars().count());
+    let spans = vec![
+        Span::styled(" tui-explorer ", dir_style()),
+        Span::styled(truncate(&cwd, path_budget), breadcrumb_style()),
+        Span::styled(hidden.to_string(), muted_style()),
+    ];
+    frame.render_widget(Paragraph::new(Line::from(spans)), area);
+}
+
+/// The `Compact`/`Standard`/`Wide` shell: header, path bar, optional
+/// sidebar, grid, optional preview, status, legend, and — only when
+/// `show_tip` is set (`Compact` only) — a tip row. `sidebar_visible` and
+/// `preview_visible` already encode each tier's default, so this one shell
+/// produces the right panels for all three tiers.
+fn render_chrome_shell(frame: &mut Frame, area: Rect, state: &mut AppState, show_tip: bool) {
+    let header = Rect::new(area.x, area.y, area.width, 1);
+    let path_bar = Rect::new(area.x, area.y + 1, area.width, 1);
+    let (tip, legend, status, main) = if show_tip {
+        (
+            Some(Rect::new(area.x, area.y + area.height - 1, area.width, 1)),
+            Rect::new(area.x, area.y + area.height - 2, area.width, 1),
+            Rect::new(area.x, area.y + area.height - 3, area.width, 1),
+            Rect::new(
+                area.x,
+                area.y + 2,
+                area.width,
+                area.height.saturating_sub(5),
+            ),
+        )
+    } else {
+        (
+            None,
+            Rect::new(area.x, area.y + area.height - 1, area.width, 1),
+            Rect::new(area.x, area.y + area.height - 2, area.width, 1),
+            Rect::new(
+                area.x,
+                area.y + 2,
+                area.width,
+                area.height.saturating_sub(4),
+            ),
+        )
+    };
+
+    render_header(frame, header, state);
+    render_path_bar(frame, path_bar, state);
+
+    let show_sidebar = sidebar_visible(area.width, area.height, state.show_sidebar)
+        && main.width >= SIDEBAR_WIDTH + TILE_W + 4;
+    let show_preview = preview_visible(area.width, area.height, state.show_preview)
+        && main.width >= PREVIEW_WIDTH + TILE_W + 4;
+
+    let mut grid_area = main;
+    if show_sidebar {
+        let sb = Rect::new(main.x, main.y, SIDEBAR_WIDTH.min(main.width), main.height);
+        render_sidebar(frame, sb, state);
+        grid_area.x += sb.width;
+        grid_area.width = grid_area.width.saturating_sub(sb.width);
+    } else {
+        state.sidebar_items.clear();
+    }
+    if show_preview {
+        let pw = PREVIEW_WIDTH.min(grid_area.width.saturating_sub(TILE_W + 2));
+        let pv = Rect::new(
+            grid_area.x + grid_area.width - pw,
+            grid_area.y,
+            pw,
+            grid_area.height,
+        );
+        grid_area.width = grid_area.width.saturating_sub(pw);
+        render_preview(frame, pv, state);
+    } else {
+        state.preview.key = None;
+        state.preview.content = None;
+    }
+    render_grid(frame, grid_area, state);
+    render_status(frame, status, state);
+    render_legend(frame, legend, state);
+    if let Some(tip) = tip {
+        render_tip(frame, tip, state);
+    }
+}
+
 fn render_too_small(frame: &mut Frame, area: Rect) {
+    surface_fill(frame, area, SURFACE_0);
     let lines = vec![
-        Line::from(Span::styled("terminal too small", error_style())),
-        Line::from(Span::styled("resize or q to quit", muted_style())),
+        Line::from(Span::styled("resize terminal", error_style())),
+        Line::from(Span::styled("24x6 minimum", muted_style())),
     ];
     let height = lines.len() as u16;
     let top = area.y + area.height.saturating_sub(height) / 2;
@@ -226,6 +410,7 @@ fn render_too_small(frame: &mut Frame, area: Rect) {
 }
 
 fn render_header(frame: &mut Frame, area: Rect, state: &AppState) {
+    surface_fill(frame, area, SURFACE_2);
     let title = format!("tui-explorer {}", env!("CARGO_PKG_VERSION"));
     let help_hint = "Press ? for help";
     let mut spans = vec![Span::styled(format!(" {title}"), dir_style())];
@@ -252,6 +437,7 @@ fn render_header(frame: &mut Frame, area: Rect, state: &AppState) {
 }
 
 fn render_path_bar(frame: &mut Frame, area: Rect, state: &mut AppState) {
+    surface_fill(frame, area, SURFACE_1);
     let segments = breadcrumb_segments(&state.browser.cwd);
     let mut spans: Vec<Span> = vec![Span::styled(" Path: ", base_style())];
     let mut x = area.x + 7;
@@ -293,12 +479,9 @@ fn render_path_bar(frame: &mut Frame, area: Rect, state: &mut AppState) {
             break;
         }
         let (bracket_style, text_style) = if is_last {
-            (
-                muted_style(),
-                Style::default().fg(Color::Black).bg(Color::Cyan),
-            )
+            (muted_style(), breadcrumb_current_style())
         } else {
-            (muted_style(), Style::default().fg(Color::Blue))
+            (muted_style(), breadcrumb_style())
         };
         spans.push(Span::styled("[", bracket_style));
         spans.push(Span::styled(text, text_style));
@@ -316,10 +499,11 @@ fn render_path_bar(frame: &mut Frame, area: Rect, state: &mut AppState) {
 }
 
 fn render_sidebar(frame: &mut Frame, area: Rect, state: &mut AppState) {
+    surface_fill(frame, area, SURFACE_2);
     let block = Block::default()
         .borders(Borders::RIGHT)
         .border_set(ASCII_BORDERS)
-        .border_style(muted_style());
+        .border_style(Style::default().fg(BORDER_SUBTLE));
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
@@ -340,7 +524,7 @@ fn render_sidebar(frame: &mut Frame, area: Rect, state: &mut AppState) {
         }
         let dashes = width.saturating_sub(title.len() + 1);
         lines.push(Line::from(vec![
-            Span::styled(title.to_string(), Style::default().fg(Color::White)),
+            Span::styled(title.to_string(), heading_style()),
             Span::styled(format!(" {}", "-".repeat(dashes)), muted_style()),
         ]));
         if items.is_empty() {
@@ -389,7 +573,7 @@ fn render_sidebar(frame: &mut Frame, area: Rect, state: &mut AppState) {
                     Span::styled(format!(" [{token}]"), muted_style()),
                 ],
                 SidebarItem::Bookmark { path } => vec![
-                    Span::styled(" * ", Style::default().fg(Color::Magenta)),
+                    Span::styled(" * ", Style::default().fg(ACCENT)),
                     Span::styled(
                         truncate(
                             &path
@@ -451,6 +635,82 @@ fn render_sidebar(frame: &mut Frame, area: Rect, state: &mut AppState) {
     frame.render_widget(Paragraph::new(lines), inner);
 }
 
+fn render_narrow_grid(frame: &mut Frame, area: Rect, state: &mut AppState) {
+    if area.width < 4 || area.height < 2 {
+        state.grid_cols = 1;
+        state.list_viewport = 1;
+        return;
+    }
+    surface_fill(frame, area, SURFACE_1);
+    let total = state.browser.visible_len();
+    let header = format!(
+        "{total} items  Sort: {} ({})",
+        state.browser.sort_mode.label(),
+        if state.browser.sort_mode.descending() {
+            "desc"
+        } else {
+            "asc"
+        }
+    );
+    frame.render_widget(
+        Paragraph::new(Line::from(Span::styled(
+            truncate(&header, area.width as usize),
+            muted_style(),
+        ))),
+        Rect::new(area.x, area.y, area.width, 1),
+    );
+
+    let viewport = area.height.saturating_sub(1) as usize;
+    state.grid_cols = 1;
+    state.list_viewport = viewport.max(1);
+    state.browser.clamp_scroll(viewport.max(1));
+    let indices = state.browser.visible_indices();
+    let selected_paths = state.browser.selected_paths_set();
+    let scroll = state.browser.scroll;
+    let buf = frame.buffer_mut();
+    for (row, eidx) in indices.iter().skip(scroll).take(viewport).enumerate() {
+        let view = &state.browser.entries[*eidx];
+        let position = scroll + row;
+        let focused = position == state.browser.selected
+            && matches!(state.mode, Mode::Browser | Mode::Command);
+        let selected = selected_paths.contains(&view.entry.path);
+        let style = if selected && focused {
+            focused_selected_style()
+        } else if selected {
+            selected_style()
+        } else if focused {
+            focused_style()
+        } else {
+            base_style()
+        };
+        let border = if focused {
+            style.patch(accent_border_style())
+        } else {
+            style.patch(Style::default().fg(BORDER_SUBTLE))
+        };
+        let y = area.y + 1 + row as u16;
+        let row_area = Rect::new(area.x, y, area.width, 1);
+        buf.set_style(row_area, style);
+        buf.set_stringn(area.x, y, "|", 1, border);
+        buf.set_stringn(area.x + area.width - 1, y, "|", 1, border);
+        let marker = if selected { "*" } else { " " };
+        let detail = if view.entry.kind.is_dir() {
+            "dir".to_string()
+        } else {
+            format_size(view.entry.size)
+        };
+        let label = format!("{marker} {}  {detail}", view.entry.display_name());
+        buf.set_stringn(
+            area.x + 1,
+            y,
+            truncate(&label, area.width.saturating_sub(2) as usize),
+            area.width.saturating_sub(2) as usize,
+            style,
+        );
+        state.hit_map.push(row_area, HitTarget::Row(position));
+    }
+}
+
 fn render_grid(frame: &mut Frame, area: Rect, state: &mut AppState) {
     if area.width < 4 || area.height < 3 {
         state.grid_cols = 1;
@@ -503,6 +763,7 @@ fn render_grid(frame: &mut Frame, area: Rect, state: &mut AppState) {
         area.width,
         area.height.saturating_sub(1),
     );
+    surface_fill(frame, grid, SURFACE_1);
     if total == 0 && state.browser.filter.is_some() {
         frame.render_widget(
             Paragraph::new(Line::from(Span::styled("No matching files", muted_style())))
@@ -537,13 +798,26 @@ fn render_grid(frame: &mut Frame, area: Rect, state: &mut AppState) {
             .browser
             .selected_paths_set()
             .contains(&view.entry.path);
-        let base = if selected {
+        let base = if selected && focused {
+            focused_selected_style()
+        } else if selected {
             selected_style()
         } else if focused {
             focused_style()
         } else {
-            Style::default()
+            base_style()
         };
+        // Tile border: a subtle left/right rule for every tile, with an
+        // accent rule for the focused tile.
+        let border_style = if focused {
+            base.patch(accent_border_style())
+        } else {
+            base.patch(Style::default().fg(BORDER_SUBTLE))
+        };
+        for dy in 0..TILE_H {
+            buf.set_stringn(tx, ty + dy, "|", 1, border_style);
+            buf.set_stringn(tx + TILE_W - 1, ty + dy, "|", 1, border_style);
+        }
         let is_dir = view.entry.kind.is_dir();
         let kind = if is_dir {
             if view.entry.hidden {
@@ -560,7 +834,7 @@ fn render_grid(frame: &mut Frame, area: Rect, state: &mut AppState) {
         let art_style = if is_dir {
             base.patch(dir_style())
         } else {
-            base.patch(Style::default().fg(Color::White))
+            base.patch(Style::default().fg(TEXT_PRIMARY))
         };
         for (dy, line) in art.iter().enumerate() {
             buf.set_stringn(tx + 1, ty + dy as u16, line, TILE_ART_WIDTH, art_style);
@@ -569,15 +843,15 @@ fn render_grid(frame: &mut Frame, area: Rect, state: &mut AppState) {
         let name_y = ty + TILE_ART_HEIGHT as u16;
         let mark = if selected { "*" } else { " " };
         let name = view.entry.display_name();
-        let name_budget = TILE_W as usize - 2;
+        let name_budget = TILE_W as usize - 3;
         let shown = truncate(&name, name_budget);
         let name_style = if is_dir {
             base.patch(dir_style())
         } else {
             base.patch(base_style())
         };
-        buf.set_stringn(tx, name_y, mark, 1, base.patch(tag_style()));
-        buf.set_stringn(tx + 1, name_y, shown, name_budget, name_style);
+        buf.set_stringn(tx + 1, name_y, mark, 1, base.patch(tag_style()));
+        buf.set_stringn(tx + 2, name_y, shown, name_budget, name_style);
         // Size / detail line.
         let detail = if is_dir {
             "dir".to_string()
@@ -598,12 +872,13 @@ fn render_grid(frame: &mut Frame, area: Rect, state: &mut AppState) {
         );
         if !tag_badge.is_empty() {
             let bx = tx + 1 + detail.chars().count() as u16 + 1;
-            if bx < tx + TILE_W {
+            let right_edge = tx + TILE_W - 1; // reserve the border column
+            if bx < right_edge {
                 buf.set_stringn(
                     bx,
                     name_y + 1,
                     &tag_badge,
-                    (tx + TILE_W - bx) as usize,
+                    (right_edge - bx) as usize,
                     base.patch(tag_style()),
                 );
             }
@@ -627,7 +902,7 @@ fn render_preview(frame: &mut Frame, area: Rect, state: &mut AppState) {
     let block = Block::default()
         .borders(Borders::LEFT)
         .border_set(ASCII_BORDERS)
-        .border_style(muted_style());
+        .border_style(Style::default().fg(BORDER_SUBTLE));
     let inner = block.inner(area);
     frame.render_widget(block, area);
     let Some(view) = state.browser.focused() else {
@@ -646,21 +921,21 @@ fn render_preview(frame: &mut Frame, area: Rect, state: &mut AppState) {
     )));
     lines.push(Line::from(Span::styled(
         format!("Type: {}", kind_label(&entry.kind)),
-        base_style(),
+        preview_meta_style(),
     )));
     if !entry.kind.is_dir() {
         lines.push(Line::from(Span::styled(
             format!("Size: {} ({} B)", format_size(entry.size), entry.size),
-            base_style(),
+            preview_meta_style(),
         )));
     }
     lines.push(Line::from(Span::styled(
         format!("Modified: {}", format_time(entry.modified)),
-        base_style(),
+        preview_meta_style(),
     )));
     lines.push(Line::from(Span::styled(
         format!("Perms: {}", format_mode(&entry.kind, entry.mode)),
-        base_style(),
+        preview_meta_style(),
     )));
     lines.push(Line::from(Span::styled(
         if view.tags.is_empty() {
@@ -681,7 +956,7 @@ fn render_preview(frame: &mut Frame, area: Rect, state: &mut AppState) {
     let title = " Preview ";
     let dashes = width.saturating_sub(title.len());
     lines.push(Line::from(vec![
-        Span::styled(title.to_string(), Style::default().fg(Color::White)),
+        Span::styled(title.to_string(), Style::default().fg(TEXT_PRIMARY)),
         Span::styled("-".repeat(dashes), muted_style()),
     ]));
     let meta_height = lines.len() as u16;
@@ -712,7 +987,7 @@ fn render_preview(frame: &mut Frame, area: Rect, state: &mut AppState) {
                 .map(|l| {
                     Line::from(Span::styled(
                         truncate(l, width),
-                        Style::default().fg(Color::Indexed(250)),
+                        Style::default().fg(TEXT_SECONDARY),
                     ))
                 })
                 .collect();
@@ -752,22 +1027,17 @@ fn render_preview(frame: &mut Frame, area: Rect, state: &mut AppState) {
 }
 
 fn render_status(frame: &mut Frame, area: Rect, state: &AppState) {
+    surface_fill(frame, area, SURFACE_2);
     if matches!(state.mode, Mode::Command) {
         let line = Line::from(vec![
-            Span::styled(":", Style::default().fg(Color::Green)),
+            Span::styled(":", Style::default().fg(ACCENT)),
             Span::styled(state.command_input.clone(), base_style()),
         ]);
         frame.render_widget(Paragraph::new(line), area);
         return;
     }
     let mut spans = vec![
-        Span::styled(
-            format!(" {} ", state.mode_name()),
-            Style::default()
-                .fg(Color::Black)
-                .bg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        ),
+        Span::styled(format!(" {} ", state.mode_name()), mode_chip_style()),
         Span::raw(" "),
     ];
     let selected_count = state.browser.selection.len();
@@ -786,11 +1056,16 @@ fn render_status(frame: &mut Frame, area: Rect, state: &AppState) {
                 op.total,
                 truncate(&op.current.display().to_string(), 24)
             ),
-            Style::default().fg(Color::Magenta),
+            Style::default().fg(ACCENT_HOVER),
         ));
     } else if let Some(message) = &state.message {
+        let text = if message.is_error {
+            format!("[!] {}", message.text)
+        } else {
+            message.text.clone()
+        };
         spans.push(Span::styled(
-            truncate(&message.text, (area.width as usize).saturating_sub(24)),
+            truncate(&text, (area.width as usize).saturating_sub(24)),
             if message.is_error {
                 error_style()
             } else {
@@ -901,7 +1176,7 @@ fn render_legend(frame: &mut Frame, area: Rect, state: &mut AppState) {
         spans.push(Span::styled(format!(" {key} "), key_style()));
         spans.push(Span::styled(
             format!("{label} "),
-            Style::default().fg(Color::White).bg(Color::Indexed(236)),
+            Style::default().fg(TEXT_PRIMARY).bg(SURFACE_3),
         ));
         if let Some(action) = action {
             state.hit_map.push(
@@ -960,11 +1235,7 @@ fn render_confirm(
     push_blocker(area, hits);
     let rect = centered_rect(area, 56, 8);
     frame.render_widget(Clear, rect);
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_set(ASCII_BORDERS)
-        .border_style(error_style())
-        .title(Span::styled(" CONFIRM ", error_style()));
+    let block = overlay_block("CONFIRM", error_style());
     let inner = block.inner(rect);
     frame.render_widget(block, rect);
     let lines = vec![
@@ -1002,11 +1273,7 @@ fn render_conflict(
     let height = (conflict.conflicts.len() as u16 + 6).clamp(8, area.height.max(8));
     let rect = centered_rect(area, 60, height);
     frame.render_widget(Clear, rect);
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_set(ASCII_BORDERS)
-        .border_style(tag_style())
-        .title(Span::styled(" CONFLICT ", tag_style()));
+    let block = overlay_block("CONFLICT", accent_border_style());
     let inner = block.inner(rect);
     frame.render_widget(block, rect);
     let mut lines = vec![Line::from(Span::styled(
@@ -1053,11 +1320,7 @@ fn render_picker(
     let height = (picker.defs.len() as u16 + 7).clamp(9, area.height.max(9));
     let rect = centered_rect(area, 44, height);
     frame.render_widget(Clear, rect);
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_set(ASCII_BORDERS)
-        .border_style(tag_style())
-        .title(Span::styled(" TAGS ", tag_style()));
+    let block = overlay_block("TAGS", accent_border_style());
     let inner = block.inner(rect);
     frame.render_widget(block, rect);
     let mut lines: Vec<Line> = Vec::new();
@@ -1114,7 +1377,7 @@ fn render_picker(
         ]));
     } else {
         lines.push(Line::from(vec![
-            Span::styled(" [n] new ", tag_style()),
+            Span::styled(" [n] new ", accent_border_style()),
             Span::styled(" [d] delete ", error_style()),
             Span::styled(" [Esc] close ", base_style()),
         ]));
@@ -1155,7 +1418,8 @@ fn render_context_menu(
     let block = Block::default()
         .borders(Borders::ALL)
         .border_set(ASCII_BORDERS)
-        .border_style(base_style());
+        .border_style(Style::default().fg(BORDER_STRONG))
+        .style(Style::default().bg(SURFACE_3));
     let inner = block.inner(rect);
     frame.render_widget(block, rect);
     let lines: Vec<Line> = menu
@@ -1196,15 +1460,12 @@ fn render_password(
     push_blocker(area, hits);
     let rect = centered_rect(area, 56, 9);
     frame.render_widget(Clear, rect);
-    let (title, style) = match purpose {
-        PasswordPurpose::Encrypt => (" ENCRYPT ", tag_style()),
-        PasswordPurpose::Decrypt => (" DECRYPT ", dir_style()),
+    let title = match purpose {
+        PasswordPurpose::Encrypt => "ENCRYPT",
+        PasswordPurpose::Decrypt => "DECRYPT",
     };
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_set(ASCII_BORDERS)
-        .border_style(style)
-        .title(Span::styled(title, style));
+    let style = accent_border_style();
+    let block = overlay_block(title, style);
     let inner = block.inner(rect);
     frame.render_widget(block, rect);
     let prompt = match (purpose, confirming) {
@@ -1222,7 +1483,7 @@ fn render_password(
         Line::from(""),
         Line::from(vec![
             Span::styled(format!("{prompt} "), base_style()),
-            Span::styled(masked, Style::default().fg(Color::White)),
+            Span::styled(masked, Style::default().fg(TEXT_PRIMARY)),
             Span::styled("_", muted_style()),
         ]),
         Line::from(""),
@@ -1245,12 +1506,8 @@ fn render_open_with(frame: &mut Frame, area: Rect, target: &str, input: &str, hi
     push_blocker(area, hits);
     let rect = centered_rect(area, 56, 9);
     frame.render_widget(Clear, rect);
-    let style = dir_style();
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_set(ASCII_BORDERS)
-        .border_style(style)
-        .title(Span::styled(" OPEN WITH ", style));
+    let style = accent_border_style();
+    let block = overlay_block("OPEN WITH", style);
     let inner = block.inner(rect);
     frame.render_widget(block, rect);
     let lines = vec![
@@ -1261,7 +1518,7 @@ fn render_open_with(frame: &mut Frame, area: Rect, target: &str, input: &str, hi
         Line::from(""),
         Line::from(vec![
             Span::styled("command: ", base_style()),
-            Span::styled(input.to_string(), Style::default().fg(Color::White)),
+            Span::styled(input.to_string(), Style::default().fg(TEXT_PRIMARY)),
             Span::styled("_", muted_style()),
         ]),
         Line::from(""),
@@ -1294,18 +1551,14 @@ fn render_bookmarks(
         (nav.matches.len() as u16 + 6).clamp(9, area.height.max(9)),
     );
     frame.render_widget(Clear, rect);
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_set(ASCII_BORDERS)
-        .border_style(dir_style())
-        .title(Span::styled(" BOOKMARKS ", dir_style()));
+    let block = overlay_block("BOOKMARKS", accent_border_style());
     let inner = block.inner(rect);
     frame.render_widget(block, rect);
     let width = inner.width as usize;
     let mut lines: Vec<Line> = Vec::new();
     lines.push(Line::from(vec![
         Span::styled("search: ", base_style()),
-        Span::styled(nav.query.clone(), Style::default().fg(Color::White)),
+        Span::styled(nav.query.clone(), Style::default().fg(TEXT_PRIMARY)),
         Span::styled("_", muted_style()),
     ]));
     lines.push(Line::from(""));
@@ -1369,7 +1622,7 @@ fn render_bookmarks(
     }
     lines.push(Line::from(""));
     lines.push(Line::from(vec![
-        Span::styled(" [Enter] go ", dir_style()),
+        Span::styled(" [Enter] go ", accent_border_style()),
         Span::raw(" "),
         Span::styled(" [Esc] close ", base_style()),
     ]));
@@ -1380,11 +1633,7 @@ fn render_help(frame: &mut Frame, area: Rect, hits: &mut HitMap) {
     push_blocker(area, hits);
     let rect = centered_rect(area, 100.min(area.width), (area.height * 4 / 5).max(16));
     frame.render_widget(Clear, rect);
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_set(ASCII_BORDERS)
-        .border_style(Style::default().fg(Color::Cyan))
-        .title(Span::styled(" HELP ", dir_style()));
+    let block = overlay_block("HELP", accent_border_style());
     let inner = block.inner(rect);
     frame.render_widget(block, rect);
     let entries: &[(&str, &str)] = &[

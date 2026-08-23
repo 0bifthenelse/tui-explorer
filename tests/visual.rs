@@ -1,7 +1,8 @@
-use std::path::{Path, PathBuf};
-
 use ratatui::Terminal;
 use ratatui::backend::TestBackend;
+use ratatui::buffer::Buffer;
+use ratatui::style::Modifier;
+use std::path::{Path, PathBuf};
 
 use tui_explorer::app::action::Action;
 use tui_explorer::app::state::{AppState, Mode, OperationState};
@@ -13,6 +14,10 @@ use tui_explorer::testing::builders::{
 use tui_explorer::testing::{MemoryFileSystem, SyncHandler, drive};
 use tui_explorer::ui;
 use tui_explorer::ui::hit::HitTarget;
+use tui_explorer::ui::palette::{
+    ACCENT, ACCENT_SOFT, BORDER_STRONG, DANGER, FOCUS_BG, SELECTED_BG, SURFACE_2, SURFACE_3,
+    TEXT_PRIMARY,
+};
 
 fn buffer_text(terminal: &Terminal<TestBackend>) -> String {
     let buffer = terminal.backend().buffer();
@@ -38,6 +43,30 @@ fn render(state: &mut AppState, width: u16, height: u16) -> String {
         .draw(|frame| ui::render(frame, state))
         .expect("render");
     buffer_text(&terminal)
+}
+fn rendered_terminal(state: &mut AppState, width: u16, height: u16) -> Terminal<TestBackend> {
+    let backend = TestBackend::new(width, height);
+    let mut terminal = Terminal::new(backend).expect("test terminal");
+    terminal
+        .draw(|frame| ui::render(frame, state))
+        .expect("render");
+    terminal
+}
+
+fn cells_matching<F>(buffer: &Buffer, mut predicate: F) -> usize
+where
+    F: FnMut(&ratatui::buffer::Cell) -> bool,
+{
+    let area = buffer.area;
+    let mut count = 0;
+    for y in 0..area.height {
+        for x in 0..area.width {
+            if predicate(&buffer[(x, y)]) {
+                count += 1;
+            }
+        }
+    }
+    count
 }
 
 fn snapshot_path(name: &str) -> PathBuf {
@@ -294,6 +323,79 @@ fn error_notification() {
     let text = render(&mut state, 80, 24);
     assert_snapshot("error-80x24", &text);
 }
+#[test]
+fn palette_header_cell_is_primary_on_surface() {
+    let (mut state, _) = loaded(120, 36);
+    let terminal = rendered_terminal(&mut state, 120, 36);
+    let buffer = terminal.backend().buffer();
+    assert!(
+        cells_matching(buffer, |cell| {
+            cell.fg == TEXT_PRIMARY && cell.bg == SURFACE_2 && !cell.symbol().trim().is_empty()
+        }) > 0
+    );
+}
+
+#[test]
+fn palette_tiles_expose_focus_and_selection_fills() {
+    let (mut state, mut handler) = loaded(120, 36);
+    drive(
+        &mut state,
+        &mut handler,
+        [Action::ToggleSelect, Action::MoveDown],
+    );
+    let terminal = rendered_terminal(&mut state, 120, 36);
+    let buffer = terminal.backend().buffer();
+    assert!(cells_matching(buffer, |cell| cell.bg == FOCUS_BG) > 0);
+    assert!(cells_matching(buffer, |cell| cell.fg == ACCENT) > 0);
+    assert!(cells_matching(buffer, |cell| cell.bg == SELECTED_BG) > 0);
+}
+
+#[test]
+fn palette_tag_text_uses_soft_accent() {
+    let (mut state, mut handler) = loaded(120, 36);
+    drive(
+        &mut state,
+        &mut handler,
+        command_actions("tag fav")
+            .into_iter()
+            .chain([Action::CommandSubmit])
+            .collect::<Vec<_>>(),
+    );
+    let terminal = rendered_terminal(&mut state, 120, 36);
+    assert!(cells_matching(terminal.backend().buffer(), |cell| cell.fg == ACCENT_SOFT) > 0);
+}
+
+#[test]
+fn palette_error_has_literal_marker_and_danger_bold_style() {
+    let (mut state, mut handler) = loaded(80, 24);
+    drive(
+        &mut state,
+        &mut handler,
+        command_actions("bogus")
+            .into_iter()
+            .chain([Action::CommandSubmit])
+            .collect::<Vec<_>>(),
+    );
+    let terminal = rendered_terminal(&mut state, 80, 24);
+    let buffer = terminal.backend().buffer();
+    let text = buffer_text(&terminal);
+    assert!(text.contains("[!]"));
+    assert!(
+        cells_matching(buffer, |cell| {
+            cell.fg == DANGER && cell.modifier.contains(Modifier::BOLD)
+        }) > 0
+    );
+}
+
+#[test]
+fn palette_overlay_uses_strong_frame_and_surface_interior() {
+    let (mut state, mut handler) = loaded(80, 24);
+    drive(&mut state, &mut handler, [Action::ToggleHelp]);
+    let terminal = rendered_terminal(&mut state, 80, 24);
+    let buffer = terminal.backend().buffer();
+    assert!(cells_matching(buffer, |cell| cell.fg == BORDER_STRONG) > 0);
+    assert!(cells_matching(buffer, |cell| cell.bg == SURFACE_3) > 0);
+}
 
 #[test]
 fn operation_progress() {
@@ -458,10 +560,14 @@ fn invariants_all_sizes() {
             .iter()
             .filter(|(_, t)| matches!(t, HitTarget::Breadcrumb(_)))
             .count();
-        let segments = tui_explorer::app::reduce::breadcrumb_segments(&state.browser.cwd).len();
+        let expected_breadcrumbs = if ui::tier_for(*w, *h) == ui::Tier::Narrow {
+            0
+        } else {
+            tui_explorer::app::reduce::breadcrumb_segments(&state.browser.cwd).len()
+        };
         assert_eq!(
-            breadcrumb_hits, segments,
-            "breadcrumb hits diverge from segments at {w}x{h}"
+            breadcrumb_hits, expected_breadcrumbs,
+            "breadcrumb hits diverge from rendered segments at {w}x{h}"
         );
     }
 }
@@ -621,8 +727,8 @@ fn mouse_scroll_moves_list() {
             y: row_rect.y,
         }],
     );
-    // Grid at 40x12 has 2 columns; one scroll tick moves one row down.
-    assert_eq!(state.browser.selected, 2);
+    // Narrow mode is a one-column list, so one scroll tick advances one row.
+    assert_eq!(state.browser.selected, 1);
 }
 
 #[test]

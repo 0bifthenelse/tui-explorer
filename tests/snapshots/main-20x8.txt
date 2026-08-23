@@ -1,5 +1,5 @@
 
 
 
- terminal too small
- resize or q to quit
+   resize terminal
+    24x6 minimum

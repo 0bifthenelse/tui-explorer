@@ -1,20 +1,21 @@
  tui-explorer 0.1.0                                                                     tui-explorer is awesome!                                                                       Press ? for help
  Path: [ / ]>[ home ]>[ demo ]
 PLACES ----------------|18 items (2 dirs, 16 files)  Sort: name (asc)                                                                                               |docs
- Root                  |    ______        ______      .--------.    .--------.    .--------.    .--------.    .--------.    .--------.    .--------.    .--------.  |Type: directory
-MOUNTS ----------------|   /______/_     /______/_    | .--'   |    | .--'   |    | .--'   |    | .--'   |    | .--'   |    | .--'   |    | .--'   |    | .--'   |  |Modified: 2023-11-14 19:43
-(no device mounts)     |  |        |    |        |    | TXT    |    | TSX    |    | GZ     |    | SH     |    | LOCK   |    | TOML   |    | JSON   |    | EXE>   |  |Perms: drwxr-xr-x
-TAGS ------------------|  |      \ |    |        |    | ------ |    | ------ |    | ------ |    | ------ |    | ------ |    | ------ |    | ------ |    | ------ |  |Tags: (none)
-(no tags yet)          |  +-------\+    +--------+    '--------'    '--------'    '--------'    '--------'    '--------'    '--------'    '--------'    '--------'  | Preview --------------------------
-BOOKMARKS -------------| docs          src           a very long~  app.tsx       archive.tar~  build.sh      Cargo.lock    Cargo.toml    data.json     deploy       |cannot read directory: No such fil~
-(Ctrl-b bookmarks cwd) | dir           dir           88B           5.0K          1.0M          256B          50K           734B          8.0K          15K          |
-                       |  .--------.    .--------.    .--------.    .--------.    .--------.    .--------.    .--------.    .--------.                              |
-                       |  | .--'   |    | .--'   |    | .--'   |    | .--'   |    | .--'   |    | .--'   |    | .--'   |    | .--'   |                              |
-                       |  | HTML   |    | RS     |    | MD     |    | JSON   |    | PNG    |    | LNK>   |    | MP3    |    | CSS    |                              |
-                       |  | ------ |    | ------ |    | ------ |    | ------ |    | ------ |    | ------ |    | ------ |    | ------ |                              |
-                       |  '--------'    '--------'    '--------'    '--------'    '--------'    '--------'    '--------'    '--------'                              |
-                       | index.html    main.rs       notes.md      package.json  photo.png     README link   song.mp3      style.css                                |
-                       | 1.0K          2.0K          1.5K          412B          2.0M          9B            5.0M          2.5K                                     |
+ Root                  ||   ______   ||   ______   || .--------. || .--------. || .--------. || .--------. || .--------. || .--------. || .--------. || .--------. ||Type: directory
+MOUNTS ----------------||  /______/_ ||  /______/_ || | .--'   | || | .--'   | || | .--'   | || | .--'   | || | .--'   | || | .--'   | || | .--'   | || | .--'   | ||Modified: 2023-11-14 19:43
+(no device mounts)     || |        | || |        | || | TXT    | || | TSX    | || | GZ     | || | SH     | || | LOCK   | || | TOML   | || | JSON   | || | EXE>   | ||Perms: drwxr-xr-x
+TAGS ------------------|| |      \ | || |        | || | ------ | || | ------ | || | ------ | || | ------ | || | ------ | || | ------ | || | ------ | || | ------ | ||Tags: (none)
+(no tags yet)          || +-------\+ || +--------+ || '--------' || '--------' || '--------' || '--------' || '--------' || '--------' || '--------' || '--------' || Preview --------------------------
+BOOKMARKS -------------|| docs       || src        || a very lon~|| app.tsx    || archive.ta~|| build.sh   || Cargo.lock || Cargo.toml || data.json  || deploy     ||cannot read directory: No such fil~
+(Ctrl-b bookmarks cwd) ||dir         ||dir         ||88B         ||5.0K        ||1.0M        ||256B        ||50K         ||734B        ||8.0K        ||15K         ||
+                       || .--------. || .--------. || .--------. || .--------. || .--------. || .--------. || .--------. || .--------. |                            |
+                       || | .--'   | || | .--'   | || | .--'   | || | .--'   | || | .--'   | || | .--'   | || | .--'   | || | .--'   | |                            |
+                       || | HTML   | || | RS     | || | MD     | || | JSON   | || | PNG    | || | LNK>   | || | MP3    | || | CSS    | |                            |
+                       || | ------ | || | ------ | || | ------ | || | ------ | || | ------ | || | ------ | || | ------ | || | ------ | |                            |
+                       || '--------' || '--------' || '--------' || '--------' || '--------' || '--------' || '--------' || '--------' |                            |
+                       || index.html || main.rs    || notes.md   || package.js~|| photo.png  || README link|| song.mp3   || style.css  |                            |
+                       ||1.0K        ||2.0K        ||1.5K        ||412B        ||2.0M        ||9B          ||5.0M        ||2.5K        |                            |
+                       |                                                                                                                                            |
                        |                                                                                                                                            |
                        |                                                                                                                                            |
                        |                                                                                                                                            |
@@ -57,4 +58,3 @@ BOOKMARKS -------------| docs          src           a very long~  app.tsx      
                        |                                                                                                                                            |
  BROWSER                                                                                                                                                                                       5%  1/18
 | e/Enter Open | X Crypt | Bsp Up | v Visual | t Tag | : Command | ? Help | r OpenWith | b Sidebar | p Preview | B Bookmarks | q Quit
-TIP  Double-click or Enter/e to open * Right-click for menu * Mouse wheel to scroll

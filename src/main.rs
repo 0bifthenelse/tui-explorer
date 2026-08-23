@@ -4,7 +4,7 @@ use std::process::ExitCode;
 use std::sync::mpsc::{Receiver, SyncSender, sync_channel};
 use std::time::Duration;
 
-use crossterm::event::{self, Event, MouseButton, MouseEventKind};
+use crossterm::event::{self, Event, KeyCode, KeyModifiers, MouseButton, MouseEventKind};
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 
@@ -511,7 +511,11 @@ fn run(start: PathBuf) -> std::io::Result<()> {
             if event::poll(Duration::from_millis(100))? {
                 match event::read()? {
                     Event::Key(key) => {
-                        if let Some(action) = map_key(key, &state) {
+                        if key.code == KeyCode::Char('l')
+                            && key.modifiers.contains(KeyModifiers::CONTROL)
+                        {
+                            redraw.request_full();
+                        } else if let Some(action) = map_key(key, &state) {
                             pending.push_back(action);
                         }
                     }

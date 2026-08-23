@@ -1,27 +1,28 @@
  tui-explorer 0.1.0                             tui-explorer is awesome!                               Press ? for help
  Path: [ / ]>[ home ]>[ demo ]
 PLACES ----------------|18 items (2 dirs, 16 files)  Sort: name (asc)
- Root                  |    ______        ______      .--------.    .--------.    .--------.    .--------.
-MOUNTS ----------------|   /______/_     /______/_    | .--'   |    | .--'   |    | .--'   |    | .--'   |
-(no device mounts)     |  |        |    |        |    | TXT    |    | TSX    |    | GZ     |    | SH     |
-TAGS ------------------|  |        |    |        |    | ------ |    | ------ |    | ------ |    | ------ |
-(no tags yet)          |  +--------+    +--------+    '--------'    '--------'    '--------'    '--------'
-BOOKMARKS -------------| docs          src           a very long~  app.tsx       archive.tar~  build.sh
- * docs                | dir           dir           88B           5.0K          1.0M          256B
- * src                 |  .--------.    .--------.    .--------.    .--------.    .--------.    .--------.
- * log                 |  | .--'   |    | .--'   |    | .--'   |    | .--'   |    | .--'   |    | .--'   |
-                       |  | LOCK   |    | TOML   |    | JSON   |    | EXE>   |    | HTML   |    | RS     |
-                       |  | + BOOKMARKS ---------------------------------------------------+    | ------ |
-                       |  '-|search: d_                                                    |    '--------'
-                       | Car|                                                              |   main.rs
-                       | 50K|>docs                 ~/docs                                  |   2.0K
-                       |  .-| src                  ~/src                                   |    .--------.
-                       |  | |                                                              |    | .--'   |
-                       |  | | [Enter] go   [Esc] close                                     |    | CSS    |
-                       |  | |                                                              |    | ------ |
-                       |  '-+--------------------------------------------------------------+    '--------'
-                       | notes.md      package.json  photo.png     README link   song.mp3      style.css
-                       | 1.5K          412B          2.0M          9B            5.0M          2.5K
+ Root                  ||   ______   ||   ______   || .--------. || .--------. || .--------. || .--------. |
+MOUNTS ----------------||  /______/_ ||  /______/_ || | .--'   | || | .--'   | || | .--'   | || | .--'   | |
+(no device mounts)     || |        | || |        | || | TXT    | || | TSX    | || | GZ     | || | SH     | |
+TAGS ------------------|| |        | || |        | || | ------ | || | ------ | || | ------ | || | ------ | |
+(no tags yet)          || +--------+ || +--------+ || '--------' || '--------' || '--------' || '--------' |
+BOOKMARKS -------------|| docs       || src        || a very lon~|| app.tsx    || archive.ta~|| build.sh   |
+ * docs                ||dir         ||dir         ||88B         ||5.0K        ||1.0M        ||256B        |
+ * src                 || .--------. || .--------. || .--------. || .--------. || .--------. || .--------. |
+ * log                 || | .--'   | || | .--'   | || | .--'   | || | .--'   | || | .--'   | || | .--'   | |
+                       || | LOCK   | || | TOML   | || | JSON   | || | EXE>   | || | HTML   | || | RS     | |
+                       || | + BOOKMARKS ---------------------------------------------------+ || | ------ | |
+                       || '-|search: d_                                                    | || '--------' |
+                       || Ca|                                                              | || main.rs    |
+                       ||50K|>docs                 ~/docs                                  | ||2.0K        |
+                       || .-| src                  ~/src                                   | || .--------. |
+                       || | |                                                              | || | .--'   | |
+                       || | | [Enter] go   [Esc] close                                     | || | CSS    | |
+                       || | |                                                              | || | ------ | |
+                       || '-+--------------------------------------------------------------+ || '--------' |
+                       || notes.md   || package.js~|| photo.png  || README link|| song.mp3   || style.css  |
+                       ||1.5K        ||412B        ||2.0M        ||9B          ||5.0M        ||2.5K        |
+                       |
                        |
                        |
                        |
@@ -33,4 +34,3 @@ BOOKMARKS -------------| docs          src           a very long~  app.tsx      
                        |
  BOOKMARKS                                                                                                     5%  1/18
 | Enter go | Esc close
-TIP  Type to fuzzy-search bookmarks, Up/Down to select, Enter to go

@@ -1,7 +1,7 @@
  tui-explorer 0.1.0                             tui-explorer is awesome!                               Press ? for help
  Path: [ / ]>[ home ]>[ demo ]
 PLACES ----------------|18 items (2 dirs, 16 files)  Sort: name (asc)
- Root                  |    ______        ______      .--------.    .--------.    .--------.    .--------.
+ Root                  ||   ______   ||   ______   || .--------. || .--------. || .--------. || .--------. |
 MOUNTS ---+ HELP --------------------------------------------------------------------------------------------+
 (no device|j / Down          next row of tiles              :                 command mode                   |
 TAGS -----|k / Up            previous row of tiles          Esc               cancel mode or modal           |
@@ -31,6 +31,6 @@ BOOKMARKS |l / Right         tile right                     q                 qu
           |                                                                                                  |
           +--------------------------------------------------------------------------------------------------+
                        |
+                       |
  HELP                                                                                                          5%  1/18
 | Esc close
-TIP  Esc goes back
