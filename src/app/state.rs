@@ -338,6 +338,24 @@ pub struct AppState {
 }
 
 impl AppState {
+    /// True exactly while video media owns the terminal: mpv writes pixels
+    /// directly to stdout, so Ratatui must neither clear nor draw.
+    pub fn media_owns_terminal(&self) -> bool {
+        matches!(
+            &self.mode,
+            Mode::Media(media)
+                if media.kind == crate::media::MediaKind::Video
+                    && matches!(
+                        media.phase,
+                        MediaPhase::Starting
+                            | MediaPhase::Playing
+                            | MediaPhase::Paused
+                            | MediaPhase::Stopped
+                            | MediaPhase::Stopping
+                    )
+        )
+    }
+
     pub fn new(cwd: PathBuf, home: PathBuf) -> Self {
         AppState {
             browser: Browser::new(cwd),

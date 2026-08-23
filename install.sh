@@ -74,6 +74,12 @@ if [ -e "$DEST" ]; then
 fi
 
 install -Dm755 "$BIN_SRC" "$DEST"
+
+if ! command -v mpv >/dev/null 2>&1; then
+    echo "Note: mpv is not installed. Direct video playback requires mpv with a Kitty graphics terminal."
+    echo "Audio playback and all other features work without it."
+fi
+
 echo "Installed tui-explorer to $DEST"
 
 case ":$PATH:" in

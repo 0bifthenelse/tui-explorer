@@ -1,6 +1,7 @@
 use std::path::Path;
 
 pub mod audio;
+pub mod mpv;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MediaKind {

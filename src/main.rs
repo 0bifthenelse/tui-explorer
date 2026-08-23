@@ -100,8 +100,8 @@ enum MediaRequest {
     Start {
         session: u64,
         path: PathBuf,
-        // Video is routed through the same channel in a later phase.
         kind: tui_explorer::media::MediaKind,
+        surface: tui_explorer::app::state::MediaSurface,
         resume_position: Option<f64>,
         resume_paused: Option<bool>,
     },
@@ -116,12 +116,15 @@ enum MediaRequest {
 }
 
 impl MediaSupervisor {
-    fn new(sender: SyncSender<Action>) -> Self {
+    fn new(
+        sender: SyncSender<Action>,
+        picker_protocol: ratatui_image::picker::ProtocolType,
+    ) -> Self {
         let (tx, rx) = std::sync::mpsc::channel::<MediaRequest>();
         let action_sender = sender.clone();
         std::thread::Builder::new()
             .name("media-supervisor".into())
-            .spawn(move || media_supervisor_loop(rx, action_sender))
+            .spawn(move || media_supervisor_loop(rx, action_sender, picker_protocol))
             .expect("spawn media supervisor");
         MediaSupervisor {
             sender,
@@ -145,7 +148,7 @@ impl MediaSupervisor {
         session: u64,
         path: PathBuf,
         kind: tui_explorer::media::MediaKind,
-        _surface: tui_explorer::app::state::MediaSurface,
+        surface: tui_explorer::app::state::MediaSurface,
         resume_position: Option<f64>,
         resume_paused: Option<bool>,
     ) {
@@ -154,6 +157,7 @@ impl MediaSupervisor {
             path,
             kind,
             resume_position,
+            surface,
             resume_paused,
         });
     }
@@ -179,44 +183,73 @@ impl Drop for MediaSupervisor {
 fn media_supervisor_loop(
     receiver: std::sync::mpsc::Receiver<MediaRequest>,
     sender: SyncSender<Action>,
+    picker_protocol: ratatui_image::picker::ProtocolType,
 ) {
     use rodio::Sink;
 
-    struct ActiveAudio {
-        #[allow(dead_code)] // kept alive so the device stream stays open
-        stream: rodio::OutputStream,
-        sink: Sink,
+    enum ActiveMedia {
+        Audio {
+            #[allow(dead_code)] // kept alive so the device stream stays open
+            stream: rodio::OutputStream,
+            sink: Sink,
+        },
+        Video(Box<tui_explorer::media::mpv::MpvProcess>),
     }
 
-    let mut active: Option<(u64, ActiveAudio)> = None;
+    let mut active: Option<(u64, ActiveMedia)> = None;
     while let Ok(request) = receiver.recv() {
         match request {
             MediaRequest::Start {
                 session,
                 path,
                 kind,
+                surface,
                 resume_position,
                 resume_paused,
             } => {
                 active = None;
-                let start_result = match kind {
-                    tui_explorer::media::MediaKind::Audio => start_audio(&sender, session, &path),
-                    tui_explorer::media::MediaKind::Video => {
-                        Err("video playback requires a Kitty-compatible terminal".to_string())
-                    }
-                };
-                match start_result {
-                    Ok((stream, sink)) => {
-                        if let Some(position) = resume_position {
-                            let _ = sink.try_seek(Duration::from_secs_f64(position.max(0.0)));
+                if kind != tui_explorer::media::MediaKind::Video {
+                    match start_audio(&sender, session, &path) {
+                        Ok((stream, sink)) => {
+                            if let Some(position) = resume_position {
+                                let _ = sink.try_seek(Duration::from_secs_f64(position.max(0.0)));
+                            }
+                            if !resume_paused.unwrap_or(false) {
+                                sink.play();
+                            } else {
+                                sink.pause();
+                            }
+                            let _ = sender.send(Action::MediaBackendReady { session });
+                            active = Some((session, ActiveMedia::Audio { stream, sink }));
                         }
-                        if !resume_paused.unwrap_or(false) {
-                            sink.play();
-                        } else {
-                            sink.pause();
+                        Err(message) => {
+                            let _ = sender.send(Action::MediaFailed { session, message });
+                        }
+                    }
+                    continue;
+                }
+                // Video requires a Kitty-protocol picker.
+                if picker_protocol != ratatui_image::picker::ProtocolType::Kitty {
+                    let _ = sender.send(Action::MediaFailed {
+                        session,
+                        message: "video playback requires a Kitty-compatible terminal".to_string(),
+                    });
+                    continue;
+                }
+                match tui_explorer::media::mpv::MpvProcess::spawn(
+                    &path,
+                    (surface.rect.x, surface.rect.y),
+                    (surface.rect.width, surface.rect.height),
+                    surface.cell_pixels,
+                    session,
+                ) {
+                    Ok(mut process) => {
+                        for property in ["time-pos", "duration", "pause", "volume", "eof-reached"] {
+                            let _ =
+                                process.send_command(&["observe_property", "0", property], None);
                         }
                         let _ = sender.send(Action::MediaBackendReady { session });
-                        active = Some((session, ActiveAudio { stream, sink }));
+                        active = Some((session, ActiveMedia::Video(Box::new(process))));
                     }
                     Err(message) => {
                         let _ = sender.send(Action::MediaFailed { session, message });
@@ -224,17 +257,24 @@ fn media_supervisor_loop(
                 }
             }
             MediaRequest::Command { session, command } => {
-                let Some((active_session, audio)) = active.as_mut() else {
+                let Some((active_session, media)) = active.as_mut() else {
                     continue;
                 };
                 if *active_session != session {
                     continue;
                 }
-                apply_audio_command(&sender, session, &audio.sink, command);
+                match media {
+                    ActiveMedia::Audio { sink, .. } => {
+                        apply_audio_command(&sender, session, sink, command);
+                    }
+                    ActiveMedia::Video(process) => {
+                        apply_video_command(process, command);
+                    }
+                }
             }
             MediaRequest::Stop { session } => {
                 if matches!(&active, Some((active_session, _)) if *active_session == session) {
-                    active = None;
+                    active = None; // drops MpvProcess, which shuts it down
                 }
                 let _ = sender.send(Action::MediaStopped { session });
             }
@@ -243,6 +283,43 @@ fn media_supervisor_loop(
     }
 }
 
+fn apply_video_command(
+    process: &mut tui_explorer::media::mpv::MpvProcess,
+    command: tui_explorer::media::MediaCommand,
+) {
+    use tui_explorer::media::MediaCommand;
+    match command {
+        MediaCommand::Load | MediaCommand::Quit => {}
+        MediaCommand::TogglePause => {
+            let _ = process.send_command(
+                &["cycle", "pause"],
+                Some(serde_json::json!({ "osd_message": "play/pause" })),
+            );
+        }
+        MediaCommand::SeekRelative(seconds) => {
+            let _ = process.send_command(
+                &["seek", &seconds.to_string(), "relative"],
+                Some(serde_json::json!({ "osd_message": format!("seek {seconds:+}s") })),
+            );
+        }
+        MediaCommand::SetVolume(volume) => {
+            let _ = process.send_command(
+                &[
+                    "set_property",
+                    "volume",
+                    &(f32::from(volume) / 100.0).to_string(),
+                ],
+                Some(serde_json::json!({ "osd_message": format!("volume {volume}%") })),
+            );
+        }
+        MediaCommand::Stop => {
+            let _ = process.send_command(
+                &["seek", "0", "absolute"],
+                Some(serde_json::json!({ "osd_message": "restart" })),
+            );
+        }
+    }
+}
 fn start_audio(
     sender: &SyncSender<Action>,
     session: u64,
@@ -686,7 +763,6 @@ fn parse_args() -> Result<Option<Args>, ExitCode> {
         match arg.as_str() {
             "-h" | "--help" => {
                 print!("{HELP}");
-                return Err(ExitCode::SUCCESS);
             }
             "-V" | "--version" => {
                 println!("tui-explorer {VERSION}");
@@ -766,7 +842,7 @@ fn run(start: PathBuf) -> std::io::Result<()> {
         mutations: RealMutations::new(),
         tags,
         bookmarks: bookmark_store,
-        media: MediaSupervisor::new(sender.clone()),
+        media: MediaSupervisor::new(sender.clone(), picker.protocol_type()),
         sender,
     };
     let mut state = AppState::new(start, home);
@@ -786,10 +862,13 @@ fn run(start: PathBuf) -> std::io::Result<()> {
     pending.push_back(Action::LoadInitial);
     let mut redraw = terminal::RedrawGate::new();
     loop {
-        if redraw.take_full() {
-            term.clear()?;
+        let video_owns = state.media_owns_terminal();
+        if !video_owns {
+            if redraw.take_full() {
+                term.clear()?;
+            }
+            term.draw(|frame| ui::render(frame, &mut state))?;
         }
-        term.draw(|frame| ui::render(frame, &mut state))?;
         if let Mode::Media(media) = &state.mode
             && media.awaiting_surface_ready
             && let Some(surface) = media.surface
@@ -859,6 +938,11 @@ fn run(start: PathBuf) -> std::io::Result<()> {
             }
         }
         if state.error_epoch != epoch_before {
+            redraw.request_full();
+        }
+        // When video releases the terminal (stop, error, close), force a
+        // full redraw so every mpv pixel is overwritten by Ratatui.
+        if video_owns && !state.media_owns_terminal() {
             redraw.request_full();
         }
         if state.should_quit {

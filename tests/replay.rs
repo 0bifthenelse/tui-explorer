@@ -1147,3 +1147,161 @@ fn media_close_stops_then_returns_to_browser_exactly_once() {
     assert!(matches!(state.mode, Mode::Browser), "stale stop ignored");
     assert_eq!(handler.stopped_media.len(), 1);
 }
+
+fn video_surface() -> tui_explorer::app::state::MediaSurface {
+    tui_explorer::app::state::MediaSurface {
+        rect: ratatui::layout::Rect::new(4, 4, 60, 12),
+        terminal_cells: (120, 36),
+        cell_pixels: (8, 16),
+    }
+}
+
+fn loaded_with_video(width: u16, height: u16) -> (AppState, SyncHandler) {
+    let mut state = demo_state(width, height);
+    let mut handler = SyncHandler::new(tui_explorer::testing::builders::demo_fs_with_video());
+    drive(&mut state, &mut handler, [Action::LoadInitial]);
+    (state, handler)
+}
+
+#[test]
+fn video_ready_then_load_ordering() {
+    let (mut state, mut handler) = loaded_with_video(120, 36);
+    focus_video(&mut state, &mut handler);
+    drive(&mut state, &mut handler, [Action::OpenFocused]);
+    let session = current_session(&state);
+    // No StartMedia may occur before the surface is ready.
+    assert!(handler.started_media.is_empty());
+    drive(
+        &mut state,
+        &mut handler,
+        [Action::MediaSurfaceReady {
+            session,
+            surface: video_surface(),
+        }],
+    );
+    assert_eq!(handler.started_media, vec![(session, video_path())]);
+    // The sync harness answers StartMedia with MediaBackendReady, so the
+    // single Load must have been emitted right after the backend was ready.
+    let loads = handler
+        .media_commands
+        .iter()
+        .filter(|(s, c)| *s == session && *c == tui_explorer::media::MediaCommand::Load)
+        .count();
+    assert_eq!(loads, 1, "exactly one Load follows MediaBackendReady");
+}
+
+#[test]
+fn video_resize_snapshots_and_reenters_preparing() {
+    let (mut state, mut handler) = loaded_with_video(120, 36);
+    focus_video(&mut state, &mut handler);
+    drive(&mut state, &mut handler, [Action::OpenFocused]);
+    let session = current_session(&state);
+    drive(
+        &mut state,
+        &mut handler,
+        [Action::MediaSurfaceReady {
+            session,
+            surface: video_surface(),
+        }],
+    );
+    drive(
+        &mut state,
+        &mut handler,
+        [Action::MediaStatus {
+            session,
+            phase: tui_explorer::media::MediaPhase::Playing,
+            position: 12.5,
+            duration: Some(90.0),
+            volume: 80,
+        }],
+    );
+    drive(
+        &mut state,
+        &mut handler,
+        [Action::Resize {
+            width: 160,
+            height: 48,
+        }],
+    );
+    assert_eq!(
+        handler.stopped_media,
+        vec![session],
+        "resize stops the running video"
+    );
+    drive(&mut state, &mut handler, [Action::MediaStopped { session }]);
+    let Mode::Media(media) = &state.mode else {
+        panic!("expected media mode");
+    };
+    assert_eq!(media.phase, tui_explorer::media::MediaPhase::Preparing);
+    assert_eq!(media.resume_position, Some(12.5));
+    assert_eq!(media.resume_paused, Some(false));
+    assert!(media.awaiting_surface_ready);
+    assert!(media.surface.is_none());
+}
+
+#[test]
+fn video_resize_below_minimum_fails_with_exact_message() {
+    let (mut state, mut handler) = loaded_with_video(120, 36);
+    focus_video(&mut state, &mut handler);
+    drive(&mut state, &mut handler, [Action::OpenFocused]);
+    let session = current_session(&state);
+    drive(
+        &mut state,
+        &mut handler,
+        [Action::MediaSurfaceReady {
+            session,
+            surface: video_surface(),
+        }],
+    );
+    drive(
+        &mut state,
+        &mut handler,
+        [Action::Resize {
+            width: 69,
+            height: 18,
+        }],
+    );
+    drive(&mut state, &mut handler, [Action::MediaStopped { session }]);
+    let Mode::Media(media) = &state.mode else {
+        panic!("expected media mode");
+    };
+    assert_eq!(media.phase, tui_explorer::media::MediaPhase::Error);
+    assert_eq!(
+        media.error.as_deref(),
+        Some("video playback needs at least 70x18 cells")
+    );
+}
+#[test]
+fn quit_from_video_stops_before_quitting() {
+    let (mut state, mut handler) = loaded_with_video(120, 36);
+    focus_video(&mut state, &mut handler);
+    drive(&mut state, &mut handler, [Action::OpenFocused]);
+    let session = current_session(&state);
+    drive(&mut state, &mut handler, [Action::Quit]);
+    assert_eq!(handler.stopped_media, vec![session]);
+    // The sync harness answers StopMedia with MediaStopped immediately, so
+    // by the time drive() returns, quit has already been committed: the
+    // stop strictly precedes the quit effect.
+    assert!(handler.quit, "quit proceeds only after the media stopped");
+}
+
+fn focus_video(state: &mut AppState, handler: &mut SyncHandler) {
+    drive(state, handler, [Action::GotoFirst]);
+    let steps = state
+        .browser
+        .visible_entries()
+        .position(|(_, view)| view.entry.display_name() == "clip.mkv")
+        .expect("demo video file");
+    drive(state, handler, vec![Action::MoveDown; steps]);
+}
+
+fn current_session(state: &AppState) -> u64 {
+    match &state.mode {
+        Mode::Media(media) => media.session,
+        _ => panic!("expected media mode"),
+    }
+}
+
+fn video_path() -> std::path::PathBuf {
+    tui_explorer::testing::builders::demo_root().join("clip.mkv")
+}

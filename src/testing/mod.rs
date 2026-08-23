@@ -546,6 +546,25 @@ pub mod builders {
         fs
     }
 
+    /// Demo filesystem plus one video entry, appended after the standard
+    /// listing so existing hardcoded positions stay valid.
+    pub fn demo_fs_with_video() -> MemoryFileSystem {
+        let mut fs = demo_fs();
+        let root = demo_root();
+        fs.add_entry(
+            &root,
+            entry(
+                &root,
+                "clip.mkv",
+                EntryKind::File,
+                10_485_760,
+                0o644,
+                FIXED_TIME - 50_000,
+            ),
+        );
+        fs
+    }
+
     /// Larger deterministic filesystem used for the full-frame 1920x1080
     /// README screenshots: enough varied entries to fill a 240x60 grid.
     pub fn demo_fs_showcase() -> MemoryFileSystem {

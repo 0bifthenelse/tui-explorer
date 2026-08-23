@@ -333,6 +333,39 @@ fn reduce_inner(state: &mut AppState, action: Action) -> Vec<Effect> {
             }
             Vec::new()
         }
+        Action::MediaStopped { session } => {
+            let Mode::Media(media) = &mut state.mode else {
+                return Vec::new();
+            };
+            // Only a Stopping media accepts the terminal handback; any
+            // duplicate or out-of-phase MediaStopped is stale.
+            if media.session != session || media.phase != MediaPhase::Stopping {
+                return Vec::new();
+            }
+            let after_stop = media.after_stop.take().unwrap_or(AfterStop::Close);
+            match after_stop {
+                AfterStop::Close => {
+                    state.mode = Mode::Browser;
+                }
+                AfterStop::Quit => {
+                    state.mode = Mode::Browser;
+                    return vec![Effect::Quit];
+                }
+                AfterStop::RestartAfterResize { position, paused } => {
+                    media.phase = MediaPhase::Preparing;
+                    media.position = position;
+                    media.surface = None;
+                    media.awaiting_surface_ready = true;
+                    media.resume_position = Some(position);
+                    media.resume_paused = Some(paused);
+                }
+                AfterStop::ShowError(message) => {
+                    media.phase = MediaPhase::Error;
+                    media.error = Some(message);
+                }
+            }
+            Vec::new()
+        }
         Action::MediaSpectrum { session, spectrum } => {
             if let Mode::Media(media) = &mut state.mode
                 && media.session == session
@@ -370,7 +403,6 @@ fn reduce_inner(state: &mut AppState, action: Action) -> Vec<Effect> {
             media.after_stop = Some(AfterStop::ShowError(message));
             vec![Effect::StopMedia { session }]
         }
-        Action::MediaStopped { session } => media_stopped(state, session),
         Action::MediaTogglePause => media_command(state, MediaCommand::TogglePause),
         Action::MediaSeek(seconds) => media_command(state, MediaCommand::SeekRelative(seconds)),
         Action::MediaVolume(delta) => {
@@ -515,6 +547,33 @@ fn reduce_inner(state: &mut AppState, action: Action) -> Vec<Effect> {
         Action::Resize { width, height } => {
             state.width = width;
             state.height = height;
+            // Video restarts at the new geometry: snapshot playback, stop
+            // the backend, and re-enter Preparing once stopped.
+            if let Mode::Media(media) = &mut state.mode
+                && media.kind == crate::media::MediaKind::Video
+                && !matches!(
+                    media.phase,
+                    MediaPhase::Stopping | MediaPhase::Preparing | MediaPhase::Error
+                )
+            {
+                if width < 70 || height < 18 {
+                    media.phase = MediaPhase::Stopping;
+                    let message = "video playback needs at least 70x18 cells".to_string();
+                    media.after_stop = Some(AfterStop::ShowError(message));
+                    return vec![Effect::StopMedia {
+                        session: media.session,
+                    }];
+                }
+                let was_paused = matches!(media.phase, MediaPhase::Paused);
+                media.phase = MediaPhase::Stopping;
+                media.after_stop = Some(AfterStop::RestartAfterResize {
+                    position: media.position,
+                    paused: was_paused,
+                });
+                return vec![Effect::StopMedia {
+                    session: media.session,
+                }];
+            }
             Vec::new()
         }
         Action::DirectoryLoaded { result } => directory_loaded(state, result),
@@ -714,40 +773,6 @@ fn close_media(state: &mut AppState, after_stop: AfterStop) -> Vec<Effect> {
     vec![Effect::StopMedia {
         session: media.session,
     }]
-}
-
-fn media_stopped(state: &mut AppState, session: u64) -> Vec<Effect> {
-    let Mode::Media(media) = &mut state.mode else {
-        return Vec::new();
-    };
-    if media.session != session {
-        return Vec::new();
-    }
-    let after_stop = media.after_stop.take().unwrap_or(AfterStop::Close);
-    match after_stop {
-        AfterStop::Close => {
-            state.mode = Mode::Browser;
-            Vec::new()
-        }
-        AfterStop::Quit => {
-            state.mode = Mode::Browser;
-            vec![Effect::Quit]
-        }
-        AfterStop::RestartAfterResize { position, paused } => {
-            media.phase = MediaPhase::Preparing;
-            media.position = position;
-            media.surface = None;
-            media.awaiting_surface_ready = true;
-            media.resume_position = Some(position);
-            media.resume_paused = Some(paused);
-            Vec::new()
-        }
-        AfterStop::ShowError(message) => {
-            media.phase = MediaPhase::Error;
-            media.error = Some(message);
-            Vec::new()
-        }
-    }
 }
 
 fn open_focused(state: &mut AppState) -> Vec<Effect> {
