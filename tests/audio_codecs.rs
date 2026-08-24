@@ -41,8 +41,8 @@ fn decode_seconds(source: &mut SymphoniaSource, seconds: f64, what: &str) -> f64
 
 fn assert_opens_and_decodes(name: &str) {
     let path = fixture(name);
-    let mut source = SymphoniaSource::new(&path)
-        .unwrap_or_else(|error| panic!("{name}: open failed: {error}"));
+    let mut source =
+        SymphoniaSource::new(&path).unwrap_or_else(|error| panic!("{name}: open failed: {error}"));
 
     // Container-reported duration must be sane when present.
     if let Some(duration) = source.total_duration() {
@@ -57,8 +57,8 @@ fn assert_opens_and_decodes(name: &str) {
 
 fn assert_seek_then_decode_continues(name: &str) {
     let path = fixture(name);
-    let mut source = SymphoniaSource::new(&path)
-        .unwrap_or_else(|error| panic!("{name}: open failed: {error}"));
+    let mut source =
+        SymphoniaSource::new(&path).unwrap_or_else(|error| panic!("{name}: open failed: {error}"));
     match source.try_seek(Duration::from_secs(1)) {
         Ok(()) => {}
         Err(rodio::source::SeekError::NotSupported { .. }) => return,

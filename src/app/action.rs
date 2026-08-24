@@ -108,9 +108,19 @@ pub enum Action {
     },
     MediaTogglePause,
     MediaSeek(i64),
+    MediaSeekAbsolute(f64),
     MediaVolume(i8),
     MediaStop,
     MediaClose,
+    MediaToggleFullscreen,
+    MediaNext,
+    ClipboardCopy {
+        paths: Vec<PathBuf>,
+    },
+    ClipboardCut {
+        paths: Vec<PathBuf>,
+    },
+    ClipboardPaste,
     BookmarksChanged {
         bookmarks: Vec<PathBuf>,
         message: String,

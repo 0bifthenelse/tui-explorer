@@ -1754,18 +1754,24 @@ fn render_context_menu(
         .enumerate()
         .map(|(idx, item)| {
             let focused = idx == menu.selected;
-            let style = if focused {
+            let mut style = if focused {
                 focused_style()
             } else {
                 base_style()
             };
+            if !item.enabled {
+                style = Style::default().fg(TEXT_MUTED).bg(SURFACE_3);
+            }
             Line::from(Span::styled(
-                pad_right(item.label(), inner.width as usize),
+                pad_right(item.action.label(), inner.width as usize),
                 style,
             ))
         })
         .collect();
-    for (idx, _) in menu.items.iter().enumerate() {
+    for (idx, item) in menu.items.iter().enumerate() {
+        if !item.enabled {
+            continue; // Disabled entries render muted and register no hit.
+        }
         hits.push(
             Rect::new(inner.x, inner.y + idx as u16, inner.width, 1),
             HitTarget::ContextItem(idx),

@@ -149,8 +149,9 @@ pub enum ContextItem {
     Open,
     OpenWith,
     Rename,
-    Copy,
-    Move,
+    Cut,
+    ClipboardCopy,
+    Paste,
     Delete,
     Tags,
 }
@@ -161,30 +162,85 @@ impl ContextItem {
             ContextItem::Open => "Open",
             ContextItem::OpenWith => "Open with",
             ContextItem::Rename => "Rename",
-            ContextItem::Copy => "Copy",
-            ContextItem::Move => "Move",
+            ContextItem::Cut => "Cut",
+            ContextItem::ClipboardCopy => "Copy",
+            ContextItem::Paste => "Paste",
             ContextItem::Delete => "Delete",
             ContextItem::Tags => "Tags",
         }
     }
 
-    pub fn all() -> &'static [ContextItem] {
-        &[
-            ContextItem::Open,
-            ContextItem::OpenWith,
-            ContextItem::Rename,
-            ContextItem::Copy,
-            ContextItem::Move,
-            ContextItem::Delete,
-            ContextItem::Tags,
-        ]
+    /// The menu shown for a context target. `clipboard_has_items` enables
+    /// the background Paste entry.
+    pub fn menu_for(target: &ContextTarget, clipboard_has_items: bool) -> Vec<MenuItem> {
+        let item = |action: ContextItem, enabled: bool| MenuItem { action, enabled };
+        match target {
+            ContextTarget::Single { .. } => vec![
+                item(ContextItem::Open, true),
+                item(ContextItem::OpenWith, true),
+                item(ContextItem::Rename, true),
+                item(ContextItem::Cut, true),
+                item(ContextItem::ClipboardCopy, true),
+                item(ContextItem::Delete, true),
+                item(ContextItem::Tags, true),
+            ],
+            ContextTarget::Bulk { .. } => vec![
+                item(ContextItem::Cut, true),
+                item(ContextItem::ClipboardCopy, true),
+                item(ContextItem::Delete, true),
+            ],
+            ContextTarget::Background => vec![item(ContextItem::Paste, clipboard_has_items)],
+        }
     }
+}
+
+/// What a context menu was opened on; carries the explicit paths the menu
+/// acts on so multi-selections never collapse into per-item semantics.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ContextTarget {
+    Single {
+        path: PathBuf,
+    },
+    /// Sorted, deduped at open time.
+    Bulk {
+        paths: Vec<PathBuf>,
+    },
+    Background,
+}
+
+impl ContextTarget {
+    /// Every path this target's menu would act on (empty for Background).
+    pub fn paths(&self) -> Vec<PathBuf> {
+        match self {
+            ContextTarget::Single { path } => vec![path.clone()],
+            ContextTarget::Bulk { paths } => paths.clone(),
+            ContextTarget::Background => Vec::new(),
+        }
+    }
+
+    /// Short title describing the target.
+    pub fn title(&self) -> String {
+        match self {
+            ContextTarget::Single { path } => path
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| path.display().to_string()),
+            ContextTarget::Bulk { paths } => format!("{} items selected", paths.len()),
+            ContextTarget::Background => "here".to_string(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MenuItem {
+    pub action: ContextItem,
+    pub enabled: bool,
 }
 
 #[derive(Clone, Debug)]
 pub struct ContextMenuState {
-    pub target: PathBuf,
-    pub items: &'static [ContextItem],
+    pub target: ContextTarget,
+    pub items: Vec<MenuItem>,
     pub selected: usize,
     pub x: u16,
     pub y: u16,
@@ -270,10 +326,33 @@ pub struct MediaState {
     pub resume_paused: Option<bool>,
     pub after_stop: Option<AfterStop>,
     pub error: Option<String>,
+    /// Video fullscreen flag; flips via the supervised stop/restart cycle.
+    pub fullscreen: bool,
+    /// Remaining playable tracks in display order (playlist navigation).
+    pub playlist: Vec<PathBuf>,
+    pub playlist_pos: usize,
+    /// Hover position on the seek rail in seconds (None = not hovering).
+    pub slider_hover: Option<f64>,
+    /// Visual drag position in seconds while a rail drag is in flight.
+    pub slider_drag_pos: Option<f64>,
+    /// True between rail Left press and LeftUp; no seek until commit.
+    pub slider_drag_active: bool,
 }
 
 impl MediaState {
     pub fn preparing(session: u64, path: PathBuf, kind: MediaKind) -> Self {
+        Self::preparing_with_playlist(session, path, kind, Vec::new(), 0)
+    }
+
+    /// Fresh Preparing state carrying the playlist context used by
+    /// next-track navigation. Resets all transient slider state.
+    pub fn preparing_with_playlist(
+        session: u64,
+        path: PathBuf,
+        kind: MediaKind,
+        playlist: Vec<PathBuf>,
+        playlist_pos: usize,
+    ) -> Self {
         MediaState {
             session,
             path,
@@ -289,8 +368,59 @@ impl MediaState {
             resume_paused: None,
             after_stop: None,
             error: None,
+            fullscreen: false,
+            playlist,
+            playlist_pos,
+            slider_hover: None,
+            slider_drag_pos: None,
+            slider_drag_active: false,
         }
     }
+
+    /// Clears every transient seek-rail interaction state.
+    pub fn clear_slider_state(&mut self) {
+        self.slider_hover = None;
+        self.slider_drag_pos = None;
+        self.slider_drag_active = false;
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ClipMode {
+    Copy,
+    Cut,
+}
+
+/// Internal clipboard for Copy/Cut/Paste semantics.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ClipboardState {
+    pub mode: Option<ClipMode>,
+    pub items: Vec<PathBuf>,
+}
+
+impl ClipboardState {
+    pub fn is_empty(&self) -> bool {
+        self.items.is_empty()
+    }
+
+    /// Status-chip text ("COPY: 3 items"); None when the clipboard is empty.
+    pub fn chip(&self) -> Option<String> {
+        match (self.mode, self.items.len()) {
+            (None, _) | (_, 0) => None,
+            (Some(ClipMode::Copy), n) => {
+                Some(format!("COPY: {n} item{}", if n == 1 { "" } else { "s" }))
+            }
+            (Some(ClipMode::Cut), n) => {
+                Some(format!("CUT: {n} item{}", if n == 1 { "" } else { "s" }))
+            }
+        }
+    }
+}
+
+#[derive(Default, Debug)]
+pub struct HoverState {
+    pub row: Option<usize>,
+    pub control: Option<crate::ui::hit::HitTarget>,
 }
 
 #[derive(Debug)]
@@ -396,6 +526,12 @@ pub struct AppState {
     pub preview: PreviewState,
     pub picker: ratatui_image::picker::Picker,
     pub next_media_session: u64,
+    pub clipboard: ClipboardState,
+    /// True hover state (row and/or control target); rebuilt per frame.
+    pub hover: HoverState,
+    /// Mode of an in-flight paste started from the context menu; consumed
+    /// by operation_finished to prune moved sources out of the clipboard.
+    pub pending_paste_mode: Option<ClipMode>,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MediaSurface {
@@ -456,6 +592,9 @@ impl AppState {
             drag: None,
             marquee: None,
             next_media_session: 1,
+            clipboard: ClipboardState::default(),
+            hover: HoverState::default(),
+            pending_paste_mode: None,
         }
     }
 

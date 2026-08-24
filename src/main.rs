@@ -376,7 +376,10 @@ fn handle_media_request(
                     apply_audio_command(sender, session, sink, *duration, command);
                 }
                 ActiveMedia::Video(playback) => {
-                    if let Err(error) = apply_video_command(&mut playback.process, command) {
+                    let duration = playback.duration;
+                    if let Err(error) =
+                        apply_video_command(&mut playback.process, duration, command)
+                    {
                         let _ = sender.send(Action::MediaFailed {
                             session,
                             message: format!("mpv command failed: {error}"),
@@ -543,6 +546,7 @@ fn apply_property(playback: &mut VideoPlayback, change: PropertyChange) {
 
 fn apply_video_command(
     process: &mut tui_explorer::media::mpv::MpvProcess,
+    duration: Option<f64>,
     command: tui_explorer::media::MediaCommand,
 ) -> Result<(), String> {
     use tui_explorer::media::MediaCommand;
@@ -567,6 +571,25 @@ fn apply_video_command(
                 Some(serde_json::json!({ "osd_message": format!("seek {seconds:+}s") })),
             )
             .map(|_| ()),
+        MediaCommand::SeekAbsolute(seconds) => {
+            // NaN/negative rejected by clamping to 0.0; upper bound clamped
+            // against the known duration minus a small guard band.
+            let target = clamp_seek_seconds(seconds, duration);
+            process
+                .send_command(
+                    &[
+                        serde_json::Value::from("seek"),
+                        serde_json::Value::from(target),
+                        serde_json::Value::from("absolute"),
+                    ],
+                    Some(serde_json::json!({ "osd_message": format!(
+                        "seek {}:{:05.2}",
+                        (target as u64) / 60,
+                        target % 60.0
+                    ) })),
+                )
+                .map(|_| ())
+        }
         MediaCommand::SetVolume(volume) => process
             .send_command(
                 // mpv's volume property is percent-based (default 100); the
@@ -665,6 +688,11 @@ fn apply_audio_command(
             let _ = sink.try_seek(Duration::from_secs_f64(target));
             report_status(sender, session, sink, duration);
         }
+        MediaCommand::SeekAbsolute(seconds) => {
+            let target = clamp_seek_seconds(seconds, duration);
+            let _ = sink.try_seek(Duration::from_secs_f64(target));
+            report_status(sender, session, sink, duration);
+        }
         MediaCommand::SetVolume(volume) => {
             // rodio's mixer volume IS normalized to 0..1.
             sink.set_volume(f32::from(volume) / 100.0);
@@ -675,6 +703,20 @@ fn apply_audio_command(
             sink.play();
             report_status(sender, session, sink, duration);
         }
+    }
+}
+
+/// Normalizes an absolute seek target: NaN/negative clamp to 0.0, and a
+/// known duration bounds the result to `duration - 0.25` so the decoder
+/// never parks exactly on the final packet boundary.
+fn clamp_seek_seconds(seconds: f64, duration: Option<f64>) -> f64 {
+    if seconds.is_nan() {
+        return 0.0;
+    }
+    let clamped = seconds.max(0.0);
+    match duration {
+        Some(total) if total.is_finite() && total > 0.0 => clamped.min((total - 0.25).max(0.0)),
+        _ => clamped,
     }
 }
 

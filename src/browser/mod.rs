@@ -364,7 +364,17 @@ impl Browser {
         self.visual = false;
     }
 
+    /// The explicit selection set ONLY. Empty when nothing is selected —
+    /// callers that mean "selection, else focused entry" must say so via
+    /// `action_targets()`.
     pub fn targets(&self) -> Vec<PathBuf> {
+        self.selection.iter().cloned().collect()
+    }
+
+    /// Selection when present, otherwise the focused entry. This is the
+    /// keyboard/command-mode flow; destructive mouse menus capture their
+    /// own targets at open time instead.
+    pub fn action_targets(&self) -> Vec<PathBuf> {
         if !self.selection.is_empty() {
             return self.selection.iter().cloned().collect();
         }
@@ -528,15 +538,29 @@ mod tests {
     }
 
     #[test]
-    fn targets_fall_back_to_focused() {
+    fn targets_is_explicit_selection_only() {
         let mut b = browser();
-        assert_eq!(b.targets().len(), 1);
+        assert!(b.targets().is_empty());
         b.toggle_select_focused();
+        assert_eq!(b.targets().len(), 1);
         b.move_down(10);
         b.toggle_select_focused();
         assert_eq!(b.targets().len(), 2);
+        // Clearing the selection empties targets; the cursor is NOT a target.
         b.clear_selection();
-        assert_eq!(b.targets().len(), 1);
+        assert!(b.targets().is_empty());
+    }
+
+    #[test]
+    fn action_targets_falls_back_to_focused() {
+        let mut b = browser();
+        assert_eq!(b.action_targets().len(), 1);
+        b.toggle_select_focused();
+        b.move_down(10);
+        b.toggle_select_focused();
+        assert_eq!(b.action_targets().len(), 2);
+        b.clear_selection();
+        assert_eq!(b.action_targets().len(), 1);
     }
 
     #[test]

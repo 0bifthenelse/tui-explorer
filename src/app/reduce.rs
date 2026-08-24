@@ -4,16 +4,16 @@ use std::time::Instant;
 use crate::app::action::{Action, ConflictDecision, DirectorySnapshot, MouseKind};
 use crate::app::effects::Effect;
 use crate::app::state::{
-    AppState, BookmarkNavState, ConfirmAction, ConfirmState, ConflictState, ContextItem,
-    ContextMenuState, DragPhase, DragState, MarqueePhase, MarqueeState, MediaState, Mode,
-    OpenWithState, OperationState, Password, PasswordPurpose, PasswordState, PreviewContent,
-    StatusMessage, TagPickerState,
+    AppState, BookmarkNavState, ClipMode, ClipboardState, ConfirmAction, ConfirmState,
+    ConflictState, ContextItem, ContextMenuState, ContextTarget, DragPhase, DragState,
+    MarqueePhase, MarqueeState, MediaState, Mode, OpenWithState, OperationState, Password,
+    PasswordPurpose, PasswordState, PreviewContent, StatusMessage, TagPickerState,
 };
 use crate::browser::SortMode;
 use crate::crypto::CryptoKind;
 use crate::filesystem::EntryKind;
 use crate::input::command::{self, Command};
-use crate::media::{AfterStop, MediaCommand, MediaPhase, classify_path};
+use crate::media::{AfterStop, MediaCommand, MediaKind, MediaPhase, classify_path};
 use crate::operations::{
     ConflictPolicy, OpOutcome, OperationKind, OperationPlan, OperationReport, validate,
     validate_rename,
@@ -407,6 +407,11 @@ fn reduce_inner(state: &mut AppState, action: Action) -> Vec<Effect> {
         }
         Action::MediaTogglePause => media_command(state, MediaCommand::TogglePause),
         Action::MediaSeek(seconds) => media_command(state, MediaCommand::SeekRelative(seconds)),
+        Action::MediaSeekAbsolute(seconds) => {
+            media_command(state, MediaCommand::SeekAbsolute(seconds))
+        }
+        Action::MediaToggleFullscreen => toggle_media_fullscreen(state),
+        Action::MediaNext => next_media(state),
         Action::MediaVolume(delta) => {
             let Mode::Media(media) = &mut state.mode else {
                 return Vec::new();
@@ -420,6 +425,21 @@ fn reduce_inner(state: &mut AppState, action: Action) -> Vec<Effect> {
         }
         Action::MediaStop => media_command(state, MediaCommand::Stop),
         Action::MediaClose => close_media(state, AfterStop::Close),
+        Action::ClipboardCopy { paths } => {
+            state.clipboard = ClipboardState {
+                mode: Some(ClipMode::Copy),
+                items: paths,
+            };
+            Vec::new()
+        }
+        Action::ClipboardCut { paths } => {
+            state.clipboard = ClipboardState {
+                mode: Some(ClipMode::Cut),
+                items: paths,
+            };
+            Vec::new()
+        }
+        Action::ClipboardPaste => paste_from_clipboard(state),
         Action::QuickTag => quick_tag(state),
         Action::OpenTagPicker => open_picker(state),
         Action::EnterCommand => {
@@ -540,7 +560,7 @@ fn reduce_inner(state: &mut AppState, action: Action) -> Vec<Effect> {
         }
         Action::ContextChoose => {
             if let Mode::ContextMenu(menu) = &state.mode {
-                let item = menu.items[menu.selected];
+                let item = menu.items[menu.selected].action;
                 return context_apply(state, item);
             }
             Vec::new()
@@ -783,6 +803,54 @@ fn close_media(state: &mut AppState, after_stop: AfterStop) -> Vec<Effect> {
     }]
 }
 
+/// Flips video fullscreen through the supervised stop/restart cycle, reusing
+/// the resize-resume machinery so position and pause state survive.
+fn toggle_media_fullscreen(state: &mut AppState) -> Vec<Effect> {
+    let Mode::Media(media) = &state.mode else {
+        return Vec::new();
+    };
+    let allowed = media.kind == MediaKind::Video
+        && matches!(
+            media.phase,
+            MediaPhase::Playing | MediaPhase::Paused | MediaPhase::Stopped
+        );
+    if !allowed {
+        return Vec::new();
+    }
+    let (position, paused) = {
+        let Mode::Media(media) = &mut state.mode else {
+            return Vec::new();
+        };
+        media.fullscreen = !media.fullscreen;
+        media.clear_slider_state();
+        (media.position, media.phase == MediaPhase::Paused)
+    };
+    close_media(state, AfterStop::RestartAfterResize { position, paused })
+}
+
+/// Advances to the next playlist entry (display order); no wrap at the end.
+fn next_media(state: &mut AppState) -> Vec<Effect> {
+    let Mode::Media(media) = &state.mode else {
+        return Vec::new();
+    };
+    if matches!(media.phase, MediaPhase::Preparing | MediaPhase::Stopping) {
+        return Vec::new();
+    }
+    let Some(next_path) = media.playlist.get(media.playlist_pos + 1).cloned() else {
+        state.message = Some(StatusMessage::info("end of playlist"));
+        return Vec::new();
+    };
+    let next_pos = media.playlist_pos + 1;
+    let kind = media.kind;
+    let playlist = media.playlist.clone();
+    let session = state.next_media_session;
+    state.next_media_session = state.next_media_session.wrapping_add(1).max(1);
+    state.mode = Mode::Media(Box::new(MediaState::preparing_with_playlist(
+        session, next_path, kind, playlist, next_pos,
+    )));
+    Vec::new()
+}
+
 fn open_focused(state: &mut AppState) -> Vec<Effect> {
     browser_only_fx(state, |s| {
         let Some(view) = s.browser.focused() else {
@@ -793,13 +861,11 @@ fn open_focused(state: &mut AppState) -> Vec<Effect> {
             EntryKind::Directory => navigate(s, path),
             _ => {
                 if let Some(kind) = classify_path(&path) {
-                    let session = s.next_media_session;
-                    s.next_media_session = s.next_media_session.wrapping_add(1).max(1);
-                    s.mode = Mode::Media(Box::new(MediaState::preparing(session, path, kind)));
+                    start_media_session(s, path, kind)
                 } else {
                     prompt_open_with(s, path);
+                    Vec::new()
                 }
-                Vec::new()
             }
         }
     })
@@ -867,7 +933,7 @@ fn quick_tag(state: &mut AppState) -> Vec<Effect> {
                 return Vec::new();
             }
         };
-        let targets = s.browser.targets();
+        let targets = s.browser.action_targets();
         if targets.is_empty() {
             return Vec::new();
         }
@@ -898,7 +964,11 @@ fn open_picker(state: &mut AppState) -> Vec<Effect> {
     if !matches!(state.mode, Mode::Browser) {
         return Vec::new();
     }
-    let targets = state.browser.targets();
+    let targets = state.browser.action_targets();
+    open_picker_with(state, targets)
+}
+
+fn open_picker_with(state: &mut AppState, targets: Vec<PathBuf>) -> Vec<Effect> {
     state.mode = Mode::TagPicker(Box::new(TagPickerState {
         defs: state.tag_defs.clone(),
         selected: 0,
@@ -990,7 +1060,12 @@ fn resolve_user_path(state: &AppState, input: &str) -> PathBuf {
 }
 
 fn delete_confirm(state: &mut AppState) -> Vec<Effect> {
-    let targets = state.browser.targets();
+    delete_confirm_targets(state, state.browser.action_targets())
+}
+
+/// Builds the recursive-delete confirmation for explicit captured targets
+/// (keyboard selection/focus or a context menu's captured paths).
+fn delete_confirm_targets(state: &mut AppState, targets: Vec<PathBuf>) -> Vec<Effect> {
     if targets.is_empty() {
         state.message = Some(StatusMessage::info("nothing selected"));
         return Vec::new();
@@ -1077,7 +1152,11 @@ fn submit_command(state: &mut AppState) -> Vec<Effect> {
         Command::Copy { dest } => start_copy_move(state, OperationKind::Copy, dest),
         Command::Move { dest } => start_copy_move(state, OperationKind::Move, dest),
         Command::Rename { name } => {
-            let sources = state.browser.targets();
+            let sources = state
+                .browser
+                .focused()
+                .map(|v| vec![v.entry.path.clone()])
+                .unwrap_or_default();
             let plan = OperationPlan {
                 kind: OperationKind::Move,
                 sources,
@@ -1099,7 +1178,7 @@ fn submit_command(state: &mut AppState) -> Vec<Effect> {
                 state.set_error(e.to_string());
                 return Vec::new();
             }
-            let targets = state.browser.targets();
+            let targets = state.browser.action_targets();
             if targets.is_empty() {
                 state.message = Some(StatusMessage::info("nothing selected"));
                 return Vec::new();
@@ -1111,7 +1190,7 @@ fn submit_command(state: &mut AppState) -> Vec<Effect> {
             }]
         }
         Command::Untag { name } => {
-            let targets = state.browser.targets();
+            let targets = state.browser.action_targets();
             if targets.is_empty() {
                 state.message = Some(StatusMessage::info("nothing selected"));
                 return Vec::new();
@@ -1202,7 +1281,7 @@ fn submit_command(state: &mut AppState) -> Vec<Effect> {
 }
 
 fn start_copy_move(state: &mut AppState, kind: OperationKind, dest: String) -> Vec<Effect> {
-    let sources = state.browser.targets();
+    let sources = state.browser.action_targets();
     let plan = OperationPlan {
         kind,
         sources,
@@ -1275,35 +1354,152 @@ fn context_apply(state: &mut AppState, item: ContextItem) -> Vec<Effect> {
     let Mode::ContextMenu(menu) = std::mem::replace(&mut state.mode, Mode::Browser) else {
         return Vec::new();
     };
-    let target = menu.target.clone();
+    // Menus carry explicit captured targets; nothing routes back through
+    // browser.targets() so multi-selections never collapse per-item.
+    if !item_enabled(&menu, item) {
+        return Vec::new();
+    }
+    match item {
+        ContextItem::Open => match menu.target {
+            ContextTarget::Single { path } => open_explicit(state, path),
+            _ => Vec::new(),
+        },
+        ContextItem::OpenWith => match menu.target {
+            ContextTarget::Single { path } => {
+                prompt_open_with(state, path);
+                Vec::new()
+            }
+            _ => Vec::new(),
+        },
+        ContextItem::Rename => {
+            // Rename is single-item by nature; focus the captured row and
+            // prefill command mode (Command::Rename acts on the cursor row).
+            if let ContextTarget::Single { path } = &menu.target {
+                focus_path(state, path);
+                state.mode = Mode::Command;
+                state.command_input = "rename ".to_string();
+            }
+            Vec::new()
+        }
+        ContextItem::Cut => {
+            state.clipboard = ClipboardState {
+                mode: Some(ClipMode::Cut),
+                items: menu.target.paths(),
+            };
+            Vec::new()
+        }
+        ContextItem::ClipboardCopy => {
+            state.clipboard = ClipboardState {
+                mode: Some(ClipMode::Copy),
+                items: menu.target.paths(),
+            };
+            Vec::new()
+        }
+        ContextItem::Paste => paste_from_clipboard(state),
+        ContextItem::Delete => delete_confirm_targets(state, menu.target.paths()),
+        ContextItem::Tags => match menu.target {
+            ContextTarget::Single { path } => open_picker_with(state, vec![path]),
+            _ => Vec::new(),
+        },
+    }
+}
+
+fn item_enabled(menu: &ContextMenuState, item: ContextItem) -> bool {
+    menu.items.iter().any(|mi| mi.action == item && mi.enabled)
+}
+
+/// Opens an explicit path from a context menu without touching the
+/// navigation cursor or the selection set.
+fn open_explicit(state: &mut AppState, path: PathBuf) -> Vec<Effect> {
+    if !matches!(state.mode, Mode::Browser) {
+        return Vec::new();
+    }
+    let is_dir = state
+        .browser
+        .entries
+        .iter()
+        .any(|e| e.entry.path == path && e.entry.kind.is_dir());
+    match is_dir {
+        true => navigate(state, path),
+        false => {
+            if let Some(media_kind) = classify_path(&path) {
+                start_media_session(state, path, media_kind)
+            } else {
+                prompt_open_with(state, path);
+                Vec::new()
+            }
+        }
+    }
+}
+
+/// Moves the navigation cursor onto `path` when visible (no selection
+/// mutation); used only where a flow is inherently focused-coupled.
+fn focus_path(state: &mut AppState, path: &Path) {
     if let Some(pos) = state
         .browser
         .visible_indices()
         .iter()
-        .position(|&i| state.browser.entries[i].entry.path == target)
+        .position(|&i| state.browser.entries[i].entry.path == path)
     {
         state.browser.selected = pos;
+        let (c, r) = grid_dims(state);
+        state.browser.clamp_scroll_grid(c, r);
     }
-    match item {
-        ContextItem::Open => open_focused(state),
-        ContextItem::OpenWith => open_with_prompt(state),
-        ContextItem::Rename => {
-            state.mode = Mode::Command;
-            state.command_input = "rename ".to_string();
+}
+
+/// Builds the playlist context for media sessions: every visible entry of
+/// the same media kind in display order, with `current`'s position.
+pub fn media_playlist(state: &AppState, current: &Path, kind: MediaKind) -> (Vec<PathBuf>, usize) {
+    let playlist: Vec<PathBuf> = state
+        .browser
+        .visible_entries()
+        .map(|(_, e)| &e.entry.path)
+        .filter(|p| classify_path(p) == Some(kind))
+        .cloned()
+        .collect();
+    let pos = playlist.iter().position(|p| p == current).unwrap_or(0);
+    (playlist, pos)
+}
+
+/// Mints a fresh media session carrying playlist context.
+pub fn start_media_session(state: &mut AppState, path: PathBuf, kind: MediaKind) -> Vec<Effect> {
+    let session = state.next_media_session;
+    state.next_media_session = state.next_media_session.wrapping_add(1).max(1);
+    let (playlist, pos) = media_playlist(state, &path, kind);
+    state.mode = Mode::Media(Box::new(MediaState::preparing_with_playlist(
+        session, path, kind, playlist, pos,
+    )));
+    Vec::new()
+}
+
+/// Starts a copy/move of every clipboard item into the current directory.
+fn paste_from_clipboard(state: &mut AppState) -> Vec<Effect> {
+    let Some(mode) = state.clipboard.mode else {
+        return Vec::new();
+    };
+    if state.clipboard.items.is_empty() || matches!(state.mode, Mode::Media(_)) {
+        return Vec::new();
+    }
+    let op_kind = match mode {
+        ClipMode::Copy => OperationKind::Copy,
+        ClipMode::Cut => OperationKind::Move,
+    };
+    let plan = OperationPlan {
+        kind: op_kind,
+        sources: state.clipboard.items.clone(),
+        dest_dir: Some(state.browser.cwd.clone()),
+        rename_to: None,
+        policy: ConflictPolicy::Ask,
+    };
+    match validate(&plan) {
+        Ok(()) => {
+            state.pending_paste_mode = Some(mode);
+            start_operation(state, plan)
+        }
+        Err(e) => {
+            state.set_error(e.to_string());
             Vec::new()
         }
-        ContextItem::Copy => {
-            state.mode = Mode::Command;
-            state.command_input = "copy ".to_string();
-            Vec::new()
-        }
-        ContextItem::Move => {
-            state.mode = Mode::Command;
-            state.command_input = "move ".to_string();
-            Vec::new()
-        }
-        ContextItem::Delete => delete_confirm(state),
-        ContextItem::Tags => open_picker(state),
     }
 }
 
@@ -1514,10 +1710,15 @@ fn mouse(state: &mut AppState, kind: MouseKind, x: u16, y: u16, ctrl: bool) -> V
                     let (c, r) = grid_dims(state);
                     state.browser.clamp_scroll_grid(c, r);
                     if let Some(view) = state.browser.focused() {
-                        let target_path = view.entry.path.clone();
+                        // Bulk semantics arrive with hover/retarget work;
+                        // the captured target already decouples the menu
+                        // from browser.targets().
+                        let target = ContextTarget::Single {
+                            path: view.entry.path.clone(),
+                        };
                         state.mode = Mode::ContextMenu(Box::new(ContextMenuState {
-                            target: target_path,
-                            items: ContextItem::all(),
+                            items: ContextItem::menu_for(&target, !state.clipboard.is_empty()),
+                            target,
                             selected: 0,
                             x,
                             y,
@@ -1641,11 +1842,11 @@ fn mouse(state: &mut AppState, kind: MouseKind, x: u16, y: u16, ctrl: bool) -> V
             _ => Vec::new(),
         },
         HitTarget::MediaSeekBack => match kind {
-            MouseKind::Left => reduce(state, Action::MediaSeek(-5)),
+            MouseKind::Left => reduce(state, Action::MediaSeek(-15)),
             _ => Vec::new(),
         },
         HitTarget::MediaSeekForward => match kind {
-            MouseKind::Left => reduce(state, Action::MediaSeek(5)),
+            MouseKind::Left => reduce(state, Action::MediaSeek(15)),
             _ => Vec::new(),
         },
         HitTarget::MediaVolumeDown => match kind {
@@ -1662,6 +1863,21 @@ fn mouse(state: &mut AppState, kind: MouseKind, x: u16, y: u16, ctrl: bool) -> V
         },
         HitTarget::MediaClose => match kind {
             MouseKind::Left => reduce(state, Action::MediaClose),
+            _ => Vec::new(),
+        },
+        HitTarget::MediaSeekRail => {
+            // Rail press/drag/commit wiring lands with the slider state
+            // machine; the geometry helper ships with the widget layer.
+            let _ = kind;
+            Vec::new()
+        }
+
+        HitTarget::MediaFullscreen => match kind {
+            MouseKind::Left => reduce(state, Action::MediaToggleFullscreen),
+            _ => Vec::new(),
+        },
+        HitTarget::MediaNext => match kind {
+            MouseKind::Left => reduce(state, Action::MediaNext),
             _ => Vec::new(),
         },
         HitTarget::Details => Vec::new(),

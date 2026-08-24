@@ -89,11 +89,13 @@ pub fn map_key(key: KeyEvent, state: &AppState) -> Option<Action> {
         },
         Mode::Media(_) => match key.code {
             KeyCode::Enter | KeyCode::Char(' ') => Some(Action::MediaTogglePause),
-            KeyCode::Left | KeyCode::Char('h') => Some(Action::MediaSeek(-5)),
-            KeyCode::Right | KeyCode::Char('l') => Some(Action::MediaSeek(5)),
+            KeyCode::Left | KeyCode::Char('h') => Some(Action::MediaSeek(-15)),
+            KeyCode::Right | KeyCode::Char('l') => Some(Action::MediaSeek(15)),
             KeyCode::Up | KeyCode::Char('+') => Some(Action::MediaVolume(5)),
             KeyCode::Down | KeyCode::Char('-') => Some(Action::MediaVolume(-5)),
             KeyCode::Char('s') => Some(Action::MediaStop),
+            KeyCode::Char('f') => Some(Action::MediaToggleFullscreen),
+            KeyCode::Char('n') => Some(Action::MediaNext),
             KeyCode::Esc | KeyCode::Char('q') => Some(Action::MediaClose),
             _ => None,
         },
@@ -306,11 +308,11 @@ mod tests {
         ));
         assert!(matches!(
             map_key(key(KeyCode::Left), &state),
-            Some(Action::MediaSeek(-5))
+            Some(Action::MediaSeek(-15))
         ));
         assert!(matches!(
             map_key(key(KeyCode::Right), &state),
-            Some(Action::MediaSeek(5))
+            Some(Action::MediaSeek(15))
         ));
         assert!(matches!(
             map_key(key(KeyCode::Up), &state),
@@ -327,6 +329,14 @@ mod tests {
         assert!(matches!(
             map_key(key(KeyCode::Esc), &state),
             Some(Action::MediaClose)
+        ));
+        assert!(matches!(
+            map_key(key(KeyCode::Char('f')), &state),
+            Some(Action::MediaToggleFullscreen)
+        ));
+        assert!(matches!(
+            map_key(key(KeyCode::Char('n')), &state),
+            Some(Action::MediaNext)
         ));
     }
 }
