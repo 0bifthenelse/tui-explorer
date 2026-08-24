@@ -5,8 +5,9 @@ use crate::app::action::{Action, ConflictDecision, DirectorySnapshot, MouseKind}
 use crate::app::effects::Effect;
 use crate::app::state::{
     AppState, BookmarkNavState, ConfirmAction, ConfirmState, ConflictState, ContextItem,
-    ContextMenuState, DragPhase, DragState, MediaState, Mode, OpenWithState, OperationState,
-    Password, PasswordPurpose, PasswordState, PreviewContent, StatusMessage, TagPickerState,
+    ContextMenuState, DragPhase, DragState, MarqueePhase, MarqueeState, MediaState, Mode,
+    OpenWithState, OperationState, Password, PasswordPurpose, PasswordState, PreviewContent,
+    StatusMessage, TagPickerState,
 };
 use crate::browser::SortMode;
 use crate::crypto::CryptoKind;
@@ -322,6 +323,7 @@ fn reduce_inner(state: &mut AppState, action: Action) -> Vec<Effect> {
         } => {
             if let Mode::Media(media) = &mut state.mode
                 && media.session == session
+                && !matches!(media.phase, MediaPhase::Stopping | MediaPhase::Error)
             {
                 media.phase = phase;
                 media.position = position.max(0.0);
@@ -543,7 +545,7 @@ fn reduce_inner(state: &mut AppState, action: Action) -> Vec<Effect> {
             }
             Vec::new()
         }
-        Action::Mouse { kind, x, y } => mouse(state, kind, x, y),
+        Action::Mouse { kind, x, y, ctrl } => mouse(state, kind, x, y, ctrl),
         Action::Resize { width, height } => {
             state.width = width;
             state.height = height;
@@ -604,7 +606,7 @@ fn reduce_inner(state: &mut AppState, action: Action) -> Vec<Effect> {
             Vec::new()
         }
         Action::DragCancel => {
-            state.drag = None;
+            cancel_drag(state);
             Vec::new()
         }
         Action::TagsApplied { message, last_tag } => {
@@ -743,6 +745,7 @@ fn refresh_bookmark_matches(state: &mut AppState) {
 
 fn navigate(state: &mut AppState, dir: PathBuf) -> Vec<Effect> {
     state.pending_nav = Some(state.browser.cwd.clone());
+    cancel_drag(state);
     // A filename search is scoped to one directory, matching desktop file
     // managers: changing location should not hide unrelated entries.
     state.browser.set_filter(None);
@@ -1305,7 +1308,7 @@ fn context_apply(state: &mut AppState, item: ContextItem) -> Vec<Effect> {
 }
 
 fn cancel(state: &mut AppState) -> Vec<Effect> {
-    state.drag = None;
+    cancel_drag(state);
     match &state.mode {
         Mode::Media(_) => return close_media(state, AfterStop::Close),
         Mode::Command
@@ -1337,6 +1340,8 @@ fn directory_loaded(
 ) -> Vec<Effect> {
     match result {
         Ok(snapshot) => {
+            // A fresh listing invalidates any in-flight band geometry.
+            cancel_drag(state);
             if snapshot.path == state.browser.cwd {
                 state.browser.set_entries(snapshot.entries);
             }
@@ -1397,7 +1402,7 @@ fn operation_finished(state: &mut AppState, report: OperationReport) -> Vec<Effe
     effects
 }
 
-fn mouse(state: &mut AppState, kind: MouseKind, x: u16, y: u16) -> Vec<Effect> {
+fn mouse(state: &mut AppState, kind: MouseKind, x: u16, y: u16, ctrl: bool) -> Vec<Effect> {
     // Drag-and-drop intercepts left-button motion and release before the
     // ordinary click handling; the click path stays untouched below.
     if let Some(drag) = state.drag.clone() {
@@ -1409,10 +1414,69 @@ fn mouse(state: &mut AppState, kind: MouseKind, x: u16, y: u16) -> Vec<Effect> {
         // through to the normal click path.
         state.drag = None;
     }
+    // An armed marquee owns pointer motion and release until it finishes;
+    // what lies under the pointer is irrelevant while the band is live.
+    if let Some(mut marquee) = state.marquee.take() {
+        match kind {
+            MouseKind::LeftDrag | MouseKind::Moved => {
+                let dx = x.abs_diff(marquee.origin.0);
+                let dy = y.abs_diff(marquee.origin.1);
+                if marquee.phase == MarqueePhase::Armed
+                    && dx <= DRAG_THRESHOLD_CELLS
+                    && dy <= DRAG_THRESHOLD_CELLS
+                {
+                    marquee.current = (x, y);
+                    state.marquee = Some(marquee);
+                    return Vec::new();
+                }
+                marquee.phase = MarqueePhase::Selecting;
+                marquee.current = (x, y);
+                apply_marquee(state, &marquee);
+                state.marquee = Some(marquee);
+                return Vec::new();
+            }
+            MouseKind::LeftUp => {
+                let selecting = marquee.phase == MarqueePhase::Selecting
+                    || x.abs_diff(marquee.origin.0) > DRAG_THRESHOLD_CELLS
+                    || y.abs_diff(marquee.origin.1) > DRAG_THRESHOLD_CELLS;
+                if selecting {
+                    marquee.phase = MarqueePhase::Selecting;
+                    marquee.current = (x, y);
+                    apply_marquee(state, &marquee);
+                } else if matches!(state.mode, Mode::Browser) {
+                    // Simple background click without a real drag: clear the
+                    // selection, like any desktop file explorer.
+                    state.browser.clear_selection();
+                }
+                return Vec::new();
+            }
+            // A fresh press cancels the gesture and falls through to normal
+            // click handling (which may arm a new marquee at the new origin).
+            MouseKind::Left => {}
+            // Right click and scrolling during a live band are ignored.
+            _ => return Vec::new(),
+        }
+    }
     let Some(target) = state.hit_map.hit(x, y) else {
         return Vec::new();
     };
     match target {
+        HitTarget::GridBackground => match kind {
+            MouseKind::Left => {
+                // Only browser mode arms gestures; overlays register their
+                // own blockers above this region anyway.
+                if matches!(state.mode, Mode::Browser) {
+                    let base = if ctrl {
+                        state.browser.selected_paths_set().clone()
+                    } else {
+                        std::collections::BTreeSet::new()
+                    };
+                    state.marquee = Some(MarqueeState::armed((x, y), base));
+                }
+                Vec::new()
+            }
+            _ => Vec::new(),
+        },
         HitTarget::Row(pos) => match kind {
             MouseKind::Left => {
                 if !matches!(state.mode, Mode::Browser) {
@@ -1470,7 +1534,7 @@ fn mouse(state: &mut AppState, kind: MouseKind, x: u16, y: u16) -> Vec<Effect> {
                 let (c, r) = grid_dims(s);
                 s.browser.grid_move(c as isize, c, r);
             }),
-            MouseKind::LeftUp | MouseKind::LeftDrag => Vec::new(),
+            MouseKind::LeftUp | MouseKind::LeftDrag | MouseKind::Moved => Vec::new(),
         },
         HitTarget::Sidebar(idx) => match kind {
             MouseKind::Left => {
@@ -1499,6 +1563,23 @@ fn mouse(state: &mut AppState, kind: MouseKind, x: u16, y: u16) -> Vec<Effect> {
             MouseKind::Left => open_picker(state),
             _ => Vec::new(),
         },
+        HitTarget::ContextItem(idx) => match kind {
+            MouseKind::Moved => {
+                // Pointer hover previews the entry: selection follows the
+                // pointer, but a hover never executes the command.
+                if let Mode::ContextMenu(menu) = &mut state.mode {
+                    menu.selected = idx;
+                }
+                Vec::new()
+            }
+            MouseKind::Left => {
+                if let Mode::ContextMenu(menu) = &mut state.mode {
+                    menu.selected = idx;
+                }
+                reduce(state, Action::ContextChoose)
+            }
+            _ => Vec::new(),
+        },
         HitTarget::ModalConfirm => match kind {
             MouseKind::Left => {
                 if matches!(state.mode, Mode::Password(_)) {
@@ -1511,6 +1592,7 @@ fn mouse(state: &mut AppState, kind: MouseKind, x: u16, y: u16) -> Vec<Effect> {
             }
             _ => Vec::new(),
         },
+
         HitTarget::ModalCancel => match kind {
             MouseKind::Left => {
                 if matches!(state.mode, Mode::OpenWith(_)) {
@@ -1552,15 +1634,6 @@ fn mouse(state: &mut AppState, kind: MouseKind, x: u16, y: u16) -> Vec<Effect> {
         },
         HitTarget::PickerClose => match kind {
             MouseKind::Left => cancel(state),
-            _ => Vec::new(),
-        },
-        HitTarget::ContextItem(idx) => match kind {
-            MouseKind::Left => {
-                if let Mode::ContextMenu(menu) = &mut state.mode {
-                    menu.selected = idx;
-                }
-                reduce(state, Action::ContextChoose)
-            }
             _ => Vec::new(),
         },
         HitTarget::MediaTogglePause => match kind {
@@ -1697,9 +1770,28 @@ fn handle_drag_motion(
     }
 }
 
-/// Cancels any in-flight drag on mode changes, resize, refresh, or Esc.
+/// Clears any in-flight pointer gestures (file drag or background marquee)
+/// on mode changes, resize, refresh, navigation, or Esc.
 pub fn cancel_drag(state: &mut AppState) {
     state.drag = None;
+    state.marquee = None;
+}
+
+/// Replaces the selection with every visible tile intersecting the marquee
+/// band, unioned with the additive base captured at press time.
+fn apply_marquee(state: &mut AppState, marquee: &MarqueeState) {
+    if !matches!(state.mode, Mode::Browser) {
+        return;
+    }
+    let rect = marquee.rect();
+    let indices = state.browser.visible_indices();
+    let mut selected = marquee.base.clone();
+    for pos in state.hit_map.rows_intersecting(rect) {
+        if let Some(&entry_index) = indices.get(pos) {
+            selected.insert(state.browser.entries[entry_index].entry.path.clone());
+        }
+    }
+    state.browser.set_selection(selected);
 }
 
 fn start_drag_move(state: &mut AppState, mut sources: Vec<PathBuf>, dest: PathBuf) -> Vec<Effect> {

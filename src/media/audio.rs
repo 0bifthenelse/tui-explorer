@@ -117,6 +117,13 @@ impl SymphoniaSource {
             }
         }
     }
+
+    /// Total decoded duration when the container reports frame counts.
+    /// Captured once by the media supervisor; the sink remains the sole
+    /// playback-position authority.
+    pub fn total_duration(&self) -> Option<Duration> {
+        self.total_duration
+    }
 }
 
 impl Iterator for SymphoniaSource {

@@ -7,6 +7,9 @@ use std::time::Duration;
 /// One mpv child plus its persistent IPC connection. Owns the process handle,
 /// a newline-framed JSON reader/writer over one nonblocking UnixStream, and
 /// bounded stderr capture. Cleanup is idempotent and unlink-safe.
+///
+/// The Kitty video output writes every graphics frame to stdout, so the
+/// child must inherit the terminal's stdout (see `spawn`).
 pub struct MpvProcess {
     child: Child,
     socket_path: PathBuf,
@@ -16,10 +19,24 @@ pub struct MpvProcess {
     next_request_id: u64,
 }
 
+#[derive(Clone, Debug)]
+pub struct PropertyChange {
+    pub name: String,
+    pub value: serde_json::Value,
+}
+
 /// A decoded line from mpv: either a reply to a request or an event.
+/// Property-change events carry the observed property name and value;
+/// other events keep only their name.
 pub enum IpcMessage {
-    Reply { request_id: u64, error: String },
-    Event { name: String },
+    Reply {
+        request_id: u64,
+        error: String,
+    },
+    Event {
+        name: String,
+        property: Option<PropertyChange>,
+    },
     Other(serde_json::Value),
 }
 
@@ -39,10 +56,13 @@ impl MpvProcess {
         prepare_socket_dir(&socket_path)?;
         let _ = std::fs::remove_file(&socket_path);
 
-        let left_px = u32::from(geometry_cells.0) * u32::from(cell_pixels.0);
-        let top_px = u32::from(geometry_cells.1) * u32::from(cell_pixels.1);
+        // vo-kitty unit contract (mpv manual): cols/rows are the surface
+        // size in CELLS, width/height the available area in PIXELS, and
+        // left/top the image origin in CELLS (1 = first column/row).
         let width_px = u32::from(size_cells.0) * u32::from(cell_pixels.0);
         let height_px = u32::from(size_cells.1) * u32::from(cell_pixels.1);
+        let left_cells = u32::from(geometry_cells.0).saturating_add(1);
+        let top_cells = u32::from(geometry_cells.1).saturating_add(1);
 
         let mut command = Command::new("mpv");
         command
@@ -57,17 +77,19 @@ impl MpvProcess {
             .arg("--vo-kitty-alt-screen=no")
             .arg("--vo-kitty-config-clear=no")
             .arg("--vo-kitty-use-shm=no")
-            .arg("--vo-kitty-auto-multiplexer-passthrough=yes")
             .arg(format!("--vo-kitty-cols={}", size_cells.0))
             .arg(format!("--vo-kitty-rows={}", size_cells.1))
-            .arg(format!("--vo-kitty-left={left_px}"))
-            .arg(format!("--vo-kitty-top={top_px}"))
+            .arg(format!("--vo-kitty-left={left_cells}"))
+            .arg(format!("--vo-kitty-top={top_cells}"))
             .arg(format!("--vo-kitty-width={width_px}"))
             .arg(format!("--vo-kitty-height={height_px}"))
             .arg(format!("--input-ipc-server={}", socket_path.display()))
             .arg(path)
             .stdin(Stdio::null())
-            .stdout(Stdio::null())
+            // The Kitty video output paints through stdout; discarding it
+            // would leave audio-only playback. stderr stays piped for
+            // bounded diagnostics, stdin is unused.
+            .stdout(Stdio::inherit())
             .stderr(Stdio::piped());
 
         #[cfg(unix)]
@@ -101,7 +123,11 @@ impl MpvProcess {
             }
             if let Ok(Some(status)) = child.try_wait() {
                 let _ = std::fs::remove_file(&socket_path);
-                return Err(format!("mpv exited during startup ({status})"));
+                let detail = stderr_tail_string(stderr_thread.join().unwrap_or_default());
+                return Err(match detail {
+                    Some(tail) => format!("mpv exited during startup ({status}): {tail}"),
+                    None => format!("mpv exited during startup ({status})"),
+                });
             }
             std::thread::sleep(Duration::from_millis(20));
         }
@@ -127,10 +153,12 @@ impl MpvProcess {
         self.child.id()
     }
 
-    /// Sends one minified JSON command with a fresh request id.
+    /// Sends one minified JSON command with a fresh request id. Arguments
+    /// keep their JSON types: mpv's IPC rejects strings where an argument
+    /// is declared numeric (e.g. the observe_property observer id).
     pub fn send_command(
         &mut self,
-        command: &[&str],
+        command: &[serde_json::Value],
         extra: Option<serde_json::Value>,
     ) -> Result<u64, String> {
         let request_id = self.next_request_id;
@@ -152,27 +180,22 @@ impl MpvProcess {
         Ok(request_id)
     }
 
-    pub async fn send_command_blocking(&mut self, command: &[&str]) -> Result<(), String> {
-        let request_id = self.send_command(command, None)?;
-        // Poll for the matching reply without blocking the runtime.
-        for _ in 0..250 {
-            while let Some(message) = self.poll_message()? {
-                if let IpcMessage::Reply {
-                    request_id: id,
-                    error,
-                } = message
-                {
-                    if id == request_id {
-                        if error == "success" {
-                            return Ok(());
-                        }
-                        return Err(format!("mpv command failed: {error}"));
-                    }
-                }
-            }
-            tokio_sleep(Duration::from_millis(10)).await;
-        }
-        Err("mpv command timed out".to_string())
+    /// True once the child has exited. `stderr_tail` must only be called
+    /// after this returns true: the capture thread blocks on the pipe, which
+    /// closes when the process dies.
+    pub fn has_exited(&mut self) -> bool {
+        self.child
+            .try_wait()
+            .map(|status| status.is_some())
+            .unwrap_or(true)
+    }
+
+    /// Joins the bounded stderr capture and returns its trimmed tail. The
+    /// capture handle is consumed; later calls (including from `shutdown`)
+    /// see no capture at all.
+    pub fn stderr_tail(&mut self) -> Option<String> {
+        let buffer = self.stderr.take()?.join().unwrap_or_default();
+        stderr_tail_string(buffer)
     }
 
     /// Reads any buffered IPC messages; returns None when no complete line
@@ -199,7 +222,7 @@ impl MpvProcess {
     /// Graceful shutdown: quit command, wait up to one second, then kill.
     /// The socket file is always unlinked.
     pub fn shutdown(&mut self) {
-        let _ = self.send_command(&["quit"], None);
+        let _ = self.send_command(&[serde_json::Value::from("quit")], None);
         let deadline = std::time::Instant::now() + Duration::from_secs(1);
         loop {
             match self.child.try_wait() {
@@ -214,6 +237,7 @@ impl MpvProcess {
             let _ = stderr.join();
         }
         let _ = std::fs::remove_file(&self.socket_path);
+        tracing::info!(pid = self.child.id(), "mpv shutdown complete");
     }
 }
 
@@ -226,7 +250,23 @@ impl Drop for MpvProcess {
 fn decode_message(value: serde_json::Value) -> IpcMessage {
     if value.get("event").is_some() && value.get("request_id").is_none() {
         let name = value["event"].as_str().unwrap_or_default().to_string();
-        return IpcMessage::Event { name };
+        let property = if name == "property-change" {
+            value
+                .get("name")
+                .and_then(|name| name.as_str())
+                .map(|name| PropertyChange {
+                    name: name.to_string(),
+                    // Missing or null data stays Null; consumers decide how
+                    // to degrade (e.g. duration unavailable).
+                    value: value
+                        .get("data")
+                        .cloned()
+                        .unwrap_or(serde_json::Value::Null),
+                })
+        } else {
+            None
+        };
+        return IpcMessage::Event { name, property };
     }
     if let Some(id) = value.get("request_id").and_then(|id| id.as_u64()) {
         let error = value
@@ -242,16 +282,34 @@ fn decode_message(value: serde_json::Value) -> IpcMessage {
     IpcMessage::Other(value)
 }
 
+/// Trims the bounded stderr capture down to a reportable one-line tail.
+/// Returns None when nothing was captured.
+fn stderr_tail_string(buffer: Vec<u8>) -> Option<String> {
+    let text = String::from_utf8_lossy(&buffer);
+    let tail: String = text
+        .lines()
+        .rev()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .take(2)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect::<Vec<_>>()
+        .join("; ");
+    if tail.is_empty() {
+        None
+    } else {
+        Some(tail.chars().take(300).collect())
+    }
+}
+
 fn merge_object(target: &mut serde_json::Value, extra: serde_json::Value) {
     if let (Some(target), Some(source)) = (target.as_object_mut(), extra.as_object()) {
         for (key, value) in source {
             target.insert(key.clone(), value.clone());
         }
     }
-}
-
-async fn tokio_sleep(duration: Duration) {
-    std::thread::sleep(duration);
 }
 
 /// `$XDG_RUNTIME_DIR/tui-explorer/mpv-{pid}-{session}.sock`, or

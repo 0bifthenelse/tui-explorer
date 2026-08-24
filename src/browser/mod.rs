@@ -354,6 +354,16 @@ impl Browser {
         self.visual = false;
     }
 
+    /// Replaces the selected path set wholesale (marquee selection). The
+    /// only sanctioned bulk mutation point besides select_all/invert.
+    pub fn set_selection<I>(&mut self, paths: I)
+    where
+        I: IntoIterator<Item = PathBuf>,
+    {
+        self.selection = paths.into_iter().collect();
+        self.visual = false;
+    }
+
     pub fn targets(&self) -> Vec<PathBuf> {
         if !self.selection.is_empty() {
             return self.selection.iter().cloned().collect();

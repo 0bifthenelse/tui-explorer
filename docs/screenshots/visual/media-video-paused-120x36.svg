@@ -1,0 +1,270 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="576" viewBox="0 0 960 576">
+<rect width="960" height="576" fill="#1a1b26"/>
+<rect x="0" y="0" width="152" height="16" fill="#292c32"/>
+<rect x="152" y="0" width="232" height="16" fill="#292c32"/>
+<rect x="384" y="0" width="192" height="16" fill="#292c32"/>
+<rect x="576" y="0" width="248" height="16" fill="#292c32"/>
+<rect x="824" y="0" width="128" height="16" fill="#292c32"/>
+<rect x="952" y="0" width="8" height="16" fill="#292c32"/>
+<rect x="0" y="16" width="56" height="16" fill="#22252c"/>
+<rect x="56" y="16" width="8" height="16" fill="#22252c"/>
+<rect x="64" y="16" width="24" height="16" fill="#22252c"/>
+<rect x="88" y="16" width="24" height="16" fill="#22252c"/>
+<rect x="112" y="16" width="48" height="16" fill="#22252c"/>
+<rect x="160" y="16" width="24" height="16" fill="#22252c"/>
+<rect x="184" y="16" width="48" height="16" fill="#22252c"/>
+<rect x="232" y="16" width="16" height="16" fill="#22252c"/>
+<rect x="248" y="16" width="712" height="16" fill="#22252c"/>
+<rect x="0" y="32" width="184" height="16" fill="#292c32"/>
+<rect x="184" y="32" width="8" height="16" fill="#292c32"/>
+<rect x="192" y="32" width="216" height="16" fill="#1c1f26"/>
+<rect x="408" y="32" width="16" height="16" fill="#1c1f26"/>
+<rect x="424" y="32" width="128" height="16" fill="#1c1f26"/>
+<rect x="552" y="32" width="408" height="16" fill="#1c1f26"/>
+<rect x="0" y="48" width="176" height="16" fill="#292c32"/>
+<rect x="176" y="48" width="8" height="16" fill="#292c32"/>
+<rect x="184" y="48" width="8" height="16" fill="#292c32"/>
+<rect x="192" y="48" width="8" height="16" fill="#22252c"/>
+<rect x="200" y="48" width="96" height="16" fill="#22252c"/>
+<rect x="296" y="48" width="16" height="16" fill="#22252c"/>
+<rect x="312" y="48" width="96" height="16" fill="#22252c"/>
+<rect x="408" y="48" width="16" height="16" fill="#22252c"/>
+<rect x="424" y="48" width="96" height="16" fill="#22252c"/>
+<rect x="520" y="48" width="16" height="16" fill="#22252c"/>
+<rect x="536" y="48" width="96" height="16" fill="#22252c"/>
+<rect x="632" y="48" width="16" height="16" fill="#22252c"/>
+<rect x="648" y="48" width="96" height="16" fill="#22252c"/>
+<rect x="744" y="48" width="16" height="16" fill="#22252c"/>
+<rect x="760" y="48" width="96" height="16" fill="#22252c"/>
+<rect x="856" y="48" width="8" height="16" fill="#22252c"/>
+<rect x="864" y="48" width="96" height="16" fill="#22252c"/>
+<rect x="0" y="64" width="184" height="16" fill="#292c32"/>
+<rect x="184" y="64" width="8" height="16" fill="#292c32"/>
+<rect x="192" y="64" width="8" height="16" fill="#22252c"/>
+<rect x="200" y="64" width="96" height="16" fill="#22252c"/>
+<rect x="296" y="64" width="16" height="16" fill="#22252c"/>
+<rect x="312" y="64" width="96" height="16" fill="#22252c"/>
+<rect x="408" y="64" width="16" height="16" fill="#22252c"/>
+<rect x="424" y="64" width="96" height="16" fill="#22252c"/>
+<rect x="520" y="64" width="16" height="16" fill="#22252c"/>
+<rect x="536" y="64" width="96" height="16" fill="#22252c"/>
+<rect x="632" y="64" width="16" height="16" fill="#22252c"/>
+<rect x="648" y="64" width="96" height="16" fill="#22252c"/>
+<rect x="744" y="64" width="16" height="16" fill="#22252c"/>
+<rect x="760" y="64" width="96" height="16" fill="#22252c"/>
+<rect x="856" y="64" width="8" height="16" fill="#22252c"/>
+<rect x="864" y="64" width="96" height="16" fill="#22252c"/>
+<rect x="0" y="80" width="144" height="16" fill="#292c32"/>
+<rect x="144" y="80" width="40" height="16" fill="#292c32"/>
+<rect x="184" y="80" width="8" height="16" fill="#292c32"/>
+<rect x="192" y="80" width="8" height="16" fill="#22252c"/>
+<rect x="200" y="80" width="96" height="16" fill="#22252c"/>
+<rect x="296" y="80" width="16" height="16" fill="#22252c"/>
+<rect x="312" y="80" width="96" height="16" fill="#22252c"/>
+<rect x="408" y="80" width="16" height="16" fill="#22252c"/>
+<rect x="424" y="80" width="96" height="16" fill="#22252c"/>
+<rect x="520" y="80" width="16" height="16" fill="#22252c"/>
+<rect x="536" y="80" width="96" height="16" fill="#22252c"/>
+<rect x="632" y="80" width="16" height="16" fill="#22252c"/>
+<rect x="648" y="80" width="96" height="16" fill="#22252c"/>
+<rect x="744" y="80" width="16" height="16" fill="#22252c"/>
+<rect x="760" y="80" width="96" height="16" fill="#22252c"/>
+<rect x="856" y="80" width="8" height="16" fill="#22252c"/>
+<rect x="864" y="80" width="96" height="16" fill="#22252c"/>
+<rect x="0" y="96" width="184" height="16" fill="#292c32"/>
+<rect x="184" y="96" width="8" height="16" fill="#292c32"/>
+<rect x="192" y="96" width="8" height="16" fill="#22252c"/>
+<rect x="200" y="96" width="96" height="16" fill="#22252c"/>
+<rect x="296" y="96" width="16" height="16" fill="#22252c"/>
+<rect x="312" y="96" width="96" height="16" fill="#22252c"/>
+<rect x="408" y="96" width="16" height="16" fill="#22252c"/>
+<rect x="424" y="96" width="96" height="16" fill="#22252c"/>
+<rect x="520" y="96" width="16" height="16" fill="#22252c"/>
+<rect x="536" y="96" width="96" height="16" fill="#22252c"/>
+<rect x="632" y="96" width="16" height="16" fill="#22252c"/>
+<rect x="648" y="96" width="96" height="16" fill="#22252c"/>
+<rect x="744" y="96" width="16" height="16" fill="#22252c"/>
+<rect x="760" y="96" width="96" height="16" fill="#22252c"/>
+<rect x="856" y="96" width="8" height="16" fill="#22252c"/>
+<rect x="864" y="96" width="96" height="16" fill="#22252c"/>
+<rect x="0" y="112" width="96" height="16" fill="#292c32"/>
+<rect x="96" y="112" width="8" height="16" fill="#31343b"/>
+<rect x="104" y="112" width="56" height="16" fill="#31343b"/>
+<rect x="160" y="112" width="704" height="16" fill="#31343b"/>
+<rect x="864" y="112" width="96" height="16" fill="#22252c"/>
+<rect x="0" y="128" width="96" height="16" fill="#292c32"/>
+<rect x="96" y="128" width="8" height="16" fill="#31343b"/>
+<rect x="104" y="128" width="64" height="16" fill="#31343b"/>
+<rect x="168" y="128" width="688" height="16" fill="#31343b"/>
+<rect x="856" y="128" width="8" height="16" fill="#31343b"/>
+<rect x="864" y="128" width="96" height="16" fill="#22252c"/>
+<rect x="0" y="144" width="96" height="16" fill="#292c32"/>
+<rect x="96" y="144" width="8" height="16" fill="#31343b"/>
+<rect x="104" y="144" width="48" height="16" fill="#31343b"/>
+<rect x="152" y="144" width="704" height="16" fill="#31343b"/>
+<rect x="856" y="144" width="8" height="16" fill="#31343b"/>
+<rect x="864" y="144" width="96" height="16" fill="#22252c"/>
+<rect x="0" y="160" width="96" height="16" fill="#292c32"/>
+<rect x="96" y="160" width="8" height="16" fill="#31343b"/>
+<rect x="104" y="160" width="192" height="16" fill="#31343b"/>
+<rect x="296" y="160" width="560" height="16" fill="#31343b"/>
+<rect x="856" y="160" width="8" height="16" fill="#31343b"/>
+<rect x="864" y="160" width="96" height="16" fill="#22252c"/>
+<rect x="0" y="176" width="96" height="16" fill="#292c32"/>
+<rect x="96" y="176" width="8" height="16" fill="#31343b"/>
+<rect x="104" y="176" width="136" height="16" fill="#31343b"/>
+<rect x="240" y="176" width="616" height="16" fill="#31343b"/>
+<rect x="856" y="176" width="8" height="16" fill="#31343b"/>
+<rect x="864" y="176" width="96" height="16" fill="#22252c"/>
+<rect x="0" y="192" width="96" height="16" fill="#292c32"/>
+<rect x="96" y="192" width="8" height="16" fill="#31343b"/>
+<rect x="104" y="192" width="752" height="16" fill="#31343b"/>
+<rect x="856" y="192" width="8" height="16" fill="#31343b"/>
+<rect x="864" y="192" width="96" height="16" fill="#22252c"/>
+<rect x="0" y="208" width="96" height="16" fill="#292c32"/>
+<rect x="96" y="208" width="8" height="16" fill="#31343b"/>
+<rect x="104" y="208" width="752" height="16" fill="#31343b"/>
+<rect x="856" y="208" width="8" height="16" fill="#31343b"/>
+<rect x="864" y="208" width="96" height="16" fill="#22252c"/>
+<rect x="0" y="224" width="96" height="16" fill="#292c32"/>
+<rect x="96" y="224" width="8" height="16" fill="#31343b"/>
+<rect x="104" y="224" width="752" height="16" fill="#31343b"/>
+<rect x="856" y="224" width="8" height="16" fill="#31343b"/>
+<rect x="864" y="224" width="96" height="16" fill="#22252c"/>
+<rect x="0" y="240" width="96" height="16" fill="#292c32"/>
+<rect x="96" y="240" width="8" height="16" fill="#31343b"/>
+<rect x="104" y="240" width="752" height="16" fill="#31343b"/>
+<rect x="856" y="240" width="8" height="16" fill="#31343b"/>
+<rect x="864" y="240" width="96" height="16" fill="#22252c"/>
+<rect x="0" y="256" width="96" height="16" fill="#292c32"/>
+<rect x="96" y="256" width="8" height="16" fill="#31343b"/>
+<rect x="104" y="256" width="752" height="16" fill="#31343b"/>
+<rect x="856" y="256" width="8" height="16" fill="#31343b"/>
+<rect x="864" y="256" width="96" height="16" fill="#22252c"/>
+<rect x="0" y="272" width="96" height="16" fill="#292c32"/>
+<rect x="96" y="272" width="8" height="16" fill="#31343b"/>
+<rect x="104" y="272" width="752" height="16" fill="#31343b"/>
+<rect x="856" y="272" width="8" height="16" fill="#31343b"/>
+<rect x="864" y="272" width="96" height="16" fill="#22252c"/>
+<rect x="0" y="288" width="96" height="16" fill="#292c32"/>
+<rect x="96" y="288" width="8" height="16" fill="#31343b"/>
+<rect x="104" y="288" width="752" height="16" fill="#31343b"/>
+<rect x="856" y="288" width="8" height="16" fill="#31343b"/>
+<rect x="864" y="288" width="96" height="16" fill="#22252c"/>
+<rect x="0" y="304" width="96" height="16" fill="#292c32"/>
+<rect x="96" y="304" width="8" height="16" fill="#31343b"/>
+<rect x="104" y="304" width="752" height="16" fill="#31343b"/>
+<rect x="856" y="304" width="8" height="16" fill="#31343b"/>
+<rect x="864" y="304" width="96" height="16" fill="#22252c"/>
+<rect x="0" y="320" width="96" height="16" fill="#292c32"/>
+<rect x="96" y="320" width="8" height="16" fill="#31343b"/>
+<rect x="104" y="320" width="752" height="16" fill="#31343b"/>
+<rect x="856" y="320" width="8" height="16" fill="#31343b"/>
+<rect x="864" y="320" width="96" height="16" fill="#22252c"/>
+<rect x="0" y="336" width="96" height="16" fill="#292c32"/>
+<rect x="96" y="336" width="8" height="16" fill="#31343b"/>
+<rect x="104" y="336" width="752" height="16" fill="#31343b"/>
+<rect x="856" y="336" width="8" height="16" fill="#31343b"/>
+<rect x="864" y="336" width="96" height="16" fill="#22252c"/>
+<rect x="0" y="352" width="96" height="16" fill="#292c32"/>
+<rect x="96" y="352" width="8" height="16" fill="#31343b"/>
+<rect x="104" y="352" width="752" height="16" fill="#31343b"/>
+<rect x="856" y="352" width="8" height="16" fill="#31343b"/>
+<rect x="864" y="352" width="96" height="16" fill="#22252c"/>
+<rect x="0" y="368" width="96" height="16" fill="#292c32"/>
+<rect x="96" y="368" width="8" height="16" fill="#31343b"/>
+<rect x="104" y="368" width="752" height="16" fill="#31343b"/>
+<rect x="856" y="368" width="8" height="16" fill="#31343b"/>
+<rect x="864" y="368" width="96" height="16" fill="#22252c"/>
+<rect x="0" y="384" width="96" height="16" fill="#292c32"/>
+<rect x="96" y="384" width="8" height="16" fill="#31343b"/>
+<rect x="104" y="384" width="752" height="16" fill="#31343b"/>
+<rect x="856" y="384" width="8" height="16" fill="#31343b"/>
+<rect x="864" y="384" width="96" height="16" fill="#22252c"/>
+<rect x="0" y="400" width="96" height="16" fill="#292c32"/>
+<rect x="96" y="400" width="8" height="16" fill="#31343b"/>
+<rect x="104" y="400" width="752" height="16" fill="#31343b"/>
+<rect x="856" y="400" width="8" height="16" fill="#31343b"/>
+<rect x="864" y="400" width="96" height="16" fill="#22252c"/>
+<rect x="0" y="416" width="96" height="16" fill="#292c32"/>
+<rect x="96" y="416" width="8" height="16" fill="#31343b"/>
+<rect x="104" y="416" width="752" height="16" fill="#31343b"/>
+<rect x="856" y="416" width="8" height="16" fill="#31343b"/>
+<rect x="864" y="416" width="96" height="16" fill="#22252c"/>
+<rect x="0" y="432" width="96" height="16" fill="#292c32"/>
+<rect x="96" y="432" width="8" height="16" fill="#31343b"/>
+<rect x="104" y="432" width="32" height="16" fill="#31343b"/>
+<rect x="136" y="432" width="8" height="16" fill="#31343b"/>
+<rect x="144" y="432" width="48" height="16" fill="#31343b"/>
+<rect x="192" y="432" width="8" height="16" fill="#31343b"/>
+<rect x="200" y="432" width="32" height="16" fill="#31343b"/>
+<rect x="232" y="432" width="8" height="16" fill="#31343b"/>
+<rect x="240" y="432" width="32" height="16" fill="#31343b"/>
+<rect x="272" y="432" width="8" height="16" fill="#31343b"/>
+<rect x="280" y="432" width="32" height="16" fill="#31343b"/>
+<rect x="312" y="432" width="8" height="16" fill="#31343b"/>
+<rect x="320" y="432" width="48" height="16" fill="#31343b"/>
+<rect x="368" y="432" width="8" height="16" fill="#31343b"/>
+<rect x="376" y="432" width="24" height="16" fill="#31343b"/>
+<rect x="400" y="432" width="456" height="16" fill="#31343b"/>
+<rect x="856" y="432" width="8" height="16" fill="#31343b"/>
+<rect x="864" y="432" width="96" height="16" fill="#22252c"/>
+<rect x="0" y="448" width="96" height="16" fill="#292c32"/>
+<rect x="96" y="448" width="768" height="16" fill="#31343b"/>
+<rect x="864" y="448" width="96" height="16" fill="#22252c"/>
+<rect x="0" y="464" width="184" height="16" fill="#292c32"/>
+<rect x="184" y="464" width="8" height="16" fill="#292c32"/>
+<rect x="192" y="464" width="768" height="16" fill="#22252c"/>
+<rect x="0" y="480" width="184" height="16" fill="#292c32"/>
+<rect x="184" y="480" width="8" height="16" fill="#292c32"/>
+<rect x="192" y="480" width="768" height="16" fill="#22252c"/>
+<rect x="0" y="496" width="184" height="16" fill="#292c32"/>
+<rect x="184" y="496" width="8" height="16" fill="#292c32"/>
+<rect x="192" y="496" width="768" height="16" fill="#22252c"/>
+<rect x="0" y="512" width="184" height="16" fill="#292c32"/>
+<rect x="184" y="512" width="8" height="16" fill="#292c32"/>
+<rect x="192" y="512" width="768" height="16" fill="#22252c"/>
+<rect x="0" y="528" width="184" height="16" fill="#292c32"/>
+<rect x="184" y="528" width="8" height="16" fill="#292c32"/>
+<rect x="192" y="528" width="768" height="16" fill="#22252c"/>
+<rect x="0" y="544" width="56" height="16" fill="#1c1f26"/>
+<rect x="56" y="544" width="816" height="16" fill="#292c32"/>
+<rect x="872" y="544" width="80" height="16" fill="#292c32"/>
+<rect x="952" y="544" width="8" height="16" fill="#292c32"/>
+<rect x="0" y="560" width="960" height="16" fill="#1c1f26"/>
+<text x="0" y="12" font-family="monospace" font-size="14" xml:space="preserve"><tspan x="8" fill="#eef1f6">t</tspan><tspan x="16" fill="#eef1f6">u</tspan><tspan x="24" fill="#eef1f6">i</tspan><tspan x="32" fill="#eef1f6">-</tspan><tspan x="40" fill="#eef1f6">e</tspan><tspan x="48" fill="#eef1f6">x</tspan><tspan x="56" fill="#eef1f6">p</tspan><tspan x="64" fill="#eef1f6">l</tspan><tspan x="72" fill="#eef1f6">o</tspan><tspan x="80" fill="#eef1f6">r</tspan><tspan x="88" fill="#eef1f6">e</tspan><tspan x="96" fill="#eef1f6">r</tspan><tspan x="112" fill="#eef1f6">0</tspan><tspan x="120" fill="#eef1f6">.</tspan><tspan x="128" fill="#eef1f6">1</tspan><tspan x="136" fill="#eef1f6">.</tspan><tspan x="144" fill="#eef1f6">0</tspan><tspan x="384" fill="#7b7e84">t</tspan><tspan x="392" fill="#7b7e84">u</tspan><tspan x="400" fill="#7b7e84">i</tspan><tspan x="408" fill="#7b7e84">-</tspan><tspan x="416" fill="#7b7e84">e</tspan><tspan x="424" fill="#7b7e84">x</tspan><tspan x="432" fill="#7b7e84">p</tspan><tspan x="440" fill="#7b7e84">l</tspan><tspan x="448" fill="#7b7e84">o</tspan><tspan x="456" fill="#7b7e84">r</tspan><tspan x="464" fill="#7b7e84">e</tspan><tspan x="472" fill="#7b7e84">r</tspan><tspan x="488" fill="#7b7e84">i</tspan><tspan x="496" fill="#7b7e84">s</tspan><tspan x="512" fill="#7b7e84">a</tspan><tspan x="520" fill="#7b7e84">w</tspan><tspan x="528" fill="#7b7e84">e</tspan><tspan x="536" fill="#7b7e84">s</tspan><tspan x="544" fill="#7b7e84">o</tspan><tspan x="552" fill="#7b7e84">m</tspan><tspan x="560" fill="#7b7e84">e</tspan><tspan x="568" fill="#7b7e84">!</tspan><tspan x="824" fill="#ff9d5c">P</tspan><tspan x="832" fill="#ff9d5c">r</tspan><tspan x="840" fill="#ff9d5c">e</tspan><tspan x="848" fill="#ff9d5c">s</tspan><tspan x="856" fill="#ff9d5c">s</tspan><tspan x="872" fill="#ff9d5c">?</tspan><tspan x="888" fill="#ff9d5c">f</tspan><tspan x="896" fill="#ff9d5c">o</tspan><tspan x="904" fill="#ff9d5c">r</tspan><tspan x="920" fill="#ff9d5c">h</tspan><tspan x="928" fill="#ff9d5c">e</tspan><tspan x="936" fill="#ff9d5c">l</tspan><tspan x="944" fill="#ff9d5c">p</tspan></text>
+<text x="0" y="28" font-family="monospace" font-size="14" xml:space="preserve"><tspan x="8" fill="#afb2b8">P</tspan><tspan x="16" fill="#afb2b8">a</tspan><tspan x="24" fill="#afb2b8">t</tspan><tspan x="32" fill="#afb2b8">h</tspan><tspan x="40" fill="#afb2b8">:</tspan><tspan x="56" fill="#7b7e84">[</tspan><tspan x="72" fill="#afb2b8">/</tspan><tspan x="88" fill="#7b7e84">]</tspan><tspan x="96" fill="#7b7e84">&gt;</tspan><tspan x="104" fill="#7b7e84">[</tspan><tspan x="120" fill="#afb2b8">h</tspan><tspan x="128" fill="#afb2b8">o</tspan><tspan x="136" fill="#afb2b8">m</tspan><tspan x="144" fill="#afb2b8">e</tspan><tspan x="160" fill="#7b7e84">]</tspan><tspan x="168" fill="#7b7e84">&gt;</tspan><tspan x="176" fill="#7b7e84">[</tspan><tspan x="192" fill="#ff9d5c">d</tspan><tspan x="200" fill="#ff9d5c">e</tspan><tspan x="208" fill="#ff9d5c">m</tspan><tspan x="216" fill="#ff9d5c">o</tspan><tspan x="232" fill="#7b7e84">]</tspan></text>
+<text x="0" y="44" font-family="monospace" font-size="14" xml:space="preserve"><tspan x="0" fill="#7b7e84">P</tspan><tspan x="8" fill="#7b7e84">L</tspan><tspan x="16" fill="#7b7e84">A</tspan><tspan x="24" fill="#7b7e84">C</tspan><tspan x="32" fill="#7b7e84">E</tspan><tspan x="40" fill="#7b7e84">S</tspan><tspan x="56" fill="#7b7e84">-</tspan><tspan x="64" fill="#7b7e84">-</tspan><tspan x="72" fill="#7b7e84">-</tspan><tspan x="80" fill="#7b7e84">-</tspan><tspan x="88" fill="#7b7e84">-</tspan><tspan x="96" fill="#7b7e84">-</tspan><tspan x="104" fill="#7b7e84">-</tspan><tspan x="112" fill="#7b7e84">-</tspan><tspan x="120" fill="#7b7e84">-</tspan><tspan x="128" fill="#7b7e84">-</tspan><tspan x="136" fill="#7b7e84">-</tspan><tspan x="144" fill="#7b7e84">-</tspan><tspan x="152" fill="#7b7e84">-</tspan><tspan x="160" fill="#7b7e84">-</tspan><tspan x="168" fill="#7b7e84">-</tspan><tspan x="176" fill="#7b7e84">-</tspan><tspan x="184" fill="#3e4147">|</tspan><tspan x="192" fill="#afb2b8">1</tspan><tspan x="200" fill="#afb2b8">8</tspan><tspan x="216" fill="#afb2b8">i</tspan><tspan x="224" fill="#afb2b8">t</tspan><tspan x="232" fill="#afb2b8">e</tspan><tspan x="240" fill="#afb2b8">m</tspan><tspan x="248" fill="#afb2b8">s</tspan><tspan x="264" fill="#afb2b8">(</tspan><tspan x="272" fill="#afb2b8">2</tspan><tspan x="288" fill="#afb2b8">d</tspan><tspan x="296" fill="#afb2b8">i</tspan><tspan x="304" fill="#afb2b8">r</tspan><tspan x="312" fill="#afb2b8">s</tspan><tspan x="320" fill="#afb2b8">,</tspan><tspan x="336" fill="#afb2b8">1</tspan><tspan x="344" fill="#afb2b8">6</tspan><tspan x="360" fill="#afb2b8">f</tspan><tspan x="368" fill="#afb2b8">i</tspan><tspan x="376" fill="#afb2b8">l</tspan><tspan x="384" fill="#afb2b8">e</tspan><tspan x="392" fill="#afb2b8">s</tspan><tspan x="400" fill="#afb2b8">)</tspan><tspan x="424" fill="#7b7e84">S</tspan><tspan x="432" fill="#7b7e84">o</tspan><tspan x="440" fill="#7b7e84">r</tspan><tspan x="448" fill="#7b7e84">t</tspan><tspan x="456" fill="#7b7e84">:</tspan><tspan x="472" fill="#7b7e84">n</tspan><tspan x="480" fill="#7b7e84">a</tspan><tspan x="488" fill="#7b7e84">m</tspan><tspan x="496" fill="#7b7e84">e</tspan><tspan x="512" fill="#7b7e84">(</tspan><tspan x="520" fill="#7b7e84">a</tspan><tspan x="528" fill="#7b7e84">s</tspan><tspan x="536" fill="#7b7e84">c</tspan><tspan x="544" fill="#7b7e84">)</tspan></text>
+<text x="0" y="60" font-family="monospace" font-size="14" xml:space="preserve"><tspan x="8" fill="#afb2b8">R</tspan><tspan x="16" fill="#afb2b8">o</tspan><tspan x="24" fill="#afb2b8">o</tspan><tspan x="32" fill="#afb2b8">t</tspan><tspan x="184" fill="#3e4147">|</tspan><tspan x="192" fill="#3e4147">|</tspan><tspan x="224" fill="#eef1f6">_</tspan><tspan x="232" fill="#eef1f6">_</tspan><tspan x="240" fill="#eef1f6">_</tspan><tspan x="248" fill="#eef1f6">_</tspan><tspan x="256" fill="#eef1f6">_</tspan><tspan x="264" fill="#eef1f6">_</tspan><tspan x="296" fill="#3e4147">|</tspan><tspan x="304" fill="#3e4147">|</tspan><tspan x="336" fill="#eef1f6">_</tspan><tspan x="344" fill="#eef1f6">_</tspan><tspan x="352" fill="#eef1f6">_</tspan><tspan x="360" fill="#eef1f6">_</tspan><tspan x="368" fill="#eef1f6">_</tspan><tspan x="376" fill="#eef1f6">_</tspan><tspan x="408" fill="#3e4147">|</tspan><tspan x="416" fill="#3e4147">|</tspan><tspan x="432" fill="#eef1f6">.</tspan><tspan x="440" fill="#eef1f6">-</tspan><tspan x="448" fill="#eef1f6">-</tspan><tspan x="456" fill="#eef1f6">-</tspan><tspan x="464" fill="#eef1f6">-</tspan><tspan x="472" fill="#eef1f6">-</tspan><tspan x="480" fill="#eef1f6">-</tspan><tspan x="488" fill="#eef1f6">-</tspan><tspan x="496" fill="#eef1f6">-</tspan><tspan x="504" fill="#eef1f6">.</tspan><tspan x="520" fill="#3e4147">|</tspan><tspan x="528" fill="#3e4147">|</tspan><tspan x="544" fill="#eef1f6">.</tspan><tspan x="552" fill="#eef1f6">-</tspan><tspan x="560" fill="#eef1f6">-</tspan><tspan x="568" fill="#eef1f6">-</tspan><tspan x="576" fill="#eef1f6">-</tspan><tspan x="584" fill="#eef1f6">-</tspan><tspan x="592" fill="#eef1f6">-</tspan><tspan x="600" fill="#eef1f6">-</tspan><tspan x="608" fill="#eef1f6">-</tspan><tspan x="616" fill="#eef1f6">.</tspan><tspan x="632" fill="#3e4147">|</tspan><tspan x="640" fill="#3e4147">|</tspan><tspan x="656" fill="#eef1f6">.</tspan><tspan x="664" fill="#eef1f6">-</tspan><tspan x="672" fill="#eef1f6">-</tspan><tspan x="680" fill="#eef1f6">-</tspan><tspan x="688" fill="#eef1f6">-</tspan><tspan x="696" fill="#eef1f6">-</tspan><tspan x="704" fill="#eef1f6">-</tspan><tspan x="712" fill="#eef1f6">-</tspan><tspan x="720" fill="#eef1f6">-</tspan><tspan x="728" fill="#eef1f6">.</tspan><tspan x="744" fill="#3e4147">|</tspan><tspan x="752" fill="#3e4147">|</tspan><tspan x="768" fill="#eef1f6">.</tspan><tspan x="776" fill="#eef1f6">-</tspan><tspan x="784" fill="#eef1f6">-</tspan><tspan x="792" fill="#eef1f6">-</tspan><tspan x="800" fill="#eef1f6">-</tspan><tspan x="808" fill="#eef1f6">-</tspan><tspan x="816" fill="#eef1f6">-</tspan><tspan x="824" fill="#eef1f6">-</tspan><tspan x="832" fill="#eef1f6">-</tspan><tspan x="840" fill="#eef1f6">.</tspan><tspan x="856" fill="#3e4147">|</tspan></text>
+<text x="0" y="76" font-family="monospace" font-size="14" xml:space="preserve"><tspan x="0" fill="#7b7e84">M</tspan><tspan x="8" fill="#7b7e84">O</tspan><tspan x="16" fill="#7b7e84">U</tspan><tspan x="24" fill="#7b7e84">N</tspan><tspan x="32" fill="#7b7e84">T</tspan><tspan x="40" fill="#7b7e84">S</tspan><tspan x="56" fill="#7b7e84">-</tspan><tspan x="64" fill="#7b7e84">-</tspan><tspan x="72" fill="#7b7e84">-</tspan><tspan x="80" fill="#7b7e84">-</tspan><tspan x="88" fill="#7b7e84">-</tspan><tspan x="96" fill="#7b7e84">-</tspan><tspan x="104" fill="#7b7e84">-</tspan><tspan x="112" fill="#7b7e84">-</tspan><tspan x="120" fill="#7b7e84">-</tspan><tspan x="128" fill="#7b7e84">-</tspan><tspan x="136" fill="#7b7e84">-</tspan><tspan x="144" fill="#7b7e84">-</tspan><tspan x="152" fill="#7b7e84">-</tspan><tspan x="160" fill="#7b7e84">-</tspan><tspan x="168" fill="#7b7e84">-</tspan><tspan x="176" fill="#7b7e84">-</tspan><tspan x="184" fill="#3e4147">|</tspan><tspan x="192" fill="#3e4147">|</tspan><tspan x="216" fill="#eef1f6">/</tspan><tspan x="224" fill="#eef1f6">_</tspan><tspan x="232" fill="#eef1f6">_</tspan><tspan x="240" fill="#eef1f6">_</tspan><tspan x="248" fill="#eef1f6">_</tspan><tspan x="256" fill="#eef1f6">_</tspan><tspan x="264" fill="#eef1f6">_</tspan><tspan x="272" fill="#eef1f6">/</tspan><tspan x="280" fill="#eef1f6">_</tspan><tspan x="296" fill="#3e4147">|</tspan><tspan x="304" fill="#3e4147">|</tspan><tspan x="328" fill="#eef1f6">/</tspan><tspan x="336" fill="#eef1f6">_</tspan><tspan x="344" fill="#eef1f6">_</tspan><tspan x="352" fill="#eef1f6">_</tspan><tspan x="360" fill="#eef1f6">_</tspan><tspan x="368" fill="#eef1f6">_</tspan><tspan x="376" fill="#eef1f6">_</tspan><tspan x="384" fill="#eef1f6">/</tspan><tspan x="392" fill="#eef1f6">_</tspan><tspan x="408" fill="#3e4147">|</tspan><tspan x="416" fill="#3e4147">|</tspan><tspan x="432" fill="#eef1f6">|</tspan><tspan x="448" fill="#eef1f6">.</tspan><tspan x="456" fill="#eef1f6">-</tspan><tspan x="464" fill="#eef1f6">-</tspan><tspan x="472" fill="#eef1f6">'</tspan><tspan x="504" fill="#eef1f6">|</tspan><tspan x="520" fill="#3e4147">|</tspan><tspan x="528" fill="#3e4147">|</tspan><tspan x="544" fill="#eef1f6">|</tspan><tspan x="560" fill="#eef1f6">.</tspan><tspan x="568" fill="#eef1f6">-</tspan><tspan x="576" fill="#eef1f6">-</tspan><tspan x="584" fill="#eef1f6">'</tspan><tspan x="616" fill="#eef1f6">|</tspan><tspan x="632" fill="#3e4147">|</tspan><tspan x="640" fill="#3e4147">|</tspan><tspan x="656" fill="#eef1f6">|</tspan><tspan x="672" fill="#eef1f6">.</tspan><tspan x="680" fill="#eef1f6">-</tspan><tspan x="688" fill="#eef1f6">-</tspan><tspan x="696" fill="#eef1f6">'</tspan><tspan x="728" fill="#eef1f6">|</tspan><tspan x="744" fill="#3e4147">|</tspan><tspan x="752" fill="#3e4147">|</tspan><tspan x="768" fill="#eef1f6">|</tspan><tspan x="784" fill="#eef1f6">.</tspan><tspan x="792" fill="#eef1f6">-</tspan><tspan x="800" fill="#eef1f6">-</tspan><tspan x="808" fill="#eef1f6">'</tspan><tspan x="840" fill="#eef1f6">|</tspan><tspan x="856" fill="#3e4147">|</tspan></text>
+<text x="0" y="92" font-family="monospace" font-size="14" xml:space="preserve"><tspan x="0" fill="#7b7e84">(</tspan><tspan x="8" fill="#7b7e84">n</tspan><tspan x="16" fill="#7b7e84">o</tspan><tspan x="32" fill="#7b7e84">d</tspan><tspan x="40" fill="#7b7e84">e</tspan><tspan x="48" fill="#7b7e84">v</tspan><tspan x="56" fill="#7b7e84">i</tspan><tspan x="64" fill="#7b7e84">c</tspan><tspan x="72" fill="#7b7e84">e</tspan><tspan x="88" fill="#7b7e84">m</tspan><tspan x="96" fill="#7b7e84">o</tspan><tspan x="104" fill="#7b7e84">u</tspan><tspan x="112" fill="#7b7e84">n</tspan><tspan x="120" fill="#7b7e84">t</tspan><tspan x="128" fill="#7b7e84">s</tspan><tspan x="136" fill="#7b7e84">)</tspan><tspan x="184" fill="#3e4147">|</tspan><tspan x="192" fill="#3e4147">|</tspan><tspan x="208" fill="#eef1f6">|</tspan><tspan x="280" fill="#eef1f6">|</tspan><tspan x="296" fill="#3e4147">|</tspan><tspan x="304" fill="#3e4147">|</tspan><tspan x="320" fill="#eef1f6">|</tspan><tspan x="392" fill="#eef1f6">|</tspan><tspan x="408" fill="#3e4147">|</tspan><tspan x="416" fill="#3e4147">|</tspan><tspan x="432" fill="#eef1f6">|</tspan><tspan x="448" fill="#eef1f6">T</tspan><tspan x="456" fill="#eef1f6">X</tspan><tspan x="464" fill="#eef1f6">T</tspan><tspan x="504" fill="#eef1f6">|</tspan><tspan x="520" fill="#3e4147">|</tspan><tspan x="528" fill="#3e4147">|</tspan><tspan x="544" fill="#eef1f6">|</tspan><tspan x="560" fill="#eef1f6">T</tspan><tspan x="568" fill="#eef1f6">S</tspan><tspan x="576" fill="#eef1f6">X</tspan><tspan x="616" fill="#eef1f6">|</tspan><tspan x="632" fill="#3e4147">|</tspan><tspan x="640" fill="#3e4147">|</tspan><tspan x="656" fill="#eef1f6">|</tspan><tspan x="672" fill="#eef1f6">G</tspan><tspan x="680" fill="#eef1f6">Z</tspan><tspan x="728" fill="#eef1f6">|</tspan><tspan x="744" fill="#3e4147">|</tspan><tspan x="752" fill="#3e4147">|</tspan><tspan x="768" fill="#eef1f6">|</tspan><tspan x="784" fill="#eef1f6">S</tspan><tspan x="792" fill="#eef1f6">H</tspan><tspan x="840" fill="#eef1f6">|</tspan><tspan x="856" fill="#3e4147">|</tspan></text>
+<text x="0" y="108" font-family="monospace" font-size="14" xml:space="preserve"><tspan x="0" fill="#7b7e84">T</tspan><tspan x="8" fill="#7b7e84">A</tspan><tspan x="16" fill="#7b7e84">G</tspan><tspan x="24" fill="#7b7e84">S</tspan><tspan x="40" fill="#7b7e84">-</tspan><tspan x="48" fill="#7b7e84">-</tspan><tspan x="56" fill="#7b7e84">-</tspan><tspan x="64" fill="#7b7e84">-</tspan><tspan x="72" fill="#7b7e84">-</tspan><tspan x="80" fill="#7b7e84">-</tspan><tspan x="88" fill="#7b7e84">-</tspan><tspan x="96" fill="#7b7e84">-</tspan><tspan x="104" fill="#7b7e84">-</tspan><tspan x="112" fill="#7b7e84">-</tspan><tspan x="120" fill="#7b7e84">-</tspan><tspan x="128" fill="#7b7e84">-</tspan><tspan x="136" fill="#7b7e84">-</tspan><tspan x="144" fill="#7b7e84">-</tspan><tspan x="152" fill="#7b7e84">-</tspan><tspan x="160" fill="#7b7e84">-</tspan><tspan x="168" fill="#7b7e84">-</tspan><tspan x="176" fill="#7b7e84">-</tspan><tspan x="184" fill="#3e4147">|</tspan><tspan x="192" fill="#3e4147">|</tspan><tspan x="208" fill="#eef1f6">|</tspan><tspan x="280" fill="#eef1f6">|</tspan><tspan x="296" fill="#3e4147">|</tspan><tspan x="304" fill="#3e4147">|</tspan><tspan x="320" fill="#eef1f6">|</tspan><tspan x="392" fill="#eef1f6">|</tspan><tspan x="408" fill="#3e4147">|</tspan><tspan x="416" fill="#3e4147">|</tspan><tspan x="432" fill="#eef1f6">|</tspan><tspan x="448" fill="#eef1f6">-</tspan><tspan x="456" fill="#eef1f6">-</tspan><tspan x="464" fill="#eef1f6">-</tspan><tspan x="472" fill="#eef1f6">-</tspan><tspan x="480" fill="#eef1f6">-</tspan><tspan x="488" fill="#eef1f6">-</tspan><tspan x="504" fill="#eef1f6">|</tspan><tspan x="520" fill="#3e4147">|</tspan><tspan x="528" fill="#3e4147">|</tspan><tspan x="544" fill="#eef1f6">|</tspan><tspan x="560" fill="#eef1f6">-</tspan><tspan x="568" fill="#eef1f6">-</tspan><tspan x="576" fill="#eef1f6">-</tspan><tspan x="584" fill="#eef1f6">-</tspan><tspan x="592" fill="#eef1f6">-</tspan><tspan x="600" fill="#eef1f6">-</tspan><tspan x="616" fill="#eef1f6">|</tspan><tspan x="632" fill="#3e4147">|</tspan><tspan x="640" fill="#3e4147">|</tspan><tspan x="656" fill="#eef1f6">|</tspan><tspan x="672" fill="#eef1f6">-</tspan><tspan x="680" fill="#eef1f6">-</tspan><tspan x="688" fill="#eef1f6">-</tspan><tspan x="696" fill="#eef1f6">-</tspan><tspan x="704" fill="#eef1f6">-</tspan><tspan x="712" fill="#eef1f6">-</tspan><tspan x="728" fill="#eef1f6">|</tspan><tspan x="744" fill="#3e4147">|</tspan><tspan x="752" fill="#3e4147">|</tspan><tspan x="768" fill="#eef1f6">|</tspan><tspan x="784" fill="#eef1f6">-</tspan><tspan x="792" fill="#eef1f6">-</tspan><tspan x="800" fill="#eef1f6">-</tspan><tspan x="808" fill="#eef1f6">-</tspan><tspan x="816" fill="#eef1f6">-</tspan><tspan x="824" fill="#eef1f6">-</tspan><tspan x="840" fill="#eef1f6">|</tspan><tspan x="856" fill="#3e4147">|</tspan></text>
+<text x="0" y="124" font-family="monospace" font-size="14" xml:space="preserve"><tspan x="0" fill="#7b7e84">(</tspan><tspan x="8" fill="#7b7e84">n</tspan><tspan x="16" fill="#7b7e84">o</tspan><tspan x="32" fill="#7b7e84">t</tspan><tspan x="40" fill="#7b7e84">a</tspan><tspan x="48" fill="#7b7e84">g</tspan><tspan x="56" fill="#7b7e84">s</tspan><tspan x="72" fill="#7b7e84">y</tspan><tspan x="80" fill="#7b7e84">e</tspan><tspan x="88" fill="#7b7e84">t</tspan><tspan x="96" fill="#575a60">+</tspan><tspan x="112" fill="#ff7d27">V</tspan><tspan x="120" fill="#ff7d27">I</tspan><tspan x="128" fill="#ff7d27">D</tspan><tspan x="136" fill="#ff7d27">E</tspan><tspan x="144" fill="#ff7d27">O</tspan><tspan x="160" fill="#575a60">-</tspan><tspan x="168" fill="#575a60">-</tspan><tspan x="176" fill="#575a60">-</tspan><tspan x="184" fill="#575a60">-</tspan><tspan x="192" fill="#575a60">-</tspan><tspan x="200" fill="#575a60">-</tspan><tspan x="208" fill="#575a60">-</tspan><tspan x="216" fill="#575a60">-</tspan><tspan x="224" fill="#575a60">-</tspan><tspan x="232" fill="#575a60">-</tspan><tspan x="240" fill="#575a60">-</tspan><tspan x="248" fill="#575a60">-</tspan><tspan x="256" fill="#575a60">-</tspan><tspan x="264" fill="#575a60">-</tspan><tspan x="272" fill="#575a60">-</tspan><tspan x="280" fill="#575a60">-</tspan><tspan x="288" fill="#575a60">-</tspan><tspan x="296" fill="#575a60">-</tspan><tspan x="304" fill="#575a60">-</tspan><tspan x="312" fill="#575a60">-</tspan><tspan x="320" fill="#575a60">-</tspan><tspan x="328" fill="#575a60">-</tspan><tspan x="336" fill="#575a60">-</tspan><tspan x="344" fill="#575a60">-</tspan><tspan x="352" fill="#575a60">-</tspan><tspan x="360" fill="#575a60">-</tspan><tspan x="368" fill="#575a60">-</tspan><tspan x="376" fill="#575a60">-</tspan><tspan x="384" fill="#575a60">-</tspan><tspan x="392" fill="#575a60">-</tspan><tspan x="400" fill="#575a60">-</tspan><tspan x="408" fill="#575a60">-</tspan><tspan x="416" fill="#575a60">-</tspan><tspan x="424" fill="#575a60">-</tspan><tspan x="432" fill="#575a60">-</tspan><tspan x="440" fill="#575a60">-</tspan><tspan x="448" fill="#575a60">-</tspan><tspan x="456" fill="#575a60">-</tspan><tspan x="464" fill="#575a60">-</tspan><tspan x="472" fill="#575a60">-</tspan><tspan x="480" fill="#575a60">-</tspan><tspan x="488" fill="#575a60">-</tspan><tspan x="496" fill="#575a60">-</tspan><tspan x="504" fill="#575a60">-</tspan><tspan x="512" fill="#575a60">-</tspan><tspan x="520" fill="#575a60">-</tspan><tspan x="528" fill="#575a60">-</tspan><tspan x="536" fill="#575a60">-</tspan><tspan x="544" fill="#575a60">-</tspan><tspan x="552" fill="#575a60">-</tspan><tspan x="560" fill="#575a60">-</tspan><tspan x="568" fill="#575a60">-</tspan><tspan x="576" fill="#575a60">-</tspan><tspan x="584" fill="#575a60">-</tspan><tspan x="592" fill="#575a60">-</tspan><tspan x="600" fill="#575a60">-</tspan><tspan x="608" fill="#575a60">-</tspan><tspan x="616" fill="#575a60">-</tspan><tspan x="624" fill="#575a60">-</tspan><tspan x="632" fill="#575a60">-</tspan><tspan x="640" fill="#575a60">-</tspan><tspan x="648" fill="#575a60">-</tspan><tspan x="656" fill="#575a60">-</tspan><tspan x="664" fill="#575a60">-</tspan><tspan x="672" fill="#575a60">-</tspan><tspan x="680" fill="#575a60">-</tspan><tspan x="688" fill="#575a60">-</tspan><tspan x="696" fill="#575a60">-</tspan><tspan x="704" fill="#575a60">-</tspan><tspan x="712" fill="#575a60">-</tspan><tspan x="720" fill="#575a60">-</tspan><tspan x="728" fill="#575a60">-</tspan><tspan x="736" fill="#575a60">-</tspan><tspan x="744" fill="#575a60">-</tspan><tspan x="752" fill="#575a60">-</tspan><tspan x="760" fill="#575a60">-</tspan><tspan x="768" fill="#575a60">-</tspan><tspan x="776" fill="#575a60">-</tspan><tspan x="784" fill="#575a60">-</tspan><tspan x="792" fill="#575a60">-</tspan><tspan x="800" fill="#575a60">-</tspan><tspan x="808" fill="#575a60">-</tspan><tspan x="816" fill="#575a60">-</tspan><tspan x="824" fill="#575a60">-</tspan><tspan x="832" fill="#575a60">-</tspan><tspan x="840" fill="#575a60">-</tspan><tspan x="848" fill="#575a60">-</tspan><tspan x="856" fill="#575a60">+</tspan></text>
+<text x="0" y="140" font-family="monospace" font-size="14" xml:space="preserve"><tspan x="0" fill="#7b7e84">B</tspan><tspan x="8" fill="#7b7e84">O</tspan><tspan x="16" fill="#7b7e84">O</tspan><tspan x="24" fill="#7b7e84">K</tspan><tspan x="32" fill="#7b7e84">M</tspan><tspan x="40" fill="#7b7e84">A</tspan><tspan x="48" fill="#7b7e84">R</tspan><tspan x="56" fill="#7b7e84">K</tspan><tspan x="64" fill="#7b7e84">S</tspan><tspan x="80" fill="#7b7e84">-</tspan><tspan x="88" fill="#7b7e84">-</tspan><tspan x="96" fill="#575a60">|</tspan><tspan x="104" fill="#eef1f6">c</tspan><tspan x="112" fill="#eef1f6">l</tspan><tspan x="120" fill="#eef1f6">i</tspan><tspan x="128" fill="#eef1f6">p</tspan><tspan x="136" fill="#eef1f6">.</tspan><tspan x="144" fill="#eef1f6">m</tspan><tspan x="152" fill="#eef1f6">k</tspan><tspan x="160" fill="#eef1f6">v</tspan><tspan x="856" fill="#575a60">|</tspan></text>
+<text x="0" y="156" font-family="monospace" font-size="14" xml:space="preserve"><tspan x="0" fill="#7b7e84">(</tspan><tspan x="8" fill="#7b7e84">C</tspan><tspan x="16" fill="#7b7e84">t</tspan><tspan x="24" fill="#7b7e84">r</tspan><tspan x="32" fill="#7b7e84">l</tspan><tspan x="40" fill="#7b7e84">-</tspan><tspan x="48" fill="#7b7e84">b</tspan><tspan x="64" fill="#7b7e84">b</tspan><tspan x="72" fill="#7b7e84">o</tspan><tspan x="80" fill="#7b7e84">o</tspan><tspan x="88" fill="#7b7e84">k</tspan><tspan x="96" fill="#575a60">|</tspan><tspan x="104" fill="#afb2b8">P</tspan><tspan x="112" fill="#afb2b8">A</tspan><tspan x="120" fill="#afb2b8">U</tspan><tspan x="128" fill="#afb2b8">S</tspan><tspan x="136" fill="#afb2b8">E</tspan><tspan x="144" fill="#afb2b8">D</tspan><tspan x="856" fill="#575a60">|</tspan></text>
+<text x="0" y="172" font-family="monospace" font-size="14" xml:space="preserve"><tspan x="96" fill="#575a60">|</tspan><tspan x="104" fill="#afb2b8">0</tspan><tspan x="112" fill="#afb2b8">0</tspan><tspan x="120" fill="#afb2b8">:</tspan><tspan x="128" fill="#afb2b8">1</tspan><tspan x="136" fill="#afb2b8">7</tspan><tspan x="152" fill="#afb2b8">/</tspan><tspan x="168" fill="#afb2b8">0</tspan><tspan x="176" fill="#afb2b8">1</tspan><tspan x="184" fill="#afb2b8">:</tspan><tspan x="192" fill="#afb2b8">3</tspan><tspan x="200" fill="#afb2b8">6</tspan><tspan x="240" fill="#afb2b8">V</tspan><tspan x="248" fill="#afb2b8">O</tspan><tspan x="256" fill="#afb2b8">L</tspan><tspan x="272" fill="#afb2b8">8</tspan><tspan x="280" fill="#afb2b8">0</tspan><tspan x="288" fill="#afb2b8">%</tspan><tspan x="856" fill="#575a60">|</tspan></text>
+<text x="0" y="188" font-family="monospace" font-size="14" xml:space="preserve"><tspan x="96" fill="#575a60">|</tspan><tspan x="104" fill="#ff7d27">=</tspan><tspan x="112" fill="#ff7d27">=</tspan><tspan x="120" fill="#ff7d27">=</tspan><tspan x="128" fill="#ff7d27">=</tspan><tspan x="136" fill="#ff7d27">=</tspan><tspan x="144" fill="#ff7d27">=</tspan><tspan x="152" fill="#ff7d27">=</tspan><tspan x="160" fill="#ff7d27">=</tspan><tspan x="168" fill="#ff7d27">=</tspan><tspan x="176" fill="#ff7d27">=</tspan><tspan x="184" fill="#ff7d27">=</tspan><tspan x="192" fill="#ff7d27">=</tspan><tspan x="200" fill="#ff7d27">=</tspan><tspan x="208" fill="#ff7d27">=</tspan><tspan x="216" fill="#ff7d27">=</tspan><tspan x="224" fill="#ff7d27">=</tspan><tspan x="232" fill="#ff7d27">=</tspan><tspan x="240" fill="#3e4147">-</tspan><tspan x="248" fill="#3e4147">-</tspan><tspan x="256" fill="#3e4147">-</tspan><tspan x="264" fill="#3e4147">-</tspan><tspan x="272" fill="#3e4147">-</tspan><tspan x="280" fill="#3e4147">-</tspan><tspan x="288" fill="#3e4147">-</tspan><tspan x="296" fill="#3e4147">-</tspan><tspan x="304" fill="#3e4147">-</tspan><tspan x="312" fill="#3e4147">-</tspan><tspan x="320" fill="#3e4147">-</tspan><tspan x="328" fill="#3e4147">-</tspan><tspan x="336" fill="#3e4147">-</tspan><tspan x="344" fill="#3e4147">-</tspan><tspan x="352" fill="#3e4147">-</tspan><tspan x="360" fill="#3e4147">-</tspan><tspan x="368" fill="#3e4147">-</tspan><tspan x="376" fill="#3e4147">-</tspan><tspan x="384" fill="#3e4147">-</tspan><tspan x="392" fill="#3e4147">-</tspan><tspan x="400" fill="#3e4147">-</tspan><tspan x="408" fill="#3e4147">-</tspan><tspan x="416" fill="#3e4147">-</tspan><tspan x="424" fill="#3e4147">-</tspan><tspan x="432" fill="#3e4147">-</tspan><tspan x="440" fill="#3e4147">-</tspan><tspan x="448" fill="#3e4147">-</tspan><tspan x="456" fill="#3e4147">-</tspan><tspan x="464" fill="#3e4147">-</tspan><tspan x="472" fill="#3e4147">-</tspan><tspan x="480" fill="#3e4147">-</tspan><tspan x="488" fill="#3e4147">-</tspan><tspan x="496" fill="#3e4147">-</tspan><tspan x="504" fill="#3e4147">-</tspan><tspan x="512" fill="#3e4147">-</tspan><tspan x="520" fill="#3e4147">-</tspan><tspan x="528" fill="#3e4147">-</tspan><tspan x="536" fill="#3e4147">-</tspan><tspan x="544" fill="#3e4147">-</tspan><tspan x="552" fill="#3e4147">-</tspan><tspan x="560" fill="#3e4147">-</tspan><tspan x="568" fill="#3e4147">-</tspan><tspan x="576" fill="#3e4147">-</tspan><tspan x="584" fill="#3e4147">-</tspan><tspan x="592" fill="#3e4147">-</tspan><tspan x="600" fill="#3e4147">-</tspan><tspan x="608" fill="#3e4147">-</tspan><tspan x="616" fill="#3e4147">-</tspan><tspan x="624" fill="#3e4147">-</tspan><tspan x="632" fill="#3e4147">-</tspan><tspan x="640" fill="#3e4147">-</tspan><tspan x="648" fill="#3e4147">-</tspan><tspan x="656" fill="#3e4147">-</tspan><tspan x="664" fill="#3e4147">-</tspan><tspan x="672" fill="#3e4147">-</tspan><tspan x="680" fill="#3e4147">-</tspan><tspan x="688" fill="#3e4147">-</tspan><tspan x="696" fill="#3e4147">-</tspan><tspan x="704" fill="#3e4147">-</tspan><tspan x="712" fill="#3e4147">-</tspan><tspan x="720" fill="#3e4147">-</tspan><tspan x="728" fill="#3e4147">-</tspan><tspan x="736" fill="#3e4147">-</tspan><tspan x="744" fill="#3e4147">-</tspan><tspan x="752" fill="#3e4147">-</tspan><tspan x="760" fill="#3e4147">-</tspan><tspan x="768" fill="#3e4147">-</tspan><tspan x="776" fill="#3e4147">-</tspan><tspan x="784" fill="#3e4147">-</tspan><tspan x="792" fill="#3e4147">-</tspan><tspan x="800" fill="#3e4147">-</tspan><tspan x="808" fill="#3e4147">-</tspan><tspan x="816" fill="#3e4147">-</tspan><tspan x="824" fill="#3e4147">-</tspan><tspan x="832" fill="#3e4147">-</tspan><tspan x="840" fill="#3e4147">-</tspan><tspan x="848" fill="#3e4147">-</tspan><tspan x="856" fill="#575a60">|</tspan></text>
+<text x="0" y="204" font-family="monospace" font-size="14" xml:space="preserve"><tspan x="96" fill="#575a60">|</tspan><tspan x="856" fill="#575a60">|</tspan></text>
+<text x="0" y="220" font-family="monospace" font-size="14" xml:space="preserve"><tspan x="96" fill="#575a60">|</tspan><tspan x="856" fill="#575a60">|</tspan></text>
+<text x="0" y="236" font-family="monospace" font-size="14" xml:space="preserve"><tspan x="96" fill="#575a60">|</tspan><tspan x="856" fill="#575a60">|</tspan></text>
+<text x="0" y="252" font-family="monospace" font-size="14" xml:space="preserve"><tspan x="96" fill="#575a60">|</tspan><tspan x="856" fill="#575a60">|</tspan></text>
+<text x="0" y="268" font-family="monospace" font-size="14" xml:space="preserve"><tspan x="96" fill="#575a60">|</tspan><tspan x="856" fill="#575a60">|</tspan></text>
+<text x="0" y="284" font-family="monospace" font-size="14" xml:space="preserve"><tspan x="96" fill="#575a60">|</tspan><tspan x="856" fill="#575a60">|</tspan></text>
+<text x="0" y="300" font-family="monospace" font-size="14" xml:space="preserve"><tspan x="96" fill="#575a60">|</tspan><tspan x="856" fill="#575a60">|</tspan></text>
+<text x="0" y="316" font-family="monospace" font-size="14" xml:space="preserve"><tspan x="96" fill="#575a60">|</tspan><tspan x="856" fill="#575a60">|</tspan></text>
+<text x="0" y="332" font-family="monospace" font-size="14" xml:space="preserve"><tspan x="96" fill="#575a60">|</tspan><tspan x="856" fill="#575a60">|</tspan></text>
+<text x="0" y="348" font-family="monospace" font-size="14" xml:space="preserve"><tspan x="96" fill="#575a60">|</tspan><tspan x="856" fill="#575a60">|</tspan></text>
+<text x="0" y="364" font-family="monospace" font-size="14" xml:space="preserve"><tspan x="96" fill="#575a60">|</tspan><tspan x="856" fill="#575a60">|</tspan></text>
+<text x="0" y="380" font-family="monospace" font-size="14" xml:space="preserve"><tspan x="96" fill="#575a60">|</tspan><tspan x="856" fill="#575a60">|</tspan></text>
+<text x="0" y="396" font-family="monospace" font-size="14" xml:space="preserve"><tspan x="96" fill="#575a60">|</tspan><tspan x="856" fill="#575a60">|</tspan></text>
+<text x="0" y="412" font-family="monospace" font-size="14" xml:space="preserve"><tspan x="96" fill="#575a60">|</tspan><tspan x="856" fill="#575a60">|</tspan></text>
+<text x="0" y="428" font-family="monospace" font-size="14" xml:space="preserve"><tspan x="96" fill="#575a60">|</tspan><tspan x="856" fill="#575a60">|</tspan></text>
+<text x="0" y="444" font-family="monospace" font-size="14" xml:space="preserve"><tspan x="96" fill="#575a60">|</tspan><tspan x="104" fill="#ff9d5c">[</tspan><tspan x="112" fill="#ff9d5c">-</tspan><tspan x="120" fill="#ff9d5c">5</tspan><tspan x="128" fill="#ff9d5c">]</tspan><tspan x="144" fill="#ff7d27">[</tspan><tspan x="152" fill="#ff7d27">P</tspan><tspan x="160" fill="#ff7d27">L</tspan><tspan x="168" fill="#ff7d27">A</tspan><tspan x="176" fill="#ff7d27">Y</tspan><tspan x="184" fill="#ff7d27">]</tspan><tspan x="200" fill="#ff9d5c">[</tspan><tspan x="208" fill="#ff9d5c">+</tspan><tspan x="216" fill="#ff9d5c">5</tspan><tspan x="224" fill="#ff9d5c">]</tspan><tspan x="240" fill="#ff9d5c">[</tspan><tspan x="248" fill="#ff9d5c">V</tspan><tspan x="256" fill="#ff9d5c">-</tspan><tspan x="264" fill="#ff9d5c">]</tspan><tspan x="280" fill="#ff9d5c">[</tspan><tspan x="288" fill="#ff9d5c">V</tspan><tspan x="296" fill="#ff9d5c">+</tspan><tspan x="304" fill="#ff9d5c">]</tspan><tspan x="320" fill="#ff9d5c">[</tspan><tspan x="328" fill="#ff9d5c">S</tspan><tspan x="336" fill="#ff9d5c">T</tspan><tspan x="344" fill="#ff9d5c">O</tspan><tspan x="352" fill="#ff9d5c">P</tspan><tspan x="360" fill="#ff9d5c">]</tspan><tspan x="376" fill="#ff9d5c">[</tspan><tspan x="384" fill="#ff9d5c">X</tspan><tspan x="392" fill="#ff9d5c">]</tspan><tspan x="856" fill="#575a60">|</tspan></text>
+<text x="0" y="460" font-family="monospace" font-size="14" xml:space="preserve"><tspan x="96" fill="#575a60">+</tspan><tspan x="104" fill="#575a60">-</tspan><tspan x="112" fill="#575a60">-</tspan><tspan x="120" fill="#575a60">-</tspan><tspan x="128" fill="#575a60">-</tspan><tspan x="136" fill="#575a60">-</tspan><tspan x="144" fill="#575a60">-</tspan><tspan x="152" fill="#575a60">-</tspan><tspan x="160" fill="#575a60">-</tspan><tspan x="168" fill="#575a60">-</tspan><tspan x="176" fill="#575a60">-</tspan><tspan x="184" fill="#575a60">-</tspan><tspan x="192" fill="#575a60">-</tspan><tspan x="200" fill="#575a60">-</tspan><tspan x="208" fill="#575a60">-</tspan><tspan x="216" fill="#575a60">-</tspan><tspan x="224" fill="#575a60">-</tspan><tspan x="232" fill="#575a60">-</tspan><tspan x="240" fill="#575a60">-</tspan><tspan x="248" fill="#575a60">-</tspan><tspan x="256" fill="#575a60">-</tspan><tspan x="264" fill="#575a60">-</tspan><tspan x="272" fill="#575a60">-</tspan><tspan x="280" fill="#575a60">-</tspan><tspan x="288" fill="#575a60">-</tspan><tspan x="296" fill="#575a60">-</tspan><tspan x="304" fill="#575a60">-</tspan><tspan x="312" fill="#575a60">-</tspan><tspan x="320" fill="#575a60">-</tspan><tspan x="328" fill="#575a60">-</tspan><tspan x="336" fill="#575a60">-</tspan><tspan x="344" fill="#575a60">-</tspan><tspan x="352" fill="#575a60">-</tspan><tspan x="360" fill="#575a60">-</tspan><tspan x="368" fill="#575a60">-</tspan><tspan x="376" fill="#575a60">-</tspan><tspan x="384" fill="#575a60">-</tspan><tspan x="392" fill="#575a60">-</tspan><tspan x="400" fill="#575a60">-</tspan><tspan x="408" fill="#575a60">-</tspan><tspan x="416" fill="#575a60">-</tspan><tspan x="424" fill="#575a60">-</tspan><tspan x="432" fill="#575a60">-</tspan><tspan x="440" fill="#575a60">-</tspan><tspan x="448" fill="#575a60">-</tspan><tspan x="456" fill="#575a60">-</tspan><tspan x="464" fill="#575a60">-</tspan><tspan x="472" fill="#575a60">-</tspan><tspan x="480" fill="#575a60">-</tspan><tspan x="488" fill="#575a60">-</tspan><tspan x="496" fill="#575a60">-</tspan><tspan x="504" fill="#575a60">-</tspan><tspan x="512" fill="#575a60">-</tspan><tspan x="520" fill="#575a60">-</tspan><tspan x="528" fill="#575a60">-</tspan><tspan x="536" fill="#575a60">-</tspan><tspan x="544" fill="#575a60">-</tspan><tspan x="552" fill="#575a60">-</tspan><tspan x="560" fill="#575a60">-</tspan><tspan x="568" fill="#575a60">-</tspan><tspan x="576" fill="#575a60">-</tspan><tspan x="584" fill="#575a60">-</tspan><tspan x="592" fill="#575a60">-</tspan><tspan x="600" fill="#575a60">-</tspan><tspan x="608" fill="#575a60">-</tspan><tspan x="616" fill="#575a60">-</tspan><tspan x="624" fill="#575a60">-</tspan><tspan x="632" fill="#575a60">-</tspan><tspan x="640" fill="#575a60">-</tspan><tspan x="648" fill="#575a60">-</tspan><tspan x="656" fill="#575a60">-</tspan><tspan x="664" fill="#575a60">-</tspan><tspan x="672" fill="#575a60">-</tspan><tspan x="680" fill="#575a60">-</tspan><tspan x="688" fill="#575a60">-</tspan><tspan x="696" fill="#575a60">-</tspan><tspan x="704" fill="#575a60">-</tspan><tspan x="712" fill="#575a60">-</tspan><tspan x="720" fill="#575a60">-</tspan><tspan x="728" fill="#575a60">-</tspan><tspan x="736" fill="#575a60">-</tspan><tspan x="744" fill="#575a60">-</tspan><tspan x="752" fill="#575a60">-</tspan><tspan x="760" fill="#575a60">-</tspan><tspan x="768" fill="#575a60">-</tspan><tspan x="776" fill="#575a60">-</tspan><tspan x="784" fill="#575a60">-</tspan><tspan x="792" fill="#575a60">-</tspan><tspan x="800" fill="#575a60">-</tspan><tspan x="808" fill="#575a60">-</tspan><tspan x="816" fill="#575a60">-</tspan><tspan x="824" fill="#575a60">-</tspan><tspan x="832" fill="#575a60">-</tspan><tspan x="840" fill="#575a60">-</tspan><tspan x="848" fill="#575a60">-</tspan><tspan x="856" fill="#575a60">+</tspan></text>
+<text x="0" y="476" font-family="monospace" font-size="14" xml:space="preserve"><tspan x="184" fill="#3e4147">|</tspan></text>
+<text x="0" y="492" font-family="monospace" font-size="14" xml:space="preserve"><tspan x="184" fill="#3e4147">|</tspan></text>
+<text x="0" y="508" font-family="monospace" font-size="14" xml:space="preserve"><tspan x="184" fill="#3e4147">|</tspan></text>
+<text x="0" y="524" font-family="monospace" font-size="14" xml:space="preserve"><tspan x="184" fill="#3e4147">|</tspan></text>
+<text x="0" y="540" font-family="monospace" font-size="14" xml:space="preserve"><tspan x="184" fill="#3e4147">|</tspan></text>
+<text x="0" y="556" font-family="monospace" font-size="14" xml:space="preserve"><tspan x="8" fill="#ff7d27">M</tspan><tspan x="16" fill="#ff7d27">E</tspan><tspan x="24" fill="#ff7d27">D</tspan><tspan x="32" fill="#ff7d27">I</tspan><tspan x="40" fill="#ff7d27">A</tspan><tspan x="888" fill="#7b7e84">5</tspan><tspan x="896" fill="#7b7e84">%</tspan><tspan x="920" fill="#7b7e84">1</tspan><tspan x="928" fill="#7b7e84">/</tspan><tspan x="936" fill="#7b7e84">1</tspan><tspan x="944" fill="#7b7e84">8</tspan></text>
+</svg>

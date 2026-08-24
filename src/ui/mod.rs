@@ -278,8 +278,15 @@ pub fn render(frame: &mut Frame, state: &mut AppState) {
     {
         render_drag_feedback(frame, area, state);
     }
-}
 
+    // Live marquee band renders above panels but below modals: outline
+    // only, so filenames and icons underneath stay readable.
+    if let Some(marquee) = &state.marquee
+        && marquee.phase == crate::app::state::MarqueePhase::Selecting
+    {
+        outline_rect(frame, marquee.rect(), Style::default().fg(ACCENT_SOFT));
+    }
+}
 /// Ghost, target border, and status text for an in-flight drag. Renders
 /// above panels but below modals; never mutates anything.
 fn render_drag_feedback(frame: &mut Frame, area: Rect, state: &mut AppState) {
@@ -851,6 +858,11 @@ fn render_grid(frame: &mut Frame, area: Rect, state: &mut AppState) {
         area.height.saturating_sub(1),
     );
     surface_fill(frame, grid, SURFACE_1);
+
+    // Blank grid space is a semantic target: a left press here arms a
+    // marquee. Registered before the tiles are pushed so reverse-order hit
+    // resolution keeps tiles more specific than the background.
+    state.hit_map.push(grid, HitTarget::GridBackground);
     if total == 0 && state.browser.filter.is_some() {
         frame.render_widget(
             Paragraph::new(Line::from(Span::styled("No matching files", muted_style())))
@@ -1192,7 +1204,13 @@ fn render_media_modal(
         .duration
         .map(|seconds| format_time_duration(std::time::Duration::from_secs_f64(seconds.max(0.0))))
         .unwrap_or_else(|| "--:--".to_string());
-    let time = format!("{} / {duration}", format_time_duration(elapsed));
+    // Volume is the backend-reported value (sink or observed mpv property),
+    // never a UI-only guess.
+    let time = format!(
+        "{} / {duration}    VOL {}%",
+        format_time_duration(elapsed),
+        media.volume
+    );
     frame.render_widget(
         Paragraph::new(Line::from(Span::styled(time, preview_meta_style()))),
         Rect::new(inner.x, inner.y + 2, inner.width, 1),
@@ -1224,9 +1242,16 @@ fn render_media_modal(
     }
 
     let controls_y = inner.y + inner.height - 1;
+    // The toggle control names the action it performs: PAUSE while playing,
+    // PLAY otherwise.
+    let toggle_label = if matches!(media.phase, MediaPhase::Playing) {
+        "[PAUSE]"
+    } else {
+        "[PLAY]"
+    };
     let controls = [
         ("[-5]", HitTarget::MediaSeekBack),
-        ("[PLAY]", HitTarget::MediaTogglePause),
+        (toggle_label, HitTarget::MediaTogglePause),
         ("[+5]", HitTarget::MediaSeekForward),
         ("[V-]", HitTarget::MediaVolumeDown),
         ("[V+]", HitTarget::MediaVolumeUp),
@@ -1271,33 +1296,52 @@ fn render_media_modal(
         current.surface = Some(surface);
     }
 
-    if full && media_height > 0 && media.error.is_none() {
-        let column_width = (inner.width / 24).max(1);
-        let bars_height = media_height.min(10);
-        let buffer = frame.buffer_mut();
-        for (index, level) in media.spectrum.iter().enumerate() {
-            let x = inner.x + index as u16 * column_width;
-            if x >= inner.x + inner.width {
-                break;
-            }
-            let height = (level.clamp(0.0, 1.0) * bars_height as f32).round() as u16;
-            for offset in 0..height {
-                let y = media_top + bars_height - 1 - offset;
-                buffer.set_stringn(x, y, "#", 1, Style::default().fg(ACCENT_SOFT));
+    match media.kind {
+        MediaKind::Audio => {
+            if full && media_height > 0 && media.error.is_none() {
+                let column_width = (inner.width / 24).max(1);
+                let bars_height = media_height.min(10);
+                let buffer = frame.buffer_mut();
+                for (index, level) in media.spectrum.iter().enumerate() {
+                    let x = inner.x + index as u16 * column_width;
+                    if x >= inner.x + inner.width {
+                        break;
+                    }
+                    let height = (level.clamp(0.0, 1.0) * bars_height as f32).round() as u16;
+                    for offset in 0..height {
+                        let y = media_top + bars_height - 1 - offset;
+                        buffer.set_stringn(x, y, "#", 1, Style::default().fg(ACCENT_SOFT));
+                    }
+                }
+            } else if media.error.is_none() {
+                frame.render_widget(
+                    Paragraph::new(Line::from(Span::styled(
+                        if matches!(media.phase, MediaPhase::Preparing | MediaPhase::Starting) {
+                            "spectrum starting"
+                        } else {
+                            "spectrum unavailable at this size"
+                        },
+                        muted_style(),
+                    ))),
+                    surface.rect,
+                );
             }
         }
-    } else if media.error.is_none() {
-        frame.render_widget(
-            Paragraph::new(Line::from(Span::styled(
-                if matches!(media.phase, MediaPhase::Preparing | MediaPhase::Starting) {
-                    "spectrum starting"
-                } else {
-                    "spectrum unavailable at this size"
-                },
-                muted_style(),
-            ))),
-            surface.rect,
-        );
+        // Video owns the surface: while frames are live (Playing/Paused)
+        // nothing is drawn there so mpv's kitty output survives the
+        // diff-based redraws. Only startup shows placeholder chrome.
+        MediaKind::Video => {
+            if media.error.is_none()
+                && media_height > 0
+                && matches!(media.phase, MediaPhase::Preparing | MediaPhase::Starting)
+            {
+                frame.render_widget(
+                    Paragraph::new(Line::from(Span::styled("loading video", muted_style())))
+                        .alignment(ratatui::layout::Alignment::Center),
+                    surface.rect,
+                );
+            }
+        }
     }
 }
 

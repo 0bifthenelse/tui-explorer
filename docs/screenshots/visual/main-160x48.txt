@@ -1,48 +1,48 @@
  tui-explorer 0.1.0                                                 tui-explorer is awesome!                                                   Press ? for help
  Path: [ / ]>[ home ]>[ demo ]
 PLACES ----------------|18 items (2 dirs, 16 files)  Sort: name (asc)                                                       |docs
- Root                  |    ______        ______      .--------.    .--------.    .--------.    .--------.    .--------.    |Type: directory
-MOUNTS ----------------|   /______/_     /______/_    | .--'   |    | .--'   |    | .--'   |    | .--'   |    | .--'   |    |Modified: 2023-11-14 19:43
-/ ext4  811G / 911G    |  |        |    |        |    | TXT    |    | TSX    |    | GZ     |    | SH     |    | LOCK   |    |Perms: drwxr-xr-x
-/home/ifthenelse/stor~ |  |      \ |    |        |    | ------ |    | ------ |    | ------ |    | ------ |    | ------ |    |Tags: (none)
-/home/ifthenelse/stor~ |  +-------\+    +--------+    '--------'    '--------'    '--------'    '--------'    '--------'    | Preview --------------------------
-TAGS ------------------| docs          src           a very long~  app.tsx       archive.tar~  build.sh      Cargo.lock     |cannot read directory: No such fil~
-(no tags yet)          | dir           dir           88B           5.0K          1.0M          256B          50K            |
-BOOKMARKS -------------|  .--------.    .--------.    .--------.    .--------.    .--------.    .--------.    .--------.    |
-(B to bookmark cwd)    |  | .--'   |    | .--'   |    | .--'   |    | .--'   |    | .--'   |    | .--'   |    | .--'   |    |
-                       |  | TOML   |    | JSON   |    | EXE>   |    | HTML   |    | RS     |    | MD     |    | JSON   |    |
-                       |  | ------ |    | ------ |    | ------ |    | ------ |    | ------ |    | ------ |    | ------ |    |
-                       |  '--------'    '--------'    '--------'    '--------'    '--------'    '--------'    '--------'    |
-                       | Cargo.toml    data.json     deploy        index.html    main.rs       notes.md      package.json   |
-                       | 734B          8.0K          15K           1.0K          2.0K          1.5K          412B           |
-                       |  .--------.    .--------.    .--------.    .--------.                                              |
-                       |  | .--'   |    | .--'   |    | .--'   |    | .--'   |                                              |
-                       |  | PNG    |    | LNK>   |    | MP3    |    | CSS    |                                              |
-                       |  | ------ |    | ------ |    | ------ |    | ------ |                                              |
-                       |  '--------'    '--------'    '--------'    '--------'                                              |
-                       | photo.png     README link   song.mp3      style.css                                                |
-                       | 2.0M          9B            5.0M          2.5K                                                     |
-                       |                                                                                                    |
-                       |                                                                                                    |
-                       |                                                                                                    |
-                       |                                                                                                    |
-                       |                                                                                                    |
-                       |                                                                                                    |
-                       |                                                                                                    |
-                       |                                                                                                    |
-                       |                                                                                                    |
-                       |                                                                                                    |
-                       |                                                                                                    |
-                       |                                                                                                    |
-                       |                                                                                                    |
-                       |                                                                                                    |
-                       |                                                                                                    |
-                       |                                                                                                    |
-                       |                                                                                                    |
-                       |                                                                                                    |
-                       |                                                                                                    |
-                       |                                                                                                    |
-                       |                                                                                                    |
+ Root                  ||   ______   ||   ______   || .--------. || .--------. || .--------. || .--------. || .--------. |  |Type: directory
+MOUNTS ----------------||  /______/_ ||  /______/_ || | .--'   | || | .--'   | || | .--'   | || | .--'   | || | .--'   | |  |Modified: 2023-11-14 19:43
+(no device mounts)     || |        | || |        | || | TXT    | || | TSX    | || | GZ     | || | SH     | || | LOCK   | |  |Perms: drwxr-xr-x
+TAGS ------------------|| |      \ | || |        | || | ------ | || | ------ | || | ------ | || | ------ | || | ------ | |  |Tags: (none)
+(no tags yet)          || +-------\+ || +--------+ || '--------' || '--------' || '--------' || '--------' || '--------' |  | Preview (Halfblocks) -------------
+BOOKMARKS -------------|| docs       || src        || a very lon~|| app.tsx    || archive.ta~|| build.sh   || Cargo.lock |  |+---------------------------------+
+(Ctrl-b bookmarks cwd) ||dir         ||dir         ||88B         ||5.0K        ||1.0M        ||256B        ||50K         |  ||cannot read directory: No such f~|
+                       || .--------. || .--------. || .--------. || .--------. || .--------. || .--------. || .--------. |  ||                                 |
+                       || | .--'   | || | .--'   | || | .--'   | || | .--'   | || | .--'   | || | .--'   | || | .--'   | |  ||                                 |
+                       || | TOML   | || | JSON   | || | EXE>   | || | HTML   | || | RS     | || | MD     | || | JSON   | |  ||                                 |
+                       || | ------ | || | ------ | || | ------ | || | ------ | || | ------ | || | ------ | || | ------ | |  ||                                 |
+                       || '--------' || '--------' || '--------' || '--------' || '--------' || '--------' || '--------' |  ||                                 |
+                       || Cargo.toml || data.json  || deploy     || index.html || main.rs    || notes.md   || package.js~|  ||                                 |
+                       ||734B        ||8.0K        ||15K         ||1.0K        ||2.0K        ||1.5K        ||412B        |  ||                                 |
+                       || .--------. || .--------. || .--------. || .--------. |                                            ||                                 |
+                       || | .--'   | || | .--'   | || | .--'   | || | .--'   | |                                            ||                                 |
+                       || | PNG    | || | LNK>   | || | MP3    | || | CSS    | |                                            ||                                 |
+                       || | ------ | || | ------ | || | ------ | || | ------ | |                                            ||                                 |
+                       || '--------' || '--------' || '--------' || '--------' |                                            ||                                 |
+                       || photo.png  || README link|| song.mp3   || style.css  |                                            ||                                 |
+                       ||2.0M        ||9B          ||5.0M        ||2.5K        |                                            ||                                 |
+                       |                                                                                                    ||                                 |
+                       |                                                                                                    ||                                 |
+                       |                                                                                                    ||                                 |
+                       |                                                                                                    ||                                 |
+                       |                                                                                                    ||                                 |
+                       |                                                                                                    ||                                 |
+                       |                                                                                                    ||                                 |
+                       |                                                                                                    ||                                 |
+                       |                                                                                                    ||                                 |
+                       |                                                                                                    ||                                 |
+                       |                                                                                                    ||                                 |
+                       |                                                                                                    ||                                 |
+                       |                                                                                                    ||                                 |
+                       |                                                                                                    ||                                 |
+                       |                                                                                                    ||                                 |
+                       |                                                                                                    ||                                 |
+                       |                                                                                                    ||                                 |
+                       |                                                                                                    ||                                 |
+                       |                                                                                                    ||                                 |
+                       |                                                                                                    ||                                 |
+                       |                                                                                                    ||                                 |
+                       |                                                                                                    |+---------------------------------+
  BROWSER                                                                                                                                               5%  1/18
-| e/Enter Open | X Crypt | Bsp Up | v Visual | t Tag | : Command | ? Help | b Sidebar | p Preview | B Bookmark | q Quit
-TIP  Double-click or Enter/e to open * Right-click for menu * Mouse wheel to scroll
+| e/Enter Open | X Crypt | Bsp Up | v Visual | t Tag | : Command | ? Help | r OpenWith | b Sidebar | p Preview | B Bookmarks | q Quit

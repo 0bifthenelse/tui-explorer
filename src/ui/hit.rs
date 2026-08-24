@@ -22,6 +22,9 @@ pub enum LegendAction {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HitTarget {
     Row(usize),
+    /// Blank grid space between/around tiles; a left press here arms a
+    /// marquee selection instead of touching any entry.
+    GridBackground,
     Breadcrumb(usize),
     Sidebar(usize),
     Legend(LegendAction),
@@ -81,6 +84,28 @@ impl HitMap {
             .find(|(_, t)| *t == target)
             .map(|(rect, _)| *rect)
     }
+
+    /// Visible row positions whose tile rectangles intersect `area`, sorted
+    /// ascending. Centralizes marquee-intersection geometry so the rule is
+    /// testable independent of the renderer.
+    pub fn rows_intersecting(&self, area: Rect) -> Vec<usize> {
+        let mut rows: Vec<usize> = self
+            .regions
+            .iter()
+            .filter_map(|(rect, target)| match target {
+                HitTarget::Row(pos) if rects_intersect(*rect, area) => Some(*pos),
+                _ => None,
+            })
+            .collect();
+        rows.sort_unstable();
+        rows.dedup();
+        rows
+    }
+}
+
+/// Half-open cell-rectangle intersection: both `x` and `y` spans overlap.
+fn rects_intersect(a: Rect, b: Rect) -> bool {
+    a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height
 }
 
 #[cfg(test)]

@@ -444,6 +444,7 @@ fn context_menu() {
             kind: tui_explorer::app::action::MouseKind::Right,
             x: hit.x + 1,
             y: hit.y,
+            ctrl: false,
         }],
     );
     assert!(matches!(state.mode, Mode::ContextMenu(_)));
@@ -646,6 +647,7 @@ fn overlay_blocks_row_clicks() {
             kind: tui_explorer::app::action::MouseKind::Left,
             x: row_rect.x + 1,
             y: row_rect.y,
+            ctrl: false,
         }],
     );
     assert_eq!(state.browser.selected, before);
@@ -679,6 +681,7 @@ fn mouse_row_click_and_breadcrumb() {
             kind: tui_explorer::app::action::MouseKind::Left,
             x: row_rect.x + 2,
             y: row_rect.y,
+            ctrl: false,
         }],
     );
     assert_eq!(state.browser.selected, 2);
@@ -698,6 +701,7 @@ fn mouse_row_click_and_breadcrumb() {
             kind: tui_explorer::app::action::MouseKind::Left,
             x: crumb.x,
             y: crumb.y,
+            ctrl: false,
         }],
     );
     assert_eq!(state.browser.cwd, PathBuf::from("/"));
@@ -727,6 +731,7 @@ fn mouse_scroll_moves_list() {
             kind: tui_explorer::app::action::MouseKind::ScrollDown,
             x: row_rect.x + 1,
             y: row_rect.y,
+            ctrl: false,
         }],
     );
     // Narrow mode is a one-column list, so one scroll tick advances one row.
@@ -878,4 +883,106 @@ fn long_names_never_panic() {
         drive(&mut state, &mut handler, [Action::LoadInitial]);
         let _ = render(&mut state, *w, *h);
     }
+}
+
+// --- media modal feedback driven by backend-confirmed state ---
+
+fn audio_media_state(
+    phase: tui_explorer::media::MediaPhase,
+) -> tui_explorer::app::state::MediaState {
+    let mut media = tui_explorer::app::state::MediaState::preparing(
+        1,
+        PathBuf::from("/home/demo/song.mp3"),
+        tui_explorer::media::MediaKind::Audio,
+    );
+    media.phase = phase;
+    media.position = 12.0;
+    media.duration = Some(180.0);
+    media.volume = 70;
+    media.spectrum = [0.5; 24];
+    media
+}
+
+fn video_media_state(
+    phase: tui_explorer::media::MediaPhase,
+) -> tui_explorer::app::state::MediaState {
+    let mut media = tui_explorer::app::state::MediaState::preparing(
+        1,
+        PathBuf::from("/home/demo/clip.mkv"),
+        tui_explorer::media::MediaKind::Video,
+    );
+    media.phase = phase;
+    media.position = 4.0;
+    media.duration = Some(30.0);
+    media
+}
+
+#[test]
+fn media_toggle_control_tracks_real_phase() {
+    // While the backend reports Playing the control offers PAUSE.
+    let (mut state, _) = loaded(120, 36);
+    state.mode = Mode::Media(Box::new(audio_media_state(
+        tui_explorer::media::MediaPhase::Playing,
+    )));
+    let text = render(&mut state, 120, 36);
+    assert!(text.contains("[PAUSE]"), "playing modal must offer PAUSE");
+    assert!(!text.contains("[PLAY]"), "stale PLAY label must not remain");
+
+    // While paused it offers PLAY again.
+    let (mut state, _) = loaded(120, 36);
+    state.mode = Mode::Media(Box::new(audio_media_state(
+        tui_explorer::media::MediaPhase::Paused,
+    )));
+    let text = render(&mut state, 120, 36);
+    assert!(text.contains("[PLAY]"), "paused modal must offer PLAY");
+}
+
+#[test]
+fn video_modal_never_draws_spectrum_over_the_surface() {
+    // Live video: no spectrum bars anywhere in the modal.
+    let (mut state, _) = loaded(160, 48);
+    state.mode = Mode::Media(Box::new(video_media_state(
+        tui_explorer::media::MediaPhase::Playing,
+    )));
+    let terminal = rendered_terminal(&mut state, 160, 48);
+    let text = buffer_text(&terminal);
+    assert!(text.contains("VIDEO"));
+    let bars = cells_matching(terminal.backend().buffer(), |cell| {
+        cell.symbol() == "#" && cell.fg == tui_explorer::ui::palette::ACCENT_SOFT
+    });
+    assert_eq!(bars, 0, "spectrum bars would fight live video frames");
+
+    // Startup shows placeholder chrome instead of a black void.
+    let (mut state, _) = loaded(160, 48);
+    state.mode = Mode::Media(Box::new(video_media_state(
+        tui_explorer::media::MediaPhase::Starting,
+    )));
+    let text = render(&mut state, 160, 48);
+    assert!(
+        text.contains("loading video"),
+        "startup needs a placeholder"
+    );
+}
+
+#[test]
+fn marquee_band_renders_accent_outline_without_fill() {
+    use tui_explorer::app::state::{MarqueePhase, MarqueeState};
+
+    let (mut state, _) = loaded(120, 36);
+    state.marquee = Some(MarqueeState {
+        phase: MarqueePhase::Selecting,
+        origin: (30, 6),
+        current: (60, 20),
+        base: std::collections::BTreeSet::new(),
+    });
+    let terminal = rendered_terminal(&mut state, 120, 36);
+    let buffer = terminal.backend().buffer();
+    // Outline corners land on band edges; interior stays untouched.
+    let accent_cells = cells_matching(buffer, |cell| {
+        cell.fg == tui_explorer::ui::palette::ACCENT_SOFT
+    });
+    assert!(
+        accent_cells >= 2 * (31 + 15),
+        "outline missing: {accent_cells}"
+    );
 }

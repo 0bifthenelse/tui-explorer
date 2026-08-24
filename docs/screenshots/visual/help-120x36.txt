@@ -1,36 +1,36 @@
  tui-explorer 0.1.0                             tui-explorer is awesome!                               Press ? for help
  Path: [ / ]>[ home ]>[ demo ]
 PLACES ----------------|18 items (2 dirs, 16 files)  Sort: name (asc)
- Root                  |    ______        ______      .--------.    .--------.    .--------.    .--------.
+ Root                  ||   ______   ||   ______   || .--------. || .--------. || .--------. || .--------. |
 MOUNTS ---+ HELP --------------------------------------------------------------------------------------------+
-/ ext4  81|j / Down          next row of tiles              t                 toggle last used tag           |
-/home/ifth|k / Up            previous row of tiles          T                 tag picker and manager         |
-/home/ifth|h / Left          tile left                      :                 command mode                   |
-TAGS -----|l / Right         tile right                     Esc               cancel mode or modal           |
-(no tags y|Backspace         parent directory               ?                 this help                      |
-BOOKMARKS |e / Enter         open: enter folder or open fi~ q                 quit                           |
-(B to book|double left click open: enter folder or open fi~ :copy <dest>      copy selection                 |
-          |single left click select and focus (never opens) :move <dest>      move selection                 |
-          |g g               first entry                    :rename <name>    rename entry                   |
-          |G                 last entry                     :delete           delete selection (confirmed)   |
-          |Ctrl-u / Ctrl-d   half page up / down            :tag <name>       assign tag                     |
-          |PageUp / PageDown full page up / down            :untag <name>     remove tag                     |
-          |Space             toggle entry selection         :tags             open tag picker                |
-          |v                 visual multi-selection mode    :open             open entry                     |
-          |.                 toggle hidden files            :cd <path>        change directory               |
-          |X                 encrypt / decrypt focused ent~ :quit             quit                           |
-          |b                 toggle sidebar                 :help             this help                      |
-          |p                 toggle preview panel           mouse right       context menu                   |
-          |B                 bookmark current directory     mouse wheel       scroll grid                    |
-          |                                                                                                  |
-          |                                                                                                  |
-          |                                                                                                  |
-          |                                                                                                  |
-          |                                                                                                  |
-          |                                                                                                  |
-          |                                                                                                  |
+(no device|j / Down          next row of tiles              q                 quit                           |
+TAGS -----|k / Up            previous row of tiles          Space (media)     play or pause the focused aud~ |
+(no tags y|h / Left          tile left                      Left/Right (media)seek 5 seconds                 |
+BOOKMARKS |l / Right         tile right                     Up/Down (media)   volume up/down                 |
+(Ctrl-b bo|Backspace         parent directory               s (media)         restart from the beginning     |
+          |F5                refresh current directory      Esc/q (media)     close the media modal          |
+          |e / Enter         open: folder, media, or open-~ :copy <dest>      copy selection                 |
+          |r                 open with: prompt for a comma~ :move <dest>      move selection                 |
+          |double left click open: enter folder or open fi~ :rename <name>    rename entry                   |
+          |single left click select and focus (never opens) :delete           delete selection (confirmed)   |
+          |g g               first entry                    :tag <name>       assign tag                     |
+          |G                 last entry                     :untag <name>     remove tag                     |
+          |Ctrl-u / Ctrl-d   half page up / down            :tags             open tag picker                |
+          |PageUp / PageDown full page up / down            :open             open entry                     |
+          |Space             toggle entry selection         :open-with <cmd> ~run a command on the entry (a~ |
+          |v                 visual multi-selection mode    :cd <path>        change directory               |
+          |.                 toggle hidden files            :mkdir <name>     create a directory             |
+          |X                 encrypt / decrypt focused ent~ :touch <name>     create an empty file / update~ |
+          |b                 toggle sidebar                 :selectall        select every entry             |
+          |p                 toggle preview panel           :invert           invert the current selection   |
+          |B                 search bookmarks (fuzzy)       :deselect         clear the current selection    |
+          |Ctrl-b            bookmark / unbookmark current~ :sort <field>     sort by name, size, or modifi~ |
+          |t                 toggle last used tag           :refresh          reload current directory       |
+          |T                 tag picker and manager         :quit             quit                           |
+          |/ / Ctrl-f        filter current directory file~ :help             this help                      |
+          |:                 command mode                   mouse right       context menu                   |
           +--------------------------------------------------------------------------------------------------+
+                       |
                        |
  HELP                                                                                                          5%  1/18
 | Esc close
-TIP  Esc goes back

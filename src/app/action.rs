@@ -18,6 +18,8 @@ pub enum MouseKind {
     LeftDrag,
     /// Left button released.
     LeftUp,
+    /// Pointer motion with no button held (hover tracking).
+    Moved,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ConflictDecision {
@@ -118,6 +120,9 @@ pub enum Action {
         kind: MouseKind,
         x: u16,
         y: u16,
+        /// Ctrl was held; makes marquee selection additive instead of
+        /// replacing the current selection set.
+        ctrl: bool,
     },
     DragCancel,
     ToggleVisual,

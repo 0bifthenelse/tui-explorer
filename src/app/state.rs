@@ -198,6 +198,51 @@ pub enum DragPhase {
     Dragging,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MarqueePhase {
+    /// Left button pressed on empty background, not yet past the threshold.
+    Armed,
+    /// Past the threshold: the band selects everything it touches.
+    Selecting,
+}
+
+/// Traditional explorer rectangle selection: a left press on empty grid
+/// background arms a marquee; moving past the drag threshold selects every
+/// visible tile whose rectangle intersects the rubber band. Kept separate
+/// from `DragState`, which is exclusively file movement.
+#[derive(Clone, Debug)]
+pub struct MarqueeState {
+    pub phase: MarqueePhase,
+    /// Cell where the left button was pressed.
+    pub origin: (u16, u16),
+    /// Current pointer cell; the band is origin..current normalized.
+    pub current: (u16, u16),
+    /// Ctrl-additive mode: the selection snapshot taken at press time stays
+    /// selected and the band adds to it.
+    pub base: std::collections::BTreeSet<PathBuf>,
+}
+
+impl MarqueeState {
+    pub fn armed(origin: (u16, u16), base: std::collections::BTreeSet<PathBuf>) -> Self {
+        MarqueeState {
+            phase: MarqueePhase::Armed,
+            origin,
+            current: origin,
+            base,
+        }
+    }
+
+    /// The normalized rubber-band rectangle in terminal cells.
+    pub fn rect(&self) -> Rect {
+        Rect::new(
+            self.origin.0.min(self.current.0),
+            self.origin.1.min(self.current.1),
+            self.origin.0.abs_diff(self.current.0) + 1,
+            self.origin.1.abs_diff(self.current.1) + 1,
+        )
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct DragState {
     pub phase: DragPhase,
@@ -207,13 +252,6 @@ pub struct DragState {
     /// sorting/filtering changes during the drag).
     pub sources: Vec<PathBuf>,
     pub cursor: (u16, u16),
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct MediaSurface {
-    pub rect: Rect,
-    pub terminal_cells: (u16, u16),
-    pub cell_pixels: (u16, u16),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -346,6 +384,8 @@ pub struct AppState {
     pub show_sidebar: Option<bool>,
     /// In-flight mouse drag; None when idle.
     pub drag: Option<DragState>,
+    /// In-flight background marquee selection; None when idle.
+    pub marquee: Option<MarqueeState>,
     /// Preview panel visibility: None = automatic per terminal size.
     pub show_preview: Option<bool>,
     /// Sidebar entries in render order; rebuilt every frame.
@@ -357,10 +397,18 @@ pub struct AppState {
     pub picker: ratatui_image::picker::Picker,
     pub next_media_session: u64,
 }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MediaSurface {
+    pub rect: Rect,
+    pub terminal_cells: (u16, u16),
+    pub cell_pixels: (u16, u16),
+}
 
 impl AppState {
-    /// True exactly while video media owns the terminal: mpv writes pixels
-    /// directly to stdout, so Ratatui must neither clear nor draw.
+    /// True while a video surface may be live on the terminal: mpv paints
+    /// frames straight to stdout. Ratatui keeps drawing modal chrome around
+    /// the surface, but the moment this flips false the event loop forces a
+    /// full redraw so no stale graphics remain.
     pub fn media_owns_terminal(&self) -> bool {
         matches!(
             &self.mode,
@@ -406,6 +454,7 @@ impl AppState {
             preview: PreviewState::default(),
             picker: ratatui_image::picker::Picker::from_fontsize((8, 16)),
             drag: None,
+            marquee: None,
             next_media_session: 1,
         }
     }
@@ -444,9 +493,9 @@ impl std::fmt::Debug for PreviewContent {
                 .field("lines", &lines.len())
                 .field("truncated", truncated)
                 .finish(),
-            PreviewContent::Image(_) => write!(f, "Image(..)"),
             PreviewContent::Directory(names) => f.debug_tuple("Directory").field(names).finish(),
             PreviewContent::Unavailable(msg) => f.debug_tuple("Unavailable").field(msg).finish(),
+            PreviewContent::Image(_) => write!(f, "Image(..)"),
         }
     }
 }

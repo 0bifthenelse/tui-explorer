@@ -610,6 +610,15 @@ fn rendered(width: u16, height: u16) -> (AppState, SyncHandler) {
     (state, handler)
 }
 
+/// Re-renders in place so modal hit regions (e.g. context items) exist.
+fn rerender(state: &mut AppState) {
+    let backend = TestBackend::new(state.width, state.height);
+    let mut terminal = Terminal::new(backend).expect("test terminal");
+    terminal
+        .draw(|frame| tui_explorer::ui::render(frame, state))
+        .expect("render");
+}
+
 fn row_rect(state: &AppState, pos: usize) -> ratatui::layout::Rect {
     state
         .hit_map
@@ -631,6 +640,7 @@ fn click(state: &mut AppState, handler: &mut SyncHandler, pos: usize) {
             kind: MouseKind::Left,
             x: rect.x + 1,
             y: rect.y + 1,
+            ctrl: false,
         }],
     );
 }
@@ -770,6 +780,7 @@ fn context_menu_open_prompts_for_command() {
             kind: MouseKind::Right,
             x: rect.x + 1,
             y: rect.y + 1,
+            ctrl: false,
         }],
     );
     assert!(matches!(state.mode, Mode::ContextMenu(_)));
@@ -1329,6 +1340,7 @@ fn drag_moves_file_to_directory_target() {
             kind: MouseKind::Left,
             x: src.x + 1,
             y: src.y + 1,
+            ctrl: false,
         }],
     );
     drive(
@@ -1338,6 +1350,7 @@ fn drag_moves_file_to_directory_target() {
             kind: MouseKind::LeftDrag,
             x: dst.x + 1,
             y: dst.y + 1,
+            ctrl: false,
         }],
     );
     assert!(state.drag.is_some(), "drag activates past threshold");
@@ -1348,6 +1361,7 @@ fn drag_moves_file_to_directory_target() {
             kind: MouseKind::LeftUp,
             x: dst.x + 1,
             y: dst.y + 1,
+            ctrl: false,
         }],
     );
     assert!(matches!(state.mode, Mode::Browser));
@@ -1374,16 +1388,19 @@ fn drag_below_threshold_is_click_not_move() {
                 kind: MouseKind::Left,
                 x: rect.x + 1,
                 y: rect.y + 1,
+                ctrl: false,
             },
             Action::Mouse {
                 kind: MouseKind::LeftDrag,
                 x: rect.x + 2,
                 y: rect.y + 1,
+                ctrl: false,
             },
             Action::Mouse {
                 kind: MouseKind::LeftUp,
                 x: rect.x + 2,
                 y: rect.y + 1,
+                ctrl: false,
             },
         ],
     );
@@ -1411,6 +1428,7 @@ fn esc_cancels_active_drag() {
             kind: MouseKind::Left,
             x: src.x + 1,
             y: src.y + 1,
+            ctrl: false,
         }],
     );
     drive(
@@ -1420,6 +1438,7 @@ fn esc_cancels_active_drag() {
             kind: MouseKind::LeftDrag,
             x: dst.x + 1,
             y: dst.y + 1,
+            ctrl: false,
         }],
     );
     assert!(state.drag.is_some());
@@ -1442,4 +1461,423 @@ fn stale_media_stop_after_close_is_ignored() {
 
 fn video_path() -> std::path::PathBuf {
     tui_explorer::testing::builders::demo_root().join("clip.mkv")
+}
+
+fn grid_background_rect(state: &AppState) -> ratatui::layout::Rect {
+    state
+        .hit_map
+        .regions
+        .iter()
+        .find_map(|(rect, target)| match target {
+            tui_explorer::ui::hit::HitTarget::GridBackground => Some(*rect),
+            _ => None,
+        })
+        .expect("grid background hit region")
+}
+
+/// Finds a cell that resolves to the grid background, not to any tile.
+fn background_point(state: &AppState) -> (u16, u16) {
+    let bg = grid_background_rect(state);
+    for y in bg.y..bg.y + bg.height {
+        for x in bg.x..bg.x + bg.width {
+            if state.hit_map.hit(x, y) == Some(tui_explorer::ui::hit::HitTarget::GridBackground) {
+                return (x, y);
+            }
+        }
+    }
+    panic!("no blank grid background cell in this layout");
+}
+
+fn context_item_rect(state: &AppState, idx: usize) -> ratatui::layout::Rect {
+    state
+        .hit_map
+        .regions
+        .iter()
+        .find_map(|(rect, target)| match target {
+            tui_explorer::ui::hit::HitTarget::ContextItem(i) if *i == idx => Some(*rect),
+            _ => None,
+        })
+        .expect("context item hit region")
+}
+
+fn path_at(state: &AppState, pos: usize) -> PathBuf {
+    let indices = state.browser.visible_indices();
+    state.browser.entries[indices[pos]].entry.path.clone()
+}
+
+#[test]
+fn marquee_selects_intersecting_tiles_in_both_directions() {
+    // Forward: top-left towards bottom-right.
+    let (mut state, mut handler) = rendered(120, 36);
+    let origin = background_point(&state);
+    let tile_a = drag_rect(&state, 1);
+    drive(
+        &mut state,
+        &mut handler,
+        [Action::Mouse {
+            kind: MouseKind::Left,
+            x: origin.0,
+            y: origin.1,
+            ctrl: false,
+        }],
+    );
+    assert!(state.marquee.is_some(), "background press arms a band");
+    drive(
+        &mut state,
+        &mut handler,
+        [Action::Mouse {
+            kind: MouseKind::LeftDrag,
+            x: tile_a.x + tile_a.width / 2,
+            y: tile_a.y + tile_a.height / 2,
+            ctrl: false,
+        }],
+    );
+    assert!(
+        state
+            .browser
+            .selected_paths_set()
+            .contains(&path_at(&state, 1))
+    );
+    assert!(
+        !handler
+            .mutations
+            .recorded()
+            .iter()
+            .any(|m| matches!(m, RecordedMutation::Move { .. })),
+        "a marquee never moves files"
+    );
+    drive(
+        &mut state,
+        &mut handler,
+        [Action::Mouse {
+            kind: MouseKind::LeftUp,
+            x: tile_a.x + tile_a.width / 2,
+            y: tile_a.y + tile_a.height / 2,
+            ctrl: false,
+        }],
+    );
+    assert!(state.marquee.is_none());
+    assert!(
+        state
+            .browser
+            .selected_paths_set()
+            .contains(&path_at(&state, 1))
+    );
+
+    // Reverse: bottom-right towards top-left must select identically.
+    let (mut state, mut handler) = rendered(120, 36);
+    let tile_b = drag_rect(&state, 4);
+    let (bx, by) = background_point(&state);
+    drive(
+        &mut state,
+        &mut handler,
+        [Action::Mouse {
+            kind: MouseKind::Left,
+            x: bx,
+            y: by,
+            ctrl: false,
+        }],
+    );
+    drive(
+        &mut state,
+        &mut handler,
+        [Action::Mouse {
+            kind: MouseKind::LeftDrag,
+            x: tile_b.x + 1,
+            y: tile_b.y + 1,
+            ctrl: false,
+        }],
+    );
+    drive(
+        &mut state,
+        &mut handler,
+        [Action::Mouse {
+            kind: MouseKind::LeftUp,
+            x: tile_b.x + 1,
+            y: tile_b.y + 1,
+            ctrl: false,
+        }],
+    );
+    assert!(
+        state
+            .browser
+            .selected_paths_set()
+            .contains(&path_at(&state, 4))
+    );
+}
+
+/// Background cell scanning from the bottom-right corner upwards.
+fn background_point_reverse(state: &AppState) -> (u16, u16) {
+    let bg = grid_background_rect(state);
+    for y in (bg.y..bg.y + bg.height).rev() {
+        for x in (bg.x..bg.x + bg.width).rev() {
+            if state.hit_map.hit(x, y) == Some(tui_explorer::ui::hit::HitTarget::GridBackground) {
+                return (x, y);
+            }
+        }
+    }
+    panic!("no blank grid background cell in this layout");
+}
+
+#[test]
+fn marquee_spanning_multiple_tiles_selects_all_of_them() {
+    let (mut state, mut handler) = rendered(120, 36);
+    // Start beyond the far corner of tile 5 and sweep back across tile 0.
+    let origin = background_point_reverse(&state);
+    let far = drag_rect(&state, 0);
+    drive(
+        &mut state,
+        &mut handler,
+        [
+            Action::Mouse {
+                kind: MouseKind::Left,
+                x: origin.0,
+                y: origin.1,
+                ctrl: false,
+            },
+            Action::Mouse {
+                kind: MouseKind::LeftDrag,
+                x: far.x + far.width / 2,
+                y: far.y + far.height / 2,
+                ctrl: false,
+            },
+            Action::Mouse {
+                kind: MouseKind::LeftUp,
+                x: far.x + far.width / 2,
+                y: far.y + far.height / 2,
+                ctrl: false,
+            },
+        ],
+    );
+    let selected = state.browser.selected_paths_set();
+    for pos in 0..=5 {
+        assert!(
+            selected.contains(&path_at(&state, pos)),
+            "tile {pos} selected"
+        );
+    }
+}
+
+#[test]
+fn background_click_without_drag_clears_selection() {
+    let (mut state, mut handler) = rendered(120, 36);
+    drive(
+        &mut state,
+        &mut handler,
+        [Action::ToggleSelect, Action::MoveDown, Action::ToggleSelect],
+    );
+    assert_eq!(state.browser.selected_paths_set().len(), 2);
+    let (x, y) = background_point(&state);
+    drive(
+        &mut state,
+        &mut handler,
+        [
+            Action::Mouse {
+                kind: MouseKind::Left,
+                x,
+                y,
+                ctrl: false,
+            },
+            Action::Mouse {
+                kind: MouseKind::LeftUp,
+                x,
+                y,
+                ctrl: false,
+            },
+        ],
+    );
+    assert!(
+        state.browser.selected_paths_set().is_empty(),
+        "plain background click clears selection"
+    );
+    assert!(state.marquee.is_none());
+}
+
+#[test]
+fn ctrl_marquee_extends_existing_selection() {
+    let (mut state, mut handler) = rendered(120, 36);
+    drive(
+        &mut state,
+        &mut handler,
+        [Action::GotoFirst, Action::ToggleSelect],
+    );
+    let kept = path_at(&state, 0);
+    let tile = drag_rect(&state, 3);
+    let (bx, by) = background_point(&state);
+    drive(
+        &mut state,
+        &mut handler,
+        [Action::Mouse {
+            kind: MouseKind::Left,
+            x: bx,
+            y: by,
+            ctrl: true,
+        }],
+    );
+    drive(
+        &mut state,
+        &mut handler,
+        [Action::Mouse {
+            kind: MouseKind::LeftDrag,
+            x: tile.x + tile.width / 2,
+            y: tile.y + tile.height / 2,
+            ctrl: true,
+        }],
+    );
+    let selected = state.browser.selected_paths_set();
+    assert!(selected.contains(&kept), "ctrl keeps the base selection");
+    assert!(selected.contains(&path_at(&state, 3)));
+}
+
+#[test]
+fn file_drag_motion_never_creates_a_marquee() {
+    let (mut state, mut handler) = rendered(120, 36);
+    let src = drag_rect(&state, first_file_pos(&state));
+    let dst = drag_rect(&state, 0);
+    drive(
+        &mut state,
+        &mut handler,
+        [Action::Mouse {
+            kind: MouseKind::Left,
+            x: src.x + 1,
+            y: src.y + 1,
+            ctrl: false,
+        }],
+    );
+    drive(
+        &mut state,
+        &mut handler,
+        [Action::Mouse {
+            kind: MouseKind::LeftDrag,
+            x: dst.x + 1,
+            y: dst.y + 1,
+            ctrl: false,
+        }],
+    );
+    assert!(state.drag.is_some());
+    drive(
+        &mut state,
+        &mut handler,
+        [Action::Mouse {
+            kind: MouseKind::LeftDrag,
+            x: dst.x + 3,
+            y: dst.y + 3,
+            ctrl: false,
+        }],
+    );
+    assert!(state.marquee.is_none(), "file drags never become marquees");
+    assert!(state.drag.is_some());
+}
+
+#[test]
+fn esc_and_navigation_clear_transient_marquee() {
+    let (mut state, mut handler) = rendered(120, 36);
+    let (x, y) = background_point(&state);
+    drive(
+        &mut state,
+        &mut handler,
+        [Action::Mouse {
+            kind: MouseKind::Left,
+            x,
+            y,
+            ctrl: false,
+        }],
+    );
+    assert!(state.marquee.is_some());
+    drive(&mut state, &mut handler, [Action::Cancel]);
+    assert!(state.marquee.is_none());
+    assert!(state.drag.is_none());
+}
+
+#[test]
+fn context_menu_hover_selects_without_executing() {
+    let (mut state, mut handler) = rendered(120, 36);
+    let rect = row_rect(&state, first_file_pos(&state));
+    drive(
+        &mut state,
+        &mut handler,
+        [Action::Mouse {
+            kind: MouseKind::Right,
+            x: rect.x + 1,
+            y: rect.y + 1,
+            ctrl: false,
+        }],
+    );
+    let Mode::ContextMenu(menu) = &state.mode else {
+        panic!("expected context menu");
+    };
+    assert_eq!(menu.selected, 0);
+    // Hit regions are rebuilt per render: draw once with the menu open.
+    rerender(&mut state);
+    // Hover row 3 (Move): highlight follows the pointer, nothing executes.
+    let item = context_item_rect(&state, 3);
+    drive(
+        &mut state,
+        &mut handler,
+        [Action::Mouse {
+            kind: MouseKind::Moved,
+            x: item.x + 1,
+            y: item.y,
+            ctrl: false,
+        }],
+    );
+    let Mode::ContextMenu(menu) = &state.mode else {
+        panic!("hover must stay in menu mode");
+    };
+    assert_eq!(menu.selected, 3, "hover moves the highlight");
+    assert!(handler.opened_with.is_empty());
+    assert!(handler.mutations.recorded().is_empty());
+    // Keyboard navigation still works after mouse hover.
+    drive(&mut state, &mut handler, [Action::ContextMove(1)]);
+    let Mode::ContextMenu(menu) = &state.mode else {
+        unreachable!()
+    };
+    assert_eq!(menu.selected, 4);
+    // Left click on a hovered row executes exactly that row.
+    let delete_item = context_item_rect(&state, 5);
+    drive(
+        &mut state,
+        &mut handler,
+        [
+            Action::Mouse {
+                kind: MouseKind::Moved,
+                x: delete_item.x + 1,
+                y: delete_item.y,
+                ctrl: false,
+            },
+            Action::Mouse {
+                kind: MouseKind::Left,
+                x: delete_item.x + 1,
+                y: delete_item.y,
+                ctrl: false,
+            },
+        ],
+    );
+    // Item 5 is Delete: it opens the confirm dialog instead of deleting.
+    assert!(matches!(state.mode, Mode::Confirm(_)));
+    assert!(handler.mutations.recorded().is_empty());
+}
+
+#[test]
+fn pointer_motion_outside_context_menu_is_inert() {
+    let (mut state, mut handler) = rendered(120, 36);
+    drive(&mut state, &mut handler, [Action::GotoFirst]);
+    let focus_before = state.browser.selected;
+    let selection_before = state.browser.selected_paths_set().clone();
+    let other = drag_rect(&state, 6);
+    drive(
+        &mut state,
+        &mut handler,
+        [Action::Mouse {
+            kind: MouseKind::Moved,
+            x: other.x + 1,
+            y: other.y + 1,
+            ctrl: false,
+        }],
+    );
+    assert_eq!(
+        state.browser.selected, focus_before,
+        "hover never refocuses"
+    );
+    assert_eq!(state.browser.selected_paths_set(), &selection_before);
 }
