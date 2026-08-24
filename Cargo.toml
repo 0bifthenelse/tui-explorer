@@ -37,4 +37,5 @@ lto = true
 codegen-units = 1
 
 [dev-dependencies]
+rodio = { version = "0.21.1", default-features = false, features = ["playback"] }
 vt100 = "0.15"
