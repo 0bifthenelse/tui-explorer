@@ -12,5 +12,5 @@
 |  deploy  15K                                             |
 |  index.html  1.0K                                        |
 |  main.rs  2.0K                                           |
- BROWSER                                           5%  1/18
 | e/Enter Open | X Crypt | Bsp Up | v Visual | t Tag
+ BROWSER                                           5%  1/18

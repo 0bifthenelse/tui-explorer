@@ -19,6 +19,6 @@
 
 
 
- BROWSER                                                               5%  1/20
-| e/Enter Open | X Crypt | Bsp Up | v Visual | t Tag | : Command | ? Help
 TIP  Double-click or Enter/e to open * Right-click for menu * Mouse wheel to sc~
+| e/Enter Open | X Crypt | Bsp Up | v Visual | t Tag | : Command | ? Help
+ BROWSER                                                               5%  1/20

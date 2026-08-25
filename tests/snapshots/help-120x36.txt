@@ -3,34 +3,34 @@
 PLACES ----------------|18 items (2 dirs, 16 files)  Sort: name (asc)
  Root                  ||   ______   ||   ______   || .--------. || .--------. || .--------. || .--------. |
 MOUNTS ---+ HELP --------------------------------------------------------------------------------------------+
-(no device|j / Down          next row of tiles              q                 quit                           |
-TAGS -----|k / Up            previous row of tiles          Space (media)     play or pause the focused aud~ |
-(no tags y|h / Left          tile left                      Left/Right (media)seek 5 seconds                 |
-BOOKMARKS |l / Right         tile right                     Up/Down (media)   volume up/down                 |
-(Ctrl-b bo|Backspace         parent directory               s (media)         restart from the beginning     |
-          |F5                refresh current directory      Esc/q (media)     close the media modal          |
-          |e / Enter         open: folder, media, or open-~ :copy <dest>      copy selection                 |
-          |r                 open with: prompt for a comma~ :move <dest>      move selection                 |
-          |double left click open: enter folder or open fi~ :rename <name>    rename entry                   |
-          |single left click select and focus (never opens) :delete           delete selection (confirmed)   |
-          |g g               first entry                    :tag <name>       assign tag                     |
-          |G                 last entry                     :untag <name>     remove tag                     |
-          |Ctrl-u / Ctrl-d   half page up / down            :tags             open tag picker                |
-          |PageUp / PageDown full page up / down            :open             open entry                     |
-          |Space             toggle entry selection         :open-with <cmd> ~run a command on the entry (a~ |
-          |v                 visual multi-selection mode    :cd <path>        change directory               |
-          |.                 toggle hidden files            :mkdir <name>     create a directory             |
-          |X                 encrypt / decrypt focused ent~ :touch <name>     create an empty file / update~ |
-          |b                 toggle sidebar                 :selectall        select every entry             |
-          |p                 toggle preview panel           :invert           invert the current selection   |
-          |B                 search bookmarks (fuzzy)       :deselect         clear the current selection    |
-          |Ctrl-b            bookmark / unbookmark current~ :sort <field>     sort by name, size, or modifi~ |
-          |t                 toggle last used tag           :refresh          reload current directory       |
-          |T                 tag picker and manager         :quit             quit                           |
-          |/ / Ctrl-f        filter current directory file~ :help             this help                      |
-          |:                 command mode                   mouse right       context menu                   |
+(no device|j / Down          next row of tiles              Space (media)     play or pause the focused aud~ |
+TAGS -----|k / Up            previous row of tiles          Left/Right (media)seek +/-15 seconds             |
+(no tags y|h / Left          tile left                      Up/Down (media)   volume up/down                 |
+BOOKMARKS |l / Right         tile right                     f (media)         toggle fullscreen video        |
+(Ctrl-b bo|Backspace         parent directory               n (media)         next playlist track            |
+          |F5                refresh current directory      s (media)         restart from the beginning     |
+          |e / Enter         open: folder, media, or open-~ Esc/q (media)     close the media modal          |
+          |r                 open with: prompt for a comma~ :copy <dest>      copy selection                 |
+          |double left click open: enter folder or open fi~ :move <dest>      move selection                 |
+          |single left click select and focus (never opens) :rename <name>    rename entry                   |
+          |g g               first entry                    :delete           delete selection (confirmed)   |
+          |G                 last entry                     :tag <name>       assign tag                     |
+          |Ctrl-u / Ctrl-d   half page up / down            :untag <name>     remove tag                     |
+          |PageUp / PageDown full page up / down            :tags             open tag picker                |
+          |Space             toggle entry selection         :open             open entry                     |
+          |v                 visual multi-selection mode    :open-with <cmd> ~run a command on the entry (a~ |
+          |.                 toggle hidden files            :cd <path>        change directory               |
+          |X                 encrypt / decrypt focused ent~ :mkdir <name>     create a directory             |
+          |b                 toggle sidebar                 :touch <name>     create an empty file / update~ |
+          |p                 toggle preview panel           :selectall        select every entry             |
+          |B                 search bookmarks (fuzzy)       :invert           invert the current selection   |
+          |Ctrl-b            bookmark / unbookmark current~ :deselect         clear the current selection    |
+          |t                 toggle last used tag           :sort <field>     sort by name, size, or modifi~ |
+          |T                 tag picker and manager         :refresh          reload current directory       |
+          |/ / Ctrl-f        filter current directory file~ :quit             quit                           |
+          |:                 command mode                   :help             this help                      |
           +--------------------------------------------------------------------------------------------------+
                        |
                        |
- HELP                                                                                                          5%  1/18
 | Esc close
+ HELP                                                                                                          5%  1/18

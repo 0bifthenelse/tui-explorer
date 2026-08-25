@@ -1,5 +1,6 @@
 use std::path::Path;
 
+pub mod aiff;
 pub mod audio;
 pub mod mpv;
 

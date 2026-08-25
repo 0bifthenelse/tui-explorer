@@ -16,9 +16,10 @@ Named tags (such as `[src]` or `[fav]`) can be attached to any file or directory
 - File and folder encryption with the `age` crate's passphrase API (`X`): files become `name.ext.age`, folders are tar-archived to `name.tar.age`; masked password dialog, atomic temp-file output, no source deletion, no silent overwrites, safe archive extraction (no `..` or absolute paths, symlinks never followed)
 - Image previews in the panel (PNG, JPEG, GIF first frame, WebP, BMP) via `ratatui-image`; capability and cell-pixel detection happen before the TUI starts, Kitty graphics are used when detected, half-blocks provide the safe fallback, and image decoding stays off the render loop
 - Text and directory previews in the same panel, cached per focused entry and invalidated on mtime/size changes
-- Direct audio playback with a real PCM-derived FFT spectrum: supported files (wav, flac, ogg, oga, mp3, m4a) open straight into a media modal with transport controls, seek, volume, and a 24-band logarithmic visualization (Symphonia decoders, rodio playback; the file is decoded exactly once)
+- Built-in audio and video players: audio files open straight into a media modal with transport buttons, an interactive seek rail, volume, and a 24-band logarithmic spectrum visualization (Symphonia decoders, rodio playback; the file is decoded exactly once); video plays through `mpv` with Kitty graphics
 - Directory browsing with breadcrumb, metadata columns, and symlink, executable, hidden, socket, pipe, and device distinctions
 - Full Vim-style keyboard control plus complete mouse navigation; no operation requires a mouse
+- Internal clipboard with copy/cut/paste semantics: right-click menus capture explicit targets, a background paste drops into the current directory, and a clipboard chip stays visible in the footer until pasted or replaced
 - Multi-selection with visual mode
 - Colon commands for copy, move, rename, delete, tag, and navigation
 - Original ASCII icon engine with compact, small, and large icon variants
@@ -89,7 +90,9 @@ Mouse controls:
 
 - Left click: select a tile, activate a legend action, navigate the breadcrumb or jump to a sidebar place/mount/bookmark (a single click never opens anything)
 - Double left click on the same entry: enter a directory, or prompt for a command to open a file
-- Right click: context menu for the focused entry
+- Right click on an entry: context menu. On an entry that is part of a multi-selection, the menu targets every selected entry (Bulk menu with Copy/Cut/Delete); otherwise it targets only the clicked entry (Single menu with Open/Open-with/Rename/Cut/Copy/Delete/Tags)
+- Right click on empty background: background menu offering Paste into the current directory (enabled when the clipboard holds items); the selection is untouched
+- Click empty space: deselect everything
 - Mouse wheel: scroll the list
 - Click a tag badge in the details panel: open the tag picker
 - Click outside a modal: dismiss it (only when safe, destructive confirmations always cancel)
@@ -99,13 +102,32 @@ Media controls (in the media modal):
 | Key | Action |
 | --- | --- |
 | Space / Enter | play or pause |
-| Left / `h` | seek back 5 seconds |
-| Right / `l` | seek forward 5 seconds |
+| Left / `h` | seek back 15 seconds |
+| Right / `l` | seek forward 15 seconds |
 | Up / Down | volume up / down in 5% steps (`+` / `-` also work) |
+| `f` | toggle fullscreen video (video only) |
+| `n` | next track in the playlist |
 | `s` | stop and restart from the beginning |
 | Esc / `q` | close the media modal |
 
-- Supported audio: `wav`, `flac`, `ogg`, `oga`, `mp3`, `m4a`. Video (mp4, mkv, webm, and more) requires `mpv` and a Kitty graphics terminal.
+The modal also offers on-screen transport buttons and a clickable seek rail: click or drag the rail to scrub, release to commit the seek.
+
+### Supported audio formats
+
+| Route | Formats |
+| --- | --- |
+| Native (Symphonia, no external player) | `wav`, `flac`, `ogg`, `oga`, `mp3`, `m4a` (AAC-LC and ALAC), `aif`, `aiff`, `aifc` |
+| mpv fallback | `opus`, `wma` |
+
+M4A files play natively for both AAC-LC and ALAC: the container's codec parameters are completed decoder-side when the demuxer leaves them unset. AIFF files are handled by a built-in parser supporting uncompressed integer PCM (`NONE`, `sowt`, `twos`) at 8, 16, 24, and 32 bits per sample plus 32-bit floats; other AIFF compressions report a typed error instead of failing silently. Every format in the native route is exercised by the deterministic fixture suite under `tests/fixtures/audio/`, which decodes, seeks within, and checks durations of real generated tones; the claims above reflect exactly what those tests cover.
+
+### Selection semantics
+
+The explicit selection (Space, `v` visual mode, click-drag marquee) is authoritative for mouse menus and bulk operations. Keyboard commands and colon commands act on the selection when one exists, and fall back to the focused entry when it does not. Right-clicking an unselected entry never silently extends or collapses the selection: it opens a single-item menu for that entry while the existing selection stays intact. Left-clicking empty space clears the selection entirely.
+
+### Status bar
+
+The left side shows the hovered filename, falling back to the single selected entry's name, then a `{n} items selected` summary. Center and right keep the existing message and indicator segments; an active error always takes precedence over the filename segment. A clipboard chip such as `COPY: 3 items` appears while items are held and disappears once pasted or replaced.
 
 ## Encryption
 

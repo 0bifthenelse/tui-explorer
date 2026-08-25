@@ -15,10 +15,10 @@ BOOKMARKS -------------|| docs       || src        || a very lon~|| app.tsx    |
                        || '--------' ||targets: 1                                |'--------' || '--------' |
                        || Cargo.lock ||>[x] fav             [fav]                |index.html || main.rs    |
                        ||50K         ||                                          |.0K        ||2.0K        |
-                       || .--------. || [n] new  [d] delete  [Esc] close         |.--------. || .--------. |
-                       || | .--'   | ||                                          || .--'   | || | .--'   | |
-                       || | MD     | ||                                          || MP3    | || | CSS    | |
-                       || | ------ | ||                                          || ------ | || | ------ | |
+                       || .--------. ||                                          |.--------. || .--------. |
+                       || | .--'   | ||+---+ +------+ +-----+                    || .--'   | || | .--'   | |
+                       || | MD     | |||New| |Delete| |Close|                    || MP3    | || | CSS    | |
+                       || | ------ | ||+---+ +------+ +-----+                    || ------ | || | ------ | |
                        || '--------' |+------------------------------------------+'--------' || '--------' |
                        || notes.md   || package.js~|| photo.png  || README link|| song.mp3   || style.css  |
                        ||1.5K        ||412B        ||2.0M        ||9B          ||5.0M        ||2.5K        |
@@ -32,5 +32,5 @@ BOOKMARKS -------------|| docs       || src        || a very lon~|| app.tsx    |
                        |
                        |
                        |
- TAGS  tagged 1 entry with [fav]                                                                               5%  1/18
 | Enter toggle | n new | d delete | Esc close
+ TAGS  tagged 1 entry with [fav]                                                                               5%  1/18

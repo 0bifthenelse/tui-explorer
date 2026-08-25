@@ -52,101 +52,37 @@ impl MpvProcess {
         cell_pixels: (u16, u16),
         session: u64,
     ) -> Result<Self, String> {
-        let socket_path = private_socket_path(session)?;
-        prepare_socket_dir(&socket_path)?;
-        let _ = std::fs::remove_file(&socket_path);
-
-        // vo-kitty unit contract (mpv manual): cols/rows are the surface
-        // size in CELLS, width/height the available area in PIXELS, and
-        // left/top the image origin in CELLS (1 = first column/row).
-        let width_px = u32::from(size_cells.0) * u32::from(cell_pixels.0);
-        let height_px = u32::from(size_cells.1) * u32::from(cell_pixels.1);
-        let left_cells = u32::from(geometry_cells.0).saturating_add(1);
-        let top_cells = u32::from(geometry_cells.1).saturating_add(1);
+        let socket_path = open_private_socket(session)?;
 
         let mut command = Command::new("mpv");
         command
-            .arg("--no-config")
-            .arg("--terminal=no")
-            .arg("--really-quiet")
-            .arg("--idle=yes")
-            .arg("--force-window=no")
-            .arg("--profile=sw-fast")
-            .arg("--input-default-bindings=no")
-            .arg("--vo=kitty")
-            .arg("--vo-kitty-alt-screen=no")
-            .arg("--vo-kitty-config-clear=no")
-            .arg("--vo-kitty-use-shm=no")
-            .arg(format!("--vo-kitty-cols={}", size_cells.0))
-            .arg(format!("--vo-kitty-rows={}", size_cells.1))
-            .arg(format!("--vo-kitty-left={left_cells}"))
-            .arg(format!("--vo-kitty-top={top_cells}"))
-            .arg(format!("--vo-kitty-width={width_px}"))
-            .arg(format!("--vo-kitty-height={height_px}"))
-            .arg(format!("--input-ipc-server={}", socket_path.display()))
-            .arg(path)
+            .args(common_mpv_args(path, &socket_path))
+            .args(kitty_video_args(geometry_cells, size_cells, cell_pixels))
             .stdin(Stdio::null())
             // The Kitty video output paints through stdout; discarding it
             // would leave audio-only playback. stderr stays piped for
-            // bounded diagnostics, stdin is unused.
+            // bounded diagnostics.
             .stdout(Stdio::inherit())
             .stderr(Stdio::piped());
+        finish_spawn(command, socket_path)
+    }
 
-        #[cfg(unix)]
-        unsafe {
-            use std::os::unix::process::CommandExt;
-            command.pre_exec(|| {
-                libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM, 0, 0, 0);
-                Ok(())
-            });
-        }
+    /// Spawns an audio-only mpv (`--vo=null --no-video --audio-display=no`)
+    /// over the same IPC/stderr/shutdown machinery as `spawn`. Used by the
+    /// supervisor for audio codecs symphonia cannot decode; no vo-kitty
+    /// geometry is passed and nothing ever paints, so the child's stdout is
+    /// discarded.
+    pub fn spawn_audio(path: &Path, session: u64) -> Result<Self, String> {
+        let socket_path = open_private_socket(session)?;
 
-        let mut child = command
-            .spawn()
-            .map_err(|error| format!("cannot start mpv: {error}"))?;
-        let stderr = child.stderr.take();
-        let stderr_thread = std::thread::spawn(move || {
-            let mut buffer = Vec::new();
-            if let Some(stderr) = stderr {
-                use std::io::Read;
-                let _ = stderr.take(8192).read_to_end(&mut buffer);
-            }
-            buffer
-        });
-
-        // Wait briefly for the socket, then connect.
-        let mut connected = None;
-        for _ in 0..100 {
-            if let Ok(stream) = UnixStream::connect(&socket_path) {
-                connected = Some(stream);
-                break;
-            }
-            if let Ok(Some(status)) = child.try_wait() {
-                let _ = std::fs::remove_file(&socket_path);
-                let detail = stderr_tail_string(stderr_thread.join().unwrap_or_default());
-                return Err(match detail {
-                    Some(tail) => format!("mpv exited during startup ({status}): {tail}"),
-                    None => format!("mpv exited during startup ({status})"),
-                });
-            }
-            std::thread::sleep(Duration::from_millis(20));
-        }
-        let stream = connected.ok_or_else(|| "mpv IPC socket never appeared".to_string())?;
-        stream
-            .set_nonblocking(true)
-            .map_err(|error| format!("cannot configure IPC stream: {error}"))?;
-        let clone = stream
-            .try_clone()
-            .map_err(|error| format!("cannot clone IPC stream: {error}"))?;
-
-        Ok(MpvProcess {
-            child,
-            socket_path,
-            stream,
-            reader: BufReader::new(clone),
-            stderr: Some(stderr_thread),
-            next_request_id: 1,
-        })
+        let mut command = Command::new("mpv");
+        command
+            .args(common_mpv_args(path, &socket_path))
+            .args(AUDIO_ONLY_ARGS.iter().copied())
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped());
+        finish_spawn(command, socket_path)
     }
 
     pub fn pid(&self) -> u32 {
@@ -312,6 +248,128 @@ fn merge_object(target: &mut serde_json::Value, extra: serde_json::Value) {
     }
 }
 
+/// Creates the private IPC socket path for `session`, prepares its
+/// directory, and clears any stale socket left by a previous run.
+fn open_private_socket(session: u64) -> Result<PathBuf, String> {
+    let socket_path = private_socket_path(session)?;
+    prepare_socket_dir(&socket_path)?;
+    let _ = std::fs::remove_file(&socket_path);
+    Ok(socket_path)
+}
+
+/// Flags shared by every mpv invocation: clean environment, quiet terminal,
+/// no window of its own, private IPC socket, target media last. Shared
+/// verbatim between the video and audio-only profiles.
+fn common_mpv_args(path: &Path, socket_path: &Path) -> Vec<String> {
+    let mut args: Vec<String> = [
+        "--no-config",
+        "--terminal=no",
+        "--really-quiet",
+        "--idle=yes",
+        "--force-window=no",
+        "--profile=sw-fast",
+        "--input-default-bindings=no",
+    ]
+    .iter()
+    .map(|flag| (*flag).to_string())
+    .collect();
+    args.push(format!("--input-ipc-server={}", socket_path.display()));
+    args.push(path.display().to_string());
+    args
+}
+
+/// Audio-only output profile: no video decoder and no surface claimed at
+/// all (`--audio-display=no` keeps cover art from forcing a window).
+const AUDIO_ONLY_ARGS: &[&str] = &["--vo=null", "--no-video", "--audio-display=no"];
+
+/// vo-kitty geometry flags pinning the video output to the reserved
+/// rectangle. Unit contract (mpv manual): cols/rows are the surface size
+/// in CELLS, width/height the available area in PIXELS, and left/top the
+/// image origin in CELLS (1 = first column/row).
+fn kitty_video_args(
+    geometry_cells: (u16, u16),
+    size_cells: (u16, u16),
+    cell_pixels: (u16, u16),
+) -> Vec<String> {
+    let width_px = u32::from(size_cells.0) * u32::from(cell_pixels.0);
+    let height_px = u32::from(size_cells.1) * u32::from(cell_pixels.1);
+    let left_cells = u32::from(geometry_cells.0).saturating_add(1);
+    let top_cells = u32::from(geometry_cells.1).saturating_add(1);
+    vec![
+        "--vo=kitty".to_string(),
+        "--vo-kitty-alt-screen=no".to_string(),
+        "--vo-kitty-config-clear=no".to_string(),
+        "--vo-kitty-use-shm=no".to_string(),
+        format!("--vo-kitty-cols={}", size_cells.0),
+        format!("--vo-kitty-rows={}", size_cells.1),
+        format!("--vo-kitty-left={left_cells}"),
+        format!("--vo-kitty-top={top_cells}"),
+        format!("--vo-kitty-width={width_px}"),
+        format!("--vo-kitty-height={height_px}"),
+    ]
+}
+
+/// Spawns the prepared command with the pdeathsig guard, captures bounded
+/// stderr, waits briefly for the IPC socket, and wires the nonblocking
+/// stream pair. Shared tail of `spawn` and `spawn_audio`.
+fn finish_spawn(mut command: Command, socket_path: PathBuf) -> Result<MpvProcess, String> {
+    #[cfg(unix)]
+    unsafe {
+        use std::os::unix::process::CommandExt;
+        command.pre_exec(|| {
+            libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM, 0, 0, 0);
+            Ok(())
+        });
+    }
+
+    let mut child = command
+        .spawn()
+        .map_err(|error| format!("cannot start mpv: {error}"))?;
+    let stderr = child.stderr.take();
+    let stderr_thread = std::thread::spawn(move || {
+        let mut buffer = Vec::new();
+        if let Some(stderr) = stderr {
+            use std::io::Read;
+            let _ = stderr.take(8192).read_to_end(&mut buffer);
+        }
+        buffer
+    });
+
+    // Wait briefly for the socket, then connect.
+    let mut connected = None;
+    for _ in 0..100 {
+        if let Ok(stream) = UnixStream::connect(&socket_path) {
+            connected = Some(stream);
+            break;
+        }
+        if let Ok(Some(status)) = child.try_wait() {
+            let _ = std::fs::remove_file(&socket_path);
+            let detail = stderr_tail_string(stderr_thread.join().unwrap_or_default());
+            return Err(match detail {
+                Some(tail) => format!("mpv exited during startup ({status}): {tail}"),
+                None => format!("mpv exited during startup ({status})"),
+            });
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let stream = connected.ok_or_else(|| "mpv IPC socket never appeared".to_string())?;
+    stream
+        .set_nonblocking(true)
+        .map_err(|error| format!("cannot configure IPC stream: {error}"))?;
+    let clone = stream
+        .try_clone()
+        .map_err(|error| format!("cannot clone IPC stream: {error}"))?;
+
+    Ok(MpvProcess {
+        child,
+        socket_path,
+        stream,
+        reader: BufReader::new(clone),
+        stderr: Some(stderr_thread),
+        next_request_id: 1,
+    })
+}
+
 /// `$XDG_RUNTIME_DIR/tui-explorer/mpv-{pid}-{session}.sock`, or
 /// `$XDG_CACHE_HOME/tui-explorer/run/...` when the runtime dir is absent.
 fn private_socket_path(session: u64) -> Result<PathBuf, String> {
@@ -354,4 +412,46 @@ fn set_private_mode(path: &Path) -> Result<(), String> {
 #[cfg(not(unix))]
 fn set_private_mode(_path: &Path) -> Result<(), String> {
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn audio_and_video_profiles_differ_only_in_output_flags() {
+        let common = common_mpv_args(Path::new("/tmp/tone.opus"), Path::new("/tmp/sock"));
+        // Media path stays the final argument; IPC socket and no --vo
+        // output flag live in the shared base.
+        assert_eq!(common.last().map(String::as_str), Some("/tmp/tone.opus"));
+        assert!(
+            common
+                .iter()
+                .any(|arg| arg.starts_with("--input-ipc-server=")),
+            "shared base must carry the IPC socket flag"
+        );
+        assert!(
+            !common.iter().any(|arg| arg.starts_with("--vo")),
+            "shared base must not pick an output profile"
+        );
+
+        let video = kitty_video_args((2, 3), (40, 20), (10, 20));
+        let audio: Vec<String> = AUDIO_ONLY_ARGS.iter().map(ToString::to_string).collect();
+
+        // Video pins vo-kitty to the reserved rectangle (cells +1 origin,
+        // pixel sizes from the font metrics).
+        assert!(video.contains(&"--vo=kitty".to_string()));
+        assert!(video.contains(&"--vo-kitty-cols=40".to_string()));
+        assert!(video.contains(&"--vo-kitty-rows=20".to_string()));
+        assert!(video.contains(&"--vo-kitty-left=3".to_string()));
+        assert!(video.contains(&"--vo-kitty-top=4".to_string()));
+        assert!(video.contains(&"--vo-kitty-width=400".to_string()));
+        assert!(video.contains(&"--vo-kitty-height=400".to_string()));
+
+        // Audio claims no video surface whatsoever.
+        assert_eq!(audio, ["--vo=null", "--no-video", "--audio-display=no"]);
+        for flag in &video {
+            assert!(!audio.contains(flag), "audio profile must not carry {flag}");
+        }
+    }
 }

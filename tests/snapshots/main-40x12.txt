@@ -8,5 +8,5 @@
 |  build.sh  256B                      |
 |  Cargo.lock  50K                     |
 |  Cargo.toml  734B                    |
- BROWSER                       5%  1/18
 | e/Enter Open | X Crypt | Bsp Up
+ BROWSER                       5%  1/18

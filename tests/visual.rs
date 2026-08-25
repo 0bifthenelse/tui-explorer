@@ -347,9 +347,20 @@ fn palette_tiles_expose_focus_and_selection_fills() {
     );
     let terminal = rendered_terminal(&mut state, 120, 36);
     let buffer = terminal.backend().buffer();
-    assert!(cells_matching(buffer, |cell| cell.bg == FOCUS_BG) > 0);
-    assert!(cells_matching(buffer, |cell| cell.fg == ACCENT) > 0);
+    // Selected tiles keep the selection fill; the bare navigation cursor
+    // is a strong border only — it must NOT paint a focus fill (the old
+    // cursor-looks-selected bug), so FOCUS_BG never appears here.
     assert!(cells_matching(buffer, |cell| cell.bg == SELECTED_BG) > 0);
+    assert!(
+        cells_matching(buffer, |cell| cell.fg == BORDER_STRONG) > 0,
+        "cursor-only tile must draw its BORDER_STRONG frame"
+    );
+    assert_eq!(
+        cells_matching(buffer, |cell| cell.bg == FOCUS_BG),
+        0,
+        "cursor-as-selection fill must be gone"
+    );
+    assert!(cells_matching(buffer, |cell| cell.fg == ACCENT) > 0);
 }
 
 #[test]
@@ -920,13 +931,27 @@ fn video_media_state(
 #[test]
 fn media_toggle_control_tracks_real_phase() {
     // While the backend reports Playing the control offers PAUSE.
+    // Buttons render as bordered widgets, so the label appears surrounded
+    // by border glyphs rather than bracketed text; note PLAY is a
+    // substring of PAUSE, hence the exact-token comparison over
+    // non-alphanumeric boundaries.
+    let has_token = |text: &str, token: &str| {
+        text.split(|c: char| !c.is_ascii_alphanumeric())
+            .any(|word| word == token)
+    };
     let (mut state, _) = loaded(120, 36);
     state.mode = Mode::Media(Box::new(audio_media_state(
         tui_explorer::media::MediaPhase::Playing,
     )));
     let text = render(&mut state, 120, 36);
-    assert!(text.contains("[PAUSE]"), "playing modal must offer PAUSE");
-    assert!(!text.contains("[PLAY]"), "stale PLAY label must not remain");
+    assert!(
+        has_token(&text, "PAUSE"),
+        "playing modal must offer PAUSE: {text}"
+    );
+    assert!(
+        !has_token(&text, "PLAY"),
+        "stale PLAY label must not remain: {text}"
+    );
 
     // While paused it offers PLAY again.
     let (mut state, _) = loaded(120, 36);
@@ -934,7 +959,7 @@ fn media_toggle_control_tracks_real_phase() {
         tui_explorer::media::MediaPhase::Paused,
     )));
     let text = render(&mut state, 120, 36);
-    assert!(text.contains("[PLAY]"), "paused modal must offer PLAY");
+    assert!(has_token(&text, "PLAY"), "paused modal must offer PLAY");
 }
 
 #[test]

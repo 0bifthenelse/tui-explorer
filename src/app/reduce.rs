@@ -1,3 +1,4 @@
+use ratatui::layout::Rect;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
@@ -5,7 +6,7 @@ use crate::app::action::{Action, ConflictDecision, DirectorySnapshot, MouseKind}
 use crate::app::effects::Effect;
 use crate::app::state::{
     AppState, BookmarkNavState, ClipMode, ClipboardState, ConfirmAction, ConfirmState,
-    ConflictState, ContextItem, ContextMenuState, ContextTarget, DragPhase, DragState,
+    ConflictState, ContextItem, ContextMenuState, ContextTarget, DragPhase, DragState, HoverState,
     MarqueePhase, MarqueeState, MediaState, Mode, OpenWithState, OperationState, Password,
     PasswordPurpose, PasswordState, PreviewContent, StatusMessage, TagPickerState,
 };
@@ -570,8 +571,10 @@ fn reduce_inner(state: &mut AppState, action: Action) -> Vec<Effect> {
             state.width = width;
             state.height = height;
             state.drag = None;
-            // Video restarts at the new geometry: snapshot playback, stop
-            // the backend, and re-enter Preparing once stopped.
+            // Seek-rail interaction geometry is stale at the new size.
+            if let Mode::Media(media) = &mut state.mode {
+                media.clear_slider_state();
+            }
             if let Mode::Media(media) = &mut state.mode
                 && media.kind == crate::media::MediaKind::Video
                 && !matches!(
@@ -798,6 +801,8 @@ fn close_media(state: &mut AppState, after_stop: AfterStop) -> Vec<Effect> {
     }
     media.phase = MediaPhase::Stopping;
     media.after_stop = Some(after_stop);
+    // A closing session leaves no rail hover/drag residue behind.
+    media.clear_slider_state();
     vec![Effect::StopMedia {
         session: media.session,
     }]
@@ -1586,6 +1591,18 @@ fn operation_finished(state: &mut AppState, report: OperationReport) -> Vec<Effe
     } else {
         state.set_error(text);
     }
+    // Paste lifecycle: a completed Cut removes the successfully moved
+    // sources from the clipboard (failed/skipped stay so the paste can be
+    // retried); Copy keeps everything for repeat pastes. Either way the
+    // pending flag is consumed.
+    let pending = state.pending_paste_mode.take();
+    if pending == Some(ClipMode::Cut) {
+        let moved: Vec<PathBuf> = report.moves.iter().map(|(from, _)| from.clone()).collect();
+        state.clipboard.items.retain(|p| !moved.contains(p));
+        if state.clipboard.items.is_empty() {
+            state.clipboard.mode = None;
+        }
+    }
     let mut effects: Vec<Effect> = report
         .moves
         .iter()
@@ -1653,9 +1670,62 @@ fn mouse(state: &mut AppState, kind: MouseKind, x: u16, y: u16, ctrl: bool) -> V
             _ => return Vec::new(),
         }
     }
+    // A fresh left press supersedes an in-flight rail gesture without
+    // committing (mirroring the stale-press drop above).
+    if kind == MouseKind::Left
+        && media_slider_drag_active(state)
+        && let Mode::Media(media) = &mut state.mode
+    {
+        media.clear_slider_state();
+    }
+    // While a rail drag is live it owns the pointer until release, even
+    // when the pointer slips off the registered track: updates clamp to
+    // the nearest endpoint, and the release commits exactly once.
+    if media_slider_drag_active(state) && matches!(kind, MouseKind::LeftDrag | MouseKind::LeftUp) {
+        return match kind {
+            MouseKind::LeftUp => commit_slider_drag(state),
+            _ => {
+                let rect = state.hit_map.rect_for(HitTarget::MediaSeekRail);
+                if let Mode::Media(media) = &mut state.mode
+                    && let Some(seconds) = rect.and_then(|r| rail_seconds(r, x, media.duration))
+                {
+                    media.slider_drag_pos = Some(seconds);
+                }
+                Vec::new()
+            }
+        };
+    }
+    // While a context menu is open, a left press anywhere off its items
+    // dismisses it (the clipboard stays untouched); a right press dismisses
+    // and falls through so the normal dispatch can reopen a menu at the
+    // new point.
+    if matches!(state.mode, Mode::ContextMenu(_)) {
+        let on_item = matches!(state.hit_map.hit(x, y), Some(HitTarget::ContextItem(_)));
+        match kind {
+            MouseKind::Right => state.mode = Mode::Browser,
+            MouseKind::Left if !on_item => {
+                state.mode = Mode::Browser;
+                return Vec::new();
+            }
+            _ => {}
+        }
+    }
     let Some(target) = state.hit_map.hit(x, y) else {
+        // Off every registered region: nothing is hovered.
+        if kind == MouseKind::Moved {
+            state.hover = HoverState::default();
+            if let Mode::Media(media) = &mut state.mode {
+                media.slider_hover = None;
+            }
+        }
         return Vec::new();
     };
+    // True pointer-hover bookkeeping: the hovered grid row or control, and
+    // the seek-rail preview while a media session is up. Runs before the
+    // dispatch so dedicated arms (menu-item selection) still apply.
+    if kind == MouseKind::Moved {
+        update_hover(state, target, x);
+    }
     match target {
         HitTarget::GridBackground => match kind {
             MouseKind::Left => {
@@ -1668,6 +1738,21 @@ fn mouse(state: &mut AppState, kind: MouseKind, x: u16, y: u16, ctrl: bool) -> V
                         std::collections::BTreeSet::new()
                     };
                     state.marquee = Some(MarqueeState::armed((x, y), base));
+                }
+                Vec::new()
+            }
+            MouseKind::Right => {
+                // Background right-click: paste-oriented menu; the current
+                // selection is left untouched.
+                if matches!(state.mode, Mode::Browser) {
+                    let target = ContextTarget::Background;
+                    state.mode = Mode::ContextMenu(Box::new(ContextMenuState {
+                        items: ContextItem::menu_for(&target, !state.clipboard.is_empty()),
+                        target,
+                        selected: 0,
+                        x,
+                        y,
+                    }));
                 }
                 Vec::new()
             }
@@ -1709,12 +1794,25 @@ fn mouse(state: &mut AppState, kind: MouseKind, x: u16, y: u16, ctrl: bool) -> V
                     state.browser.selected = pos;
                     let (c, r) = grid_dims(state);
                     state.browser.clamp_scroll_grid(c, r);
-                    if let Some(view) = state.browser.focused() {
-                        // Bulk semantics arrive with hover/retarget work;
-                        // the captured target already decouples the menu
-                        // from browser.targets().
-                        let target = ContextTarget::Single {
-                            path: view.entry.path.clone(),
+                    if let Some(path) = state
+                        .browser
+                        .visible_indices()
+                        .get(pos)
+                        .and_then(|&i| state.browser.entries.get(i))
+                        .map(|v| v.entry.path.clone())
+                    {
+                        // Right-clicking a selection member acts on the
+                        // whole selection; anything else targets just the
+                        // clicked row. The selection set itself is left
+                        // untouched in both cases.
+                        let selection = state.browser.selected_paths_set();
+                        let target = if selection.contains(&path) && selection.len() > 1 {
+                            // A BTreeSet iterates sorted and deduped.
+                            ContextTarget::Bulk {
+                                paths: selection.iter().cloned().collect(),
+                            }
+                        } else {
+                            ContextTarget::Single { path }
                         };
                         state.mode = Mode::ContextMenu(Box::new(ContextMenuState {
                             items: ContextItem::menu_for(&target, !state.clipboard.is_empty()),
@@ -1865,12 +1963,33 @@ fn mouse(state: &mut AppState, kind: MouseKind, x: u16, y: u16, ctrl: bool) -> V
             MouseKind::Left => reduce(state, Action::MediaClose),
             _ => Vec::new(),
         },
-        HitTarget::MediaSeekRail => {
-            // Rail press/drag/commit wiring lands with the slider state
-            // machine; the geometry helper ships with the widget layer.
-            let _ = kind;
-            Vec::new()
-        }
+        HitTarget::MediaSeekRail => match kind {
+            // Press: record the preview position; no seek is emitted yet.
+            MouseKind::Left => {
+                let rect = state.hit_map.rect_for(HitTarget::MediaSeekRail);
+                if let Mode::Media(media) = &mut state.mode {
+                    media.slider_drag_active = true;
+                    media.slider_drag_pos = rect.and_then(|r| rail_seconds(r, x, media.duration));
+                }
+                Vec::new()
+            }
+            // Drag: keep the preview glued to the pointer while a press is
+            // live; without a known duration nothing is recorded.
+            MouseKind::LeftDrag => {
+                let rect = state.hit_map.rect_for(HitTarget::MediaSeekRail);
+                if let Mode::Media(media) = &mut state.mode
+                    && media.slider_drag_active
+                    && let Some(seconds) = rect.and_then(|r| rail_seconds(r, x, media.duration))
+                {
+                    media.slider_drag_pos = Some(seconds);
+                }
+                Vec::new()
+            }
+            // Release: exactly one absolute seek when the gesture captured
+            // a position; the interaction state always resets.
+            MouseKind::LeftUp => commit_slider_drag(state),
+            _ => Vec::new(),
+        },
 
         HitTarget::MediaFullscreen => match kind {
             MouseKind::Left => reduce(state, Action::MediaToggleFullscreen),
@@ -1886,6 +2005,112 @@ fn mouse(state: &mut AppState, kind: MouseKind, x: u16, y: u16, ctrl: bool) -> V
             _ => Vec::new(),
         },
     }
+}
+
+/// Whether a hit target is an interactive control worth surfacing as
+/// hovered (buttons, legend entries, breadcrumbs, ...). Rows, blank grid
+/// space, and inert regions are excluded.
+fn control_target(target: HitTarget) -> bool {
+    !matches!(
+        target,
+        HitTarget::Row(_) | HitTarget::GridBackground | HitTarget::Blocker | HitTarget::Details
+    )
+}
+
+/// Resolves pointer motion into hover state: the grid row under the cursor
+/// in browser mode, any interactive control wherever it lives, and the
+/// seek-rail preview timestamp while a media session is up. A miss clears
+/// everything.
+fn update_hover(state: &mut AppState, target: HitTarget, x: u16) {
+    let rail_rect = state.hit_map.rect_for(HitTarget::MediaSeekRail);
+    match target {
+        HitTarget::MediaSeekRail => {
+            if let Mode::Media(media) = &mut state.mode {
+                media.slider_hover = rail_rect.and_then(|r| rail_seconds(r, x, media.duration));
+            }
+        }
+        HitTarget::Row(pos) if matches!(state.mode, Mode::Browser) => {
+            state.hover.row = Some(pos);
+            state.hover.control = None;
+        }
+        t if control_target(t) => {
+            state.hover.control = Some(t);
+            state.hover.row = None;
+        }
+        _ => {
+            state.hover = HoverState::default();
+            // Leaving the rail clears its preview.
+            if let Mode::Media(media) = &mut state.mode {
+                media.slider_hover = None;
+            }
+        }
+    }
+}
+
+/// Duration clamped to something usable for rail math: only finite,
+/// strictly positive values count.
+fn usable_duration(duration: Option<f64>) -> Option<f64> {
+    duration.filter(|d| d.is_finite() && *d > 0.0)
+}
+
+/// True while a seek-rail drag gesture is in flight.
+fn media_slider_drag_active(state: &AppState) -> bool {
+    matches!(&state.mode, Mode::Media(media) if media.slider_drag_active)
+}
+
+/// Maps a pointer column onto seek seconds using the registered rail
+/// rectangle. The track spans the rect's inner area (`x+1 .. x+width-1`),
+/// matching the widget layer's `rail_geometry` so draw and mouse math agree.
+fn rail_seconds(rect: Rect, x: u16, duration: Option<f64>) -> Option<f64> {
+    let duration = usable_duration(duration)?;
+    let inner_left = i32::from(rect.x + 1);
+    let inner_width = i32::from(rect.width.saturating_sub(2)).max(1);
+    let ratio = (i32::from(x) - inner_left) as f64 / inner_width as f64;
+    Some((ratio.clamp(0.0, 1.0) * duration).clamp(0.0, duration))
+}
+
+/// Release after a seek-rail drag: exactly one absolute seek when the
+/// gesture captured a position (a known duration); otherwise the gesture
+/// ends silently. Either way the interaction state resets.
+fn commit_slider_drag(state: &mut AppState) -> Vec<Effect> {
+    let committed = match &mut state.mode {
+        Mode::Media(media) => {
+            let value = if media.slider_drag_active {
+                media.slider_drag_pos
+            } else {
+                None
+            };
+            media.clear_slider_state();
+            value
+        }
+        _ => None,
+    };
+    match committed {
+        Some(seconds) => reduce(state, Action::MediaSeekAbsolute(seconds)),
+        None => Vec::new(),
+    }
+}
+
+/// Bottom-footer focus text, by priority: hovered row's basename, single
+/// explicit selection's basename, selection count, or nothing.
+pub fn footer_focus_text(state: &AppState) -> Option<String> {
+    if let Some(row) = state.hover.row
+        && let Some((_, view)) = state.browser.visible_entries().nth(row)
+    {
+        return Some(basename_of(&view.entry.path));
+    }
+    let selection = state.browser.selected_paths_set();
+    match selection.len() {
+        1 => selection.iter().next().map(|p| basename_of(p)),
+        n if n > 1 => Some(format!("{n} items selected")),
+        _ => None,
+    }
+}
+
+fn basename_of(path: &Path) -> String {
+    path.file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| path.display().to_string())
 }
 
 /// Chebyshev distance threshold before an armed press becomes a drag.
@@ -2080,5 +2305,211 @@ fn legend_action(state: &mut AppState, action: LegendAction) -> Vec<Effect> {
         LegendAction::Sidebar => reduce(state, Action::ToggleSidebar),
         LegendAction::Preview => reduce(state, Action::TogglePreview),
         LegendAction::Bookmarks => reduce(state, Action::OpenBookmarks),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::filesystem::EntryKind;
+    use crate::testing::builders::{FIXED_TIME, demo_state, entry};
+    use std::collections::BTreeSet;
+
+    fn state_with_entries() -> AppState {
+        let root = crate::testing::builders::demo_root();
+        let mut state = demo_state(100, 30);
+        state.browser.set_entries(vec![
+            crate::browser::EntryView {
+                entry: entry(&root, "alpha", EntryKind::File, 1, 0o644, FIXED_TIME),
+                tags: Vec::new(),
+            },
+            crate::browser::EntryView {
+                entry: entry(&root, "beta", EntryKind::File, 2, 0o644, FIXED_TIME),
+                tags: Vec::new(),
+            },
+            crate::browser::EntryView {
+                entry: entry(&root, "gamma", EntryKind::File, 3, 0o644, FIXED_TIME),
+                tags: Vec::new(),
+            },
+        ]);
+        state
+    }
+
+    fn paths(state: &AppState, names: &[&str]) -> BTreeSet<PathBuf> {
+        names.iter().map(|n| state.browser.cwd.join(n)).collect()
+    }
+
+    #[test]
+    fn footer_hover_row_wins_over_selection() {
+        let mut state = state_with_entries();
+        state.browser.selection = paths(&state, &["alpha", "gamma"]);
+        // Display order is alpha, beta, gamma: row 1 is beta.
+        state.hover.row = Some(1);
+        assert_eq!(footer_focus_text(&state).as_deref(), Some("beta"));
+    }
+
+    #[test]
+    fn footer_single_selection_basename() {
+        let mut state = state_with_entries();
+        state.browser.selection = paths(&state, &["beta"]);
+        assert_eq!(footer_focus_text(&state).as_deref(), Some("beta"));
+    }
+
+    #[test]
+    fn footer_multi_selection_reports_count() {
+        let mut state = state_with_entries();
+        state.browser.selection = paths(&state, &["alpha", "beta", "gamma"]);
+        assert_eq!(
+            footer_focus_text(&state).as_deref(),
+            Some("3 items selected")
+        );
+    }
+
+    #[test]
+    fn footer_no_hover_or_selection_is_none() {
+        let state = state_with_entries();
+        assert_eq!(footer_focus_text(&state), None);
+    }
+
+    #[test]
+    fn footer_stale_hover_row_falls_back_to_selection() {
+        let mut state = state_with_entries();
+        state.browser.selection = paths(&state, &["gamma"]);
+        state.hover.row = Some(99);
+        assert_eq!(footer_focus_text(&state).as_deref(), Some("gamma"));
+    }
+
+    #[test]
+    fn rail_seconds_maps_inner_track_and_clamps() {
+        let rect = Rect::new(10, 5, 22, 1); // inner track 11..=30, width 20
+        assert_eq!(rail_seconds(rect, 11, Some(60.0)), Some(0.0));
+        assert_eq!(rail_seconds(rect, 31, Some(60.0)), Some(60.0));
+        assert_eq!(rail_seconds(rect, 0, Some(60.0)), Some(0.0));
+        assert_eq!(rail_seconds(rect, 200, Some(60.0)), Some(60.0));
+        assert!((rail_seconds(rect, 21, Some(60.0)).unwrap() - 30.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn rail_seconds_needs_usable_duration() {
+        let rect = Rect::new(0, 0, 20, 1);
+        assert_eq!(rail_seconds(rect, 5, None), None);
+        assert_eq!(rail_seconds(rect, 5, Some(0.0)), None);
+        assert_eq!(rail_seconds(rect, 5, Some(-3.0)), None);
+        assert_eq!(rail_seconds(rect, 5, Some(f64::NAN)), None);
+    }
+    // --- Seek-rail slider machine (hand-built media state; no backend) ---
+
+    fn playing_state(duration: Option<f64>) -> AppState {
+        let root = crate::testing::builders::demo_root();
+        let mut state = demo_state(100, 30);
+        let mut media =
+            MediaState::preparing(1, root.join("song.mp3"), crate::media::MediaKind::Audio);
+        media.phase = MediaPhase::Playing;
+        media.duration = duration;
+        state.mode = Mode::Media(Box::new(media));
+        state.hit_map.push(
+            Rect::new(10, 5, 22, 3), // inner track x 11..=30, width 20
+            HitTarget::MediaSeekRail,
+        );
+        state
+    }
+
+    fn click(kind: MouseKind, x: u16) -> Action {
+        Action::Mouse {
+            kind,
+            x,
+            y: 6,
+            ctrl: false,
+        }
+    }
+
+    fn committed_seek(effects: &[Effect]) -> Option<f64> {
+        effects
+            .iter()
+            .filter_map(|e| match e {
+                Effect::MediaCommand {
+                    command: MediaCommand::SeekAbsolute(v),
+                    ..
+                } => Some(*v),
+                _ => None,
+            })
+            .next()
+    }
+
+    #[test]
+    fn slider_press_records_preview_and_never_seeks() {
+        let mut state = playing_state(Some(60.0));
+        let effects = reduce(&mut state, click(MouseKind::Left, 21));
+        assert!(effects.is_empty());
+        let Mode::Media(media) = &state.mode else {
+            panic!("media mode");
+        };
+        assert!(media.slider_drag_active);
+        assert!((media.slider_drag_pos.unwrap() - 30.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn slider_drag_then_release_commits_exactly_once() {
+        let mut state = playing_state(Some(60.0));
+        reduce(&mut state, click(MouseKind::Left, 11));
+        reduce(&mut state, click(MouseKind::LeftDrag, 31));
+        let effects = reduce(&mut state, click(MouseKind::LeftUp, 31));
+        let value = committed_seek(&effects).expect("one seek committed");
+        assert!((value - 60.0).abs() < 1e-9);
+        assert_eq!(effects.len(), 1);
+        let Mode::Media(media) = &state.mode else {
+            panic!("media mode");
+        };
+        assert!(!media.slider_drag_active);
+        assert_eq!(media.slider_drag_pos, None);
+        assert_eq!(media.slider_hover, None);
+    }
+
+    #[test]
+    fn slider_release_off_track_still_commits_clamped() {
+        let mut state = playing_state(Some(60.0));
+        reduce(&mut state, click(MouseKind::Left, 11));
+        // Pointer slips far past the right edge: clamps to the duration.
+        reduce(&mut state, click(MouseKind::LeftDrag, 90));
+        let effects = reduce(&mut state, click(MouseKind::LeftUp, 90));
+        let value = committed_seek(&effects).expect("off-track release commits");
+        assert!((value - 60.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn fresh_press_supersedes_active_gesture_without_commit() {
+        let mut state = playing_state(Some(60.0));
+        reduce(&mut state, click(MouseKind::Left, 21));
+        // A brand-new press OFF the rail drops the gesture silently (a
+        // fresh on-rail press legitimately starts a new gesture).
+        let effects = reduce(&mut state, click(MouseKind::Left, 2));
+        assert!(committed_seek(&effects).is_none());
+        let Mode::Media(media) = &state.mode else {
+            panic!("media mode");
+        };
+        assert!(!media.slider_drag_active);
+        // The subsequent release commits nothing.
+        let effects = reduce(&mut state, click(MouseKind::LeftUp, 12));
+        assert!(committed_seek(&effects).is_none());
+    }
+
+    #[test]
+    fn unknown_duration_gesture_is_completely_inert() {
+        let mut state = playing_state(None);
+        assert!(reduce(&mut state, click(MouseKind::Left, 21)).is_empty());
+        {
+            let Mode::Media(media) = &state.mode else {
+                panic!("media mode");
+            };
+            assert!(media.slider_drag_active);
+            assert_eq!(media.slider_drag_pos, None);
+        }
+        assert!(reduce(&mut state, click(MouseKind::LeftDrag, 25)).is_empty());
+        let effects = reduce(&mut state, click(MouseKind::LeftUp, 25));
+        assert!(committed_seek(&effects).is_none());
+        let Mode::Media(media) = &state.mode else {
+            panic!("media mode");
+        };
+        assert!(!media.slider_drag_active);
     }
 }

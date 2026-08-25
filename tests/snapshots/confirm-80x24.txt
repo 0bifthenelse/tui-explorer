@@ -10,15 +10,15 @@
 |dir        |Delete 1 entry permanently?                           | |
 | .--------.|/home/demo/docs                                       | |
 | | .--'   ||                                                      | |
-| | SH     || [y] delete forever    [n] cancel                     | |
-| | ------ ||                                                      | |
-| '--------'|                                                      | |
+| | SH     ||+--------------+ +------+                             | |
+| | ------ |||Delete forever| |Cancel|                             | |
+| '--------'|+--------------+ +------+                             | |
 | build.sh  +------------------------------------------------------+ |
 |256B        ||50K         ||734B        ||8.0K        ||15K         |
 
 
 
 
- CONFIRM                                                               5%  1/18
-| y confirm | n cancel
 TIP  Esc goes back
+| y confirm | n cancel
+ CONFIRM                                                               5%  1/18

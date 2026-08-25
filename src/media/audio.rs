@@ -2,8 +2,8 @@ use std::path::Path;
 use std::time::Duration;
 
 use rodio::Source;
-use symphonia::core::audio::SampleBuffer;
-use symphonia::core::codecs::{CODEC_TYPE_NULL, DecoderOptions};
+use symphonia::core::audio::{Channels, SampleBuffer, SignalSpec};
+use symphonia::core::codecs::{CODEC_TYPE_NULL, Decoder, DecoderOptions};
 use symphonia::core::errors::Error as SymphoniaError;
 use symphonia::core::formats::{FormatOptions, SeekMode, SeekTo};
 use symphonia::core::io::MediaSourceStream;
@@ -11,9 +11,13 @@ use symphonia::core::meta::MetadataOptions;
 use symphonia::core::probe::Hint;
 use symphonia::core::units::Time;
 
+/// Consecutive per-packet decode failures tolerated before the stream is
+/// declared fatally broken instead of spinning silently to instant EOF.
+const MAX_CONSECUTIVE_DECODE_ERRORS: usize = 64;
+
 pub struct SymphoniaSource {
     format: Box<dyn symphonia::core::formats::FormatReader>,
-    decoder: Box<dyn symphonia::core::codecs::Decoder>,
+    decoder: Box<dyn Decoder>,
     track_id: u32,
     sample_rate: u32,
     channels: usize,
@@ -22,6 +26,7 @@ pub struct SymphoniaSource {
     cursor: usize,
     span_len: usize,
     finished: bool,
+    consecutive_decode_errors: usize,
 }
 
 impl SymphoniaSource {
@@ -41,30 +46,85 @@ impl SymphoniaSource {
                 &MetadataOptions::default(),
             )
             .map_err(|error| format!("unsupported audio format: {error}"))?;
-        let format = probed.format;
-        let track = format
-            .tracks()
-            .iter()
-            .find(|track| track.codec_params.codec != CODEC_TYPE_NULL)
-            .ok_or("no supported audio track")?
-            .clone();
-        let decoder = symphonia::default::get_codecs()
-            .make(&track.codec_params, &DecoderOptions::default())
-            .map_err(|error| format!("unsupported codec: {error}"))?;
-        let sample_rate = track
-            .codec_params
-            .sample_rate
-            .ok_or("unknown sample rate")?;
-        let channels = track
-            .codec_params
-            .channels
-            .ok_or("unknown channel count")?
-            .count();
+        let mut format = probed.format;
+
+        // Track selection: the first track with a declared codec is not
+        // necessarily decodable (containers may list bogus or unsupported
+        // entries first). Prefer the first track whose decoder actually builds.
+        let mut chosen = None;
+        for candidate in format.tracks() {
+            if candidate.codec_params.codec == CODEC_TYPE_NULL {
+                continue;
+            }
+            if let Ok(decoder) = symphonia::default::get_codecs()
+                .make(&candidate.codec_params, &DecoderOptions::default())
+            {
+                chosen = Some((candidate.clone(), decoder));
+                break;
+            }
+        }
+        let Some((track, mut decoder)) = chosen else {
+            return Err("no supported audio track".to_string());
+        };
+
+        // Containers such as mp4 leave the signal spec to codec-specific
+        // config (AudioSpecificConfig / ALAC magic cookie), so codec_params
+        // reports neither channels nor sample rate for AAC-LC and ALAC.
+        // Peek-decode the first packet to discover the real spec instead of
+        // failing construction; the decoded samples become the pending buffer
+        // so none of them are lost.
+        let mut sample_rate = track.codec_params.sample_rate;
+        let mut channels = track.codec_params.channels.map(|ch| ch.count());
+        let mut pending: Option<(SampleBuffer<f32>, usize, usize)> = None;
+        if channels.is_none() || sample_rate.is_none() {
+            let mut consecutive = 0usize;
+            loop {
+                let packet = match format.next_packet() {
+                    Ok(packet) => packet,
+                    Err(error) => return Err(format!("no decodable audio packet: {error}")),
+                };
+                if packet.track_id() != track.id {
+                    continue;
+                }
+                match decoder.decode(&packet) {
+                    Ok(decoded) => {
+                        let spec = *decoded.spec();
+                        channels.get_or_insert_with(|| spec.channels.count());
+                        sample_rate.get_or_insert(spec.rate);
+                        let frames = decoded.frames();
+                        if frames == 0 {
+                            continue; // spec learned; keep hunting for samples
+                        }
+                        let mut buffer = SampleBuffer::<f32>::new(frames as u64, spec);
+                        buffer.copy_interleaved_ref(decoded);
+                        let discovered = channels.unwrap_or(1);
+                        let span_len = frames.saturating_mul(discovered);
+                        // Honor priming/gapless trims announced by the demuxer.
+                        let trim = packet.trim_start() as usize;
+                        let cursor = trim.saturating_mul(discovered).min(span_len);
+                        pending = Some((buffer, span_len, cursor));
+                        break;
+                    }
+                    Err(SymphoniaError::DecodeError(msg)) => {
+                        consecutive += 1;
+                        if consecutive > MAX_CONSECUTIVE_DECODE_ERRORS {
+                            return Err(format!("decode failure: {msg}"));
+                        }
+                    }
+                    Err(error) => {
+                        return Err(format!("codec failed on first packet: {error}"));
+                    }
+                }
+            }
+        }
+
+        let sample_rate = sample_rate.ok_or("unknown sample rate")?;
+        let channels = channels.ok_or("unknown channel count")?;
         let total_duration = track
             .codec_params
             .n_frames
             .map(|frames| Duration::from_secs_f64(frames as f64 / f64::from(sample_rate)));
-        Ok(Self {
+        let mut source = Self {
             format,
             decoder,
             track_id: track.id,
@@ -72,29 +132,43 @@ impl SymphoniaSource {
             channels,
             total_duration,
             buffer: SampleBuffer::new(
-                // One second of capacity; reallocated per decoded packet anyway.
+                // One second of placeholder capacity; replaced per packet.
                 sample_rate as u64,
-                symphonia::core::audio::SignalSpec::new(
+                SignalSpec::new(
                     sample_rate,
-                    track
-                        .codec_params
-                        .channels
-                        .unwrap_or(symphonia::core::audio::Channels::FRONT_LEFT),
+                    track.codec_params.channels.unwrap_or(Channels::FRONT_LEFT),
                 ),
             ),
             cursor: 0,
             span_len: 0,
             finished: false,
-        })
+            consecutive_decode_errors: 0,
+        };
+        if let Some((buffer, span_len, cursor)) = pending {
+            source.buffer = buffer;
+            source.span_len = span_len;
+            source.cursor = cursor;
+        }
+        Ok(source)
     }
 
-    fn next_packet_samples(&mut self) -> Result<(), SymphoniaError> {
+    /// Pulls the next packet of the selected track into the sample buffer.
+    /// Clean EOF and fatal failures both terminate iteration; the returned
+    /// message distinguishes them for diagnostics.
+    fn next_packet_samples(&mut self) -> Result<(), String> {
         loop {
             let packet = match self.format.next_packet() {
                 Ok(packet) => packet,
+                Err(SymphoniaError::IoError(io_error)) => {
+                    self.finished = true;
+                    if io_error.kind() == std::io::ErrorKind::UnexpectedEof {
+                        return Err("end of stream".to_string());
+                    }
+                    return Err(format!("io error: {io_error}"));
+                }
                 Err(error) => {
                     self.finished = true;
-                    return Err(error);
+                    return Err(format!("demux error: {error}"));
                 }
             };
             if packet.track_id() != self.track_id {
@@ -102,18 +176,39 @@ impl SymphoniaSource {
             }
             match self.decoder.decode(&packet) {
                 Ok(decoded) => {
+                    self.consecutive_decode_errors = 0;
+                    let frames = decoded.frames();
+                    if frames == 0 {
+                        // Zero-frame packets carry no samples; skipping them
+                        // avoids indexing an empty buffer downstream.
+                        continue;
+                    }
                     let spec = *decoded.spec();
-                    let capacity =
-                        decoded.frames() as u64 * u64::try_from(spec.channels.count()).unwrap_or(1);
-                    let mut buffer = SampleBuffer::<f32>::new(capacity, spec);
+                    let channel_count = spec.channels.count();
+                    let mut buffer = SampleBuffer::<f32>::new(frames as u64, spec);
                     buffer.copy_interleaved_ref(decoded);
                     self.buffer = buffer;
-                    self.cursor = 0;
-                    self.span_len = (capacity as usize).max(1);
+                    self.span_len = frames.saturating_mul(channel_count);
+                    // Honor priming/gapless trims announced by the demuxer.
+                    let trim = packet.trim_start() as usize;
+                    self.cursor = trim.saturating_mul(channel_count).min(self.span_len);
                     return Ok(());
                 }
-                Err(SymphoniaError::DecodeError(_)) | Err(SymphoniaError::IoError(_)) => continue,
-                Err(error) => return Err(error),
+                Err(SymphoniaError::DecodeError(msg)) => {
+                    self.consecutive_decode_errors += 1;
+                    if self.consecutive_decode_errors > MAX_CONSECUTIVE_DECODE_ERRORS {
+                        self.finished = true;
+                        return Err(format!("decode failure: {msg}"));
+                    }
+                }
+                Err(SymphoniaError::IoError(io_error)) => {
+                    self.finished = true;
+                    return Err(format!("io error: {io_error}"));
+                }
+                Err(error) => {
+                    self.finished = true;
+                    return Err(format!("decode error: {error}"));
+                }
             }
         }
     }
@@ -150,7 +245,7 @@ impl Source for SymphoniaSource {
         if self.finished {
             None
         } else {
-            Some(self.span_len - self.cursor)
+            Some(self.span_len.saturating_sub(self.cursor))
         }
     }
 
@@ -183,6 +278,7 @@ impl Source for SymphoniaSource {
         self.cursor = 0;
         self.span_len = 0;
         self.finished = false;
+        self.consecutive_decode_errors = 0;
         Ok(())
     }
 }
@@ -546,5 +642,68 @@ mod tests {
         // The wrapper must clear buffered analysis state on any seek, then
         // delegate to the inner source (which rejects unknown seeks here).
         assert!(spectrum.try_seek(Duration::ZERO).is_err());
+    }
+    fn fixture_path(name: &str) -> std::path::PathBuf {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/audio")
+            .join(name)
+    }
+
+    #[test]
+    fn m4a_aac_constructs_with_discovered_channels() {
+        let mut source = SymphoniaSource::new(&fixture_path("tone_aac.m4a"))
+            .expect("aac m4a must construct via peek-decoded channel discovery");
+        assert!(
+            source.channels() >= 1,
+            "channels come from the decoded spec"
+        );
+        assert_eq!(source.sample_rate(), 22_050);
+        assert_eq!(source.by_ref().take(512).count(), 512);
+    }
+
+    #[test]
+    fn m4a_alac_constructs_with_discovered_channels() {
+        let mut source = SymphoniaSource::new(&fixture_path("tone_alac.m4a"))
+            .expect("alac m4a must construct via peek-decoded channel discovery");
+        assert!(
+            source.channels() >= 1,
+            "channels come from the decoded spec"
+        );
+        assert_eq!(source.sample_rate(), 22_050);
+        assert_eq!(source.by_ref().take(512).count(), 512);
+    }
+
+    #[test]
+    fn ogg_zero_frame_packets_iterate_without_panic() {
+        let source = SymphoniaSource::new(&fixture_path("tone.ogg")).expect("ogg must open");
+        let count = source.count();
+        assert!(
+            count > 20_000,
+            "expected ~1 s of 22.05 kHz audio, got {count}"
+        );
+    }
+
+    #[test]
+    fn truncated_streams_terminate_without_panicking() {
+        for name in ["tone_aac_trunc.m4a", "tone_trunc.ogg"] {
+            let Ok(source) = SymphoniaSource::new(&fixture_path(name)) else {
+                continue; // rejection at open is a valid bounded outcome
+            };
+            let count = source.take(50_000_000).count();
+            assert!(count <= 50_000_000, "{name} iteration must terminate");
+        }
+    }
+
+    #[test]
+    fn seek_keeps_stream_decodable() {
+        let mut source = SymphoniaSource::new(&fixture_path("wav_pcm.wav")).expect("wav must open");
+        assert_eq!(source.by_ref().take(128).count(), 128);
+        // Success or NotSupported are both acceptable; corruption after the
+        // seek attempt is not.
+        let _ = source.try_seek(Duration::from_millis(400));
+        assert!(
+            source.take(128).count() > 0,
+            "stream must decode after seek"
+        );
     }
 }

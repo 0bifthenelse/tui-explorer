@@ -19,6 +19,6 @@
 
 
 
- BOOKMARKS                                                             5%  1/18
-| Enter go | Esc close
 TIP  Type to fuzzy-search bookmarks, Up/Down to select, Enter to go
+| Enter go | Esc close
+ BOOKMARKS                                                             5%  1/18

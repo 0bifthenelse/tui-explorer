@@ -1,6 +1,7 @@
 pub mod format;
 pub mod hit;
 pub mod palette;
+pub mod widgets;
 
 use std::path::Path;
 
@@ -22,7 +23,7 @@ const ASCII_BORDERS: border::Set = border::Set {
     horizontal_bottom: "-",
 };
 
-use crate::app::reduce::breadcrumb_segments;
+use crate::app::reduce::{breadcrumb_segments, footer_focus_text};
 use crate::app::state::{AppState, BookmarkNavState, Mode, PasswordPurpose, PreviewContent};
 use crate::icons::{IconResolver, IconVariant, TILE_ART_HEIGHT, TILE_ART_WIDTH, tile_art};
 use crate::sidebar::{self, SidebarItem};
@@ -33,6 +34,7 @@ use crate::ui::palette::{
     SELECTED_BG, SURFACE_0, SURFACE_1, SURFACE_2, SURFACE_3, TEXT_MUTED, TEXT_PRIMARY,
     TEXT_SECONDARY,
 };
+use crate::ui::widgets::{Button, ButtonState, button_row, draw_button, rail_geometry};
 
 /// Tile geometry for the icon grid.
 const TILE_W: u16 = TILE_ART_WIDTH as u16 + 2;
@@ -102,6 +104,12 @@ fn dir_style() -> Style {
 /// Focused-but-not-selected tile: warm focus fill plus primary text.
 fn focused_style() -> Style {
     Style::default().bg(FOCUS_BG).fg(TEXT_PRIMARY)
+}
+
+/// Cursor-only grid tile (spec section 8): bright primary text with no
+/// selection fill, so a bare navigation cursor never renders orange.
+fn cursor_style() -> Style {
+    Style::default().fg(TEXT_PRIMARY)
 }
 
 /// Selected tile fill.
@@ -228,36 +236,44 @@ pub fn render(frame: &mut Frame, state: &mut AppState) {
         Tier::Standard | Tier::Wide => render_chrome_shell(frame, area, state, false),
     }
 
+    // Pointer hover state shared by every button-style control (spec §7).
+    let hovered_control = state.hover.control;
     match &state.mode {
-        Mode::Confirm(confirm) => render_confirm(frame, area, confirm, &mut state.hit_map),
-        Mode::Conflict(conflict) => render_conflict(frame, area, conflict, &mut state.hit_map),
+        Mode::Confirm(confirm) => {
+            render_confirm(frame, area, confirm, hovered_control, &mut state.hit_map)
+        }
+        Mode::Conflict(conflict) => {
+            render_conflict(frame, area, conflict, hovered_control, &mut state.hit_map)
+        }
         Mode::TagPicker(picker) => {
             let picker = picker.clone();
             render_picker(frame, area, state, &picker);
         }
         Mode::ContextMenu(menu) => {
             let menu = menu.clone();
-            render_context_menu(frame, area, &menu, &mut state.hit_map);
+            let cwd = state.browser.cwd.clone();
+            render_context_menu(frame, area, &menu, &cwd, &mut state.hit_map);
         }
         Mode::Password(dialog) => {
-            let purpose = dialog.purpose;
-            let confirming = dialog.confirming();
-            let input_len = dialog.input.chars().count();
-            let target = dialog.target.display().to_string();
-            render_password(
-                frame,
-                area,
-                purpose,
-                confirming,
-                input_len,
-                &target,
-                &mut state.hit_map,
-            );
+            let view = PasswordView {
+                purpose: dialog.purpose,
+                confirming: dialog.confirming(),
+                target: dialog.target.display().to_string(),
+                input_len: dialog.input.chars().count(),
+            };
+            render_password(frame, area, &view, hovered_control, &mut state.hit_map);
         }
         Mode::OpenWith(dialog) => {
             let target = dialog.target.display().to_string();
             let input = dialog.input.clone();
-            render_open_with(frame, area, &target, &input, &mut state.hit_map);
+            render_open_with(
+                frame,
+                area,
+                &target,
+                &input,
+                hovered_control,
+                &mut state.hit_map,
+            );
         }
         Mode::Bookmarks(nav) => {
             let nav = nav.clone();
@@ -364,19 +380,21 @@ fn outline_rect(frame: &mut Frame, rect: Rect, style: Style) {
 }
 
 /// The `Narrow`-tier shell: a single combined header/path row on top, the
-/// grid, a status row, and a reduced legend on the bottom. Never shows a
-/// tip, sidebar, or preview panel.
+/// grid, a reduced legend, and the status row on the very bottom. Never
+/// shows a tip, sidebar, or preview panel.
 fn render_narrow_shell(frame: &mut Frame, area: Rect, state: &mut AppState) {
     let header_path = Rect::new(area.x, area.y, area.width, 1);
+    // Status is the LAST terminal row (binding media-replay contract);
+    // the reduced legend sits directly above it.
     let status = Rect::new(
         area.x,
-        area.y + area.height.saturating_sub(2),
+        area.y + area.height.saturating_sub(1),
         area.width,
         1,
     );
     let legend = Rect::new(
         area.x,
-        area.y + area.height.saturating_sub(1),
+        area.y + area.height.saturating_sub(2),
         area.width,
         1,
     );
@@ -421,13 +439,15 @@ fn render_header_path_narrow(frame: &mut Frame, area: Rect, state: &AppState) {
 /// `preview_visible` already encode each tier's default, so this one shell
 /// produces the right panels for all three tiers.
 fn render_chrome_shell(frame: &mut Frame, area: Rect, state: &mut AppState, show_tip: bool) {
+    // Bottom-up: status is the LAST terminal row (binding media-replay
+    // contract), then legend, then the Compact-only tip.
     let header = Rect::new(area.x, area.y, area.width, 1);
     let path_bar = Rect::new(area.x, area.y + 1, area.width, 1);
     let (tip, legend, status, main) = if show_tip {
         (
-            Some(Rect::new(area.x, area.y + area.height - 1, area.width, 1)),
+            Some(Rect::new(area.x, area.y + area.height - 3, area.width, 1)),
             Rect::new(area.x, area.y + area.height - 2, area.width, 1),
-            Rect::new(area.x, area.y + area.height - 3, area.width, 1),
+            Rect::new(area.x, area.y + area.height - 1, area.width, 1),
             Rect::new(
                 area.x,
                 area.y + 2,
@@ -438,8 +458,8 @@ fn render_chrome_shell(frame: &mut Frame, area: Rect, state: &mut AppState, show
     } else {
         (
             None,
-            Rect::new(area.x, area.y + area.height - 1, area.width, 1),
             Rect::new(area.x, area.y + area.height - 2, area.width, 1),
+            Rect::new(area.x, area.y + area.height - 1, area.width, 1),
             Rect::new(
                 area.x,
                 area.y + 2,
@@ -768,17 +788,27 @@ fn render_narrow_grid(frame: &mut Frame, area: Rect, state: &mut AppState) {
         let focused = position == state.browser.selected
             && matches!(state.mode, Mode::Browser | Mode::Command);
         let selected = selected_paths.contains(&view.entry.path);
-        let style = if selected && focused {
+        // Spec section 8: four-way (selected, focused) split. The bare
+        // cursor gets `cursor_style` + a BORDER_STRONG rule, never the
+        // orange selection family; hover layers UNDERLINED onto whichever
+        // base was picked (`Style::patch` unions modifiers, so it survives
+        // every patch below).
+        let mut style = if selected && focused {
             focused_selected_style()
         } else if selected {
             selected_style()
         } else if focused {
-            focused_style()
+            cursor_style()
         } else {
             base_style()
         };
-        let border = if focused {
+        if state.hover.row == Some(position) {
+            style = style.add_modifier(Modifier::UNDERLINED);
+        }
+        let border = if selected && focused {
             style.patch(accent_border_style())
+        } else if focused {
+            style.patch(Style::default().fg(BORDER_STRONG))
         } else {
             style.patch(Style::default().fg(BORDER_SUBTLE))
         };
@@ -897,19 +927,29 @@ fn render_grid(frame: &mut Frame, area: Rect, state: &mut AppState) {
             .browser
             .selected_paths_set()
             .contains(&view.entry.path);
-        let base = if selected && focused {
+        // Spec section 8: four-way (selected, focused) split. The bare
+        // cursor gets `cursor_style` + a BORDER_STRONG border, never the
+        // orange selection family; hover layers UNDERLINED onto whichever
+        // base was picked (`Style::patch` unions modifiers, so the
+        // underline survives every patch below).
+        let mut base = if selected && focused {
             focused_selected_style()
         } else if selected {
             selected_style()
         } else if focused {
-            focused_style()
+            cursor_style()
         } else {
             base_style()
         };
-        // Tile border: a subtle left/right rule for every tile, with an
-        // accent rule for the focused tile.
-        let border_style = if focused {
+        if state.hover.row == Some(pos) {
+            base = base.add_modifier(Modifier::UNDERLINED);
+        }
+        // Tile border: subtle rule by default, BORDER_STRONG for the bare
+        // cursor, accent only when the tile is both selected and focused.
+        let border_style = if selected && focused {
             base.patch(accent_border_style())
+        } else if focused {
+            base.patch(Style::default().fg(BORDER_STRONG))
         } else {
             base.patch(Style::default().fg(BORDER_SUBTLE))
         };
@@ -1147,6 +1187,140 @@ fn apply_image_encoding_result(
     }
 }
 
+/// Seconds shown as "elapsed" while a rail drag scrubs: the drag position
+/// when one is in flight, else the reported position (spec section 1).
+fn media_display_position(media: &crate::app::state::MediaState) -> f64 {
+    if media.slider_drag_active {
+        media.slider_drag_pos.unwrap_or(media.position)
+    } else {
+        media.position
+    }
+}
+
+/// Button visual state per spec section 7: Hovered comes from
+/// `state.hover.control`; Active marks the transport toggle while the
+/// session is live (Playing or Paused, mirroring the pre-existing check)
+/// and FULL while fullscreen is engaged. Hover wins over Active so pointer
+/// feedback is always visible (`draw_button` treats states as exclusive).
+fn media_button_state(
+    state: &AppState,
+    media: &crate::app::state::MediaState,
+    target: HitTarget,
+) -> ButtonState {
+    use crate::media::{MediaKind, MediaPhase};
+
+    if state.hover.control == Some(target) {
+        return ButtonState::Hovered;
+    }
+    let active = match target {
+        HitTarget::MediaTogglePause => {
+            matches!(media.phase, MediaPhase::Playing | MediaPhase::Paused)
+        }
+        HitTarget::MediaFullscreen => media.kind == MediaKind::Video && media.fullscreen,
+        _ => false,
+    };
+    if active {
+        ButtonState::Active
+    } else {
+        ButtonState::Idle
+    }
+}
+
+/// Draws the seek rail inside `rect` (spec section 1 row 2 draw order):
+/// played track ACCENT+BOLD `━`, remainder BORDER_SUBTLE `─`, hover tick
+/// `│` in ACCENT_HOVER plus an optional floating timestamp beside the
+/// tick, then the ACCENT_HOVER `●` thumb drawn last so it wins where the
+/// tick and thumb coincide. Registers `HitTarget::MediaSeekRail`
+/// unconditionally — including unknown duration; the reducer gates
+/// unknown-duration gestures, not the renderer.
+fn draw_seek_rail(
+    frame: &mut Frame,
+    rect: Rect,
+    media: &crate::app::state::MediaState,
+    hits: &mut HitMap,
+    floating_label: bool,
+) {
+    let display_position = media_display_position(media);
+    let mut geom = rail_geometry(rect, display_position, media.duration);
+    if !media.slider_drag_active
+        && let Some(hover_secs) = media.slider_hover
+    {
+        // Same geometry for preview and commit: the tick lands exactly
+        // where a click there would seek (spec section 1 row 2).
+        geom.hover_x = Some(rail_geometry(rect, hover_secs, media.duration).thumb_x);
+    }
+
+    let width = rect.width as usize;
+    let played = geom.thumb_x.saturating_sub(rect.x) as usize;
+    let buffer = frame.buffer_mut();
+    if played > 0 {
+        buffer.set_stringn(
+            rect.x,
+            rect.y,
+            "\u{2501}".repeat(played),
+            played,
+            Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+        );
+    }
+    let rest = width.saturating_sub(played);
+    if rest > 0 {
+        buffer.set_stringn(
+            rect.x + played as u16,
+            rect.y,
+            "\u{2500}".repeat(rest),
+            rest,
+            Style::default().fg(BORDER_SUBTLE),
+        );
+    }
+    if let Some(hover_x) = geom.hover_x
+        && hover_x >= rect.x
+        && hover_x < rect.x + rect.width
+    {
+        buffer.set_stringn(
+            hover_x,
+            rect.y,
+            "\u{2502}",
+            1,
+            Style::default().fg(ACCENT_HOVER),
+        );
+        if floating_label && let Some(hover_secs) = media.slider_hover {
+            // Spec section 1: label at hover_x+2 when six columns fit to
+            // the right of the tick, else at hover_x-7 when they fit to
+            // the left, else omitted.
+            let right_edge = rect.x + rect.width;
+            let label_x = if hover_x + 8 <= right_edge {
+                Some(hover_x + 2)
+            } else if hover_x >= rect.x + 7 {
+                Some(hover_x - 7)
+            } else {
+                None
+            };
+            if let Some(label_x) = label_x {
+                let stamp =
+                    format_time_duration(std::time::Duration::from_secs_f64(hover_secs.max(0.0)));
+                buffer.set_stringn(
+                    label_x,
+                    rect.y,
+                    &stamp,
+                    6,
+                    Style::default().fg(ACCENT_HOVER),
+                );
+            }
+        }
+    }
+    // Thumb last: always wins over the hover tick when they coincide.
+    if geom.thumb_x >= rect.x && geom.thumb_x < rect.x + rect.width {
+        buffer.set_stringn(
+            geom.thumb_x,
+            rect.y,
+            "\u{25CF}",
+            1,
+            Style::default().fg(ACCENT_HOVER),
+        );
+    }
+    hits.push(rect, HitTarget::MediaSeekRail);
+}
+
 fn render_media_modal(
     frame: &mut Frame,
     area: Rect,
@@ -1156,6 +1330,10 @@ fn render_media_modal(
     use crate::media::{MediaKind, MediaPhase};
 
     state.hit_map.push(area, HitTarget::Blocker);
+    if media.kind == MediaKind::Video && media.fullscreen {
+        render_media_fullscreen(frame, area, state, media);
+        return;
+    }
     let full = area.width >= 60 && area.height >= 16;
     let modal_height = if full { 22 } else { 12 }.min(area.height);
     let rect = centered_rect(area, area.width.min(96), modal_height);
@@ -1171,122 +1349,125 @@ fn render_media_modal(
         return;
     }
 
+    // Control tiers key off inner.width (spec section 4): Wide >= 60 one
+    // row, Split 40..60 two rows, Pruned < 40 drops NEXT/V-/V+ (video
+    // keeps FULL). Clipped windows below the compact two-row budget
+    // degrade to one control row; every other size matches the spec table.
+    let controls_rows: u16 = if (40..60).contains(&inner.width) && inner.height >= 10 {
+        2
+    } else {
+        1
+    };
+    let controls_height = controls_rows * 3;
+    let controls_top = inner.y + inner.height - controls_height;
+    // Row budget (spec section 1): header rows 0-2 fixed; Full mode adds a
+    // spacer after the header and before the controls, Compact mode has
+    // neither.
+    let (surface_top, surface_height) = if full {
+        (
+            inner.y + 4,
+            inner.height.saturating_sub(4 + controls_height + 1),
+        )
+    } else {
+        (
+            inner.y + 3,
+            inner.height.saturating_sub(3 + controls_height),
+        )
+    };
+
+    // Row 0: filename (left) + phase chip flush right (spec section 1).
+    let phase_text = if media.error.is_some() {
+        "ERROR".to_string()
+    } else {
+        format!("{:?}", media.phase).to_ascii_uppercase()
+    };
+    let chip = format!(" {phase_text} ");
+    let chip_width = (chip.chars().count() as u16).min(inner.width);
+    let chip_style = if media.error.is_some() {
+        Style::default()
+            .fg(DANGER)
+            .bg(ROOT_INK)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(ACCENT).bg(ROOT_INK)
+    };
+    frame.buffer_mut().set_stringn(
+        inner.x + inner.width - chip_width,
+        inner.y,
+        &chip,
+        chip_width as usize,
+        chip_style,
+    );
     let filename = media
         .path
         .file_name()
         .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_else(|| media.path.display().to_string());
-    frame.render_widget(
-        Paragraph::new(Line::from(Span::styled(
-            truncate(&filename, inner.width as usize),
-            dir_style(),
-        ))),
-        Rect::new(inner.x, inner.y, inner.width, 1),
-    );
-    let state_label = media
-        .error
-        .as_deref()
-        .map(|error| format!("[!] {error}"))
-        .unwrap_or_else(|| format!("{:?}", media.phase).to_ascii_uppercase());
-    frame.render_widget(
-        Paragraph::new(Line::from(Span::styled(
-            truncate(&state_label, inner.width as usize),
-            if media.error.is_some() {
-                error_style()
-            } else {
-                Style::default().fg(TEXT_SECONDARY)
-            },
-        ))),
-        Rect::new(inner.x, inner.y + 1, inner.width, 1),
-    );
-    let elapsed = std::time::Duration::from_secs_f64(media.position.max(0.0));
-    let duration = media
-        .duration
-        .map(|seconds| format_time_duration(std::time::Duration::from_secs_f64(seconds.max(0.0))))
-        .unwrap_or_else(|| "--:--".to_string());
-    // Volume is the backend-reported value (sink or observed mpv property),
-    // never a UI-only guess.
-    let time = format!(
-        "{} / {duration}    VOL {}%",
-        format_time_duration(elapsed),
-        media.volume
-    );
-    frame.render_widget(
-        Paragraph::new(Line::from(Span::styled(time, preview_meta_style()))),
-        Rect::new(inner.x, inner.y + 2, inner.width, 1),
-    );
-
-    let rail = Rect::new(inner.x, inner.y + 3, inner.width, 1);
-    let ratio = media
-        .duration
-        .filter(|duration| *duration > 0.0)
-        .map(|duration| (media.position / duration).clamp(0.0, 1.0))
-        .unwrap_or(0.0);
-    let filled = (ratio * rail.width as f64).round() as usize;
-    let buffer = frame.buffer_mut();
-    buffer.set_stringn(
-        rail.x,
-        rail.y,
-        "-".repeat(rail.width as usize),
-        rail.width as usize,
-        Style::default().fg(BORDER_SUBTLE),
-    );
-    if filled > 0 {
-        buffer.set_stringn(
-            rail.x,
-            rail.y,
-            "=".repeat(filled),
-            filled,
-            Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+    let name_width = inner.width.saturating_sub(chip_width + 1);
+    if name_width > 0 {
+        frame.render_widget(
+            Paragraph::new(Line::from(Span::styled(
+                truncate(&filename, name_width as usize),
+                dir_style(),
+            ))),
+            Rect::new(inner.x, inner.y, name_width, 1),
         );
     }
 
-    let controls_y = inner.y + inner.height - 1;
-    // The toggle control names the action it performs: PAUSE while playing,
-    // PLAY otherwise.
-    let toggle_label = if matches!(media.phase, MediaPhase::Playing) {
-        "[PAUSE]"
+    // Row 1: time row, replaced wholesale by the error message on error.
+    // While a drag scrubs, elapsed follows the drag position; remaining
+    // stays anchored to the committed position (spec section 1).
+    if let Some(error) = media.error.as_deref() {
+        frame.render_widget(
+            Paragraph::new(Line::from(Span::styled(
+                truncate(&format!("[!] {error}"), inner.width as usize),
+                error_style(),
+            ))),
+            Rect::new(inner.x, inner.y + 1, inner.width, 1),
+        );
     } else {
-        "[PLAY]"
-    };
-    let controls = [
-        ("[-5]", HitTarget::MediaSeekBack),
-        (toggle_label, HitTarget::MediaTogglePause),
-        ("[+5]", HitTarget::MediaSeekForward),
-        ("[V-]", HitTarget::MediaVolumeDown),
-        ("[V+]", HitTarget::MediaVolumeUp),
-        ("[STOP]", HitTarget::MediaStop),
-        ("[X]", HitTarget::MediaClose),
-    ];
-    let mut control_x = inner.x;
-    for (label, target) in controls {
-        let width = label.len() as u16;
-        if control_x + width > inner.x + inner.width {
-            break;
-        }
-        let active = target == HitTarget::MediaTogglePause
-            && matches!(media.phase, MediaPhase::Playing | MediaPhase::Paused);
-        frame.buffer_mut().set_stringn(
-            control_x,
-            controls_y,
-            label,
-            width as usize,
-            if active {
-                accent_border_style()
-            } else {
-                key_style()
-            },
+        let display_position = media_display_position(media);
+        let elapsed_text = format_time_duration(std::time::Duration::from_secs_f64(
+            display_position.max(0.0),
+        ));
+        let duration_text = media
+            .duration
+            .map(|seconds| {
+                format_time_duration(std::time::Duration::from_secs_f64(seconds.max(0.0)))
+            })
+            .unwrap_or_else(|| "--:--".to_string());
+        let remaining_text = media
+            .duration
+            .map(|seconds| {
+                format_time_duration(std::time::Duration::from_secs_f64(
+                    (seconds - media.position).max(0.0),
+                ))
+            })
+            .unwrap_or_else(|| "--:--".to_string());
+        // Volume is the backend-reported value (sink or observed mpv
+        // property), never a UI-only guess.
+        let time = format!(
+            "{elapsed_text} / {duration_text} / -{remaining_text} | VOL {}%",
+            media.volume
         );
-        state
-            .hit_map
-            .push(Rect::new(control_x, controls_y, width, 1), target);
-        control_x += width + 1;
+        frame.render_widget(
+            Paragraph::new(Line::from(Span::styled(time, preview_meta_style()))),
+            Rect::new(inner.x, inner.y + 1, inner.width, 1),
+        );
     }
 
-    let media_top = inner.y + 5;
-    let media_height = controls_y.saturating_sub(media_top);
+    // Row 2: the seek rail, drawn through the shared widgets geometry.
+    draw_seek_rail(
+        frame,
+        Rect::new(inner.x, inner.y + 2, inner.width, 1),
+        media,
+        &mut state.hit_map,
+        true,
+    );
+
+    let surface_rect = Rect::new(inner.x, surface_top, inner.width, surface_height);
     let surface = crate::app::state::MediaSurface {
-        rect: Rect::new(inner.x, media_top, inner.width, media_height),
+        rect: surface_rect,
         terminal_cells: (area.width, area.height),
         cell_pixels: state.picker.font_size(),
     };
@@ -1296,11 +1477,94 @@ fn render_media_modal(
         current.surface = Some(surface);
     }
 
+    // Control strip (spec sections 4 and 7): bordered buttons sized
+    // label+2, laid out through `button_row`, hit registration handled by
+    // `draw_button`.
+    let toggle_label = if matches!(media.phase, MediaPhase::Playing) {
+        "PAUSE"
+    } else {
+        "PLAY"
+    };
+    let video = media.kind == MediaKind::Video;
+    let control_rows: Vec<Vec<(&str, u16, HitTarget)>> = if controls_rows == 2 {
+        // Split tier: row 1 transports and exits, row 2 conveniences.
+        let row2 = if video {
+            vec![
+                ("NEXT", 6u16, HitTarget::MediaNext),
+                ("V-", 4, HitTarget::MediaVolumeDown),
+                ("V+", 4, HitTarget::MediaVolumeUp),
+                ("FULL", 6, HitTarget::MediaFullscreen),
+            ]
+        } else {
+            vec![
+                ("NEXT", 6u16, HitTarget::MediaNext),
+                ("V-", 4, HitTarget::MediaVolumeDown),
+                ("V+", 4, HitTarget::MediaVolumeUp),
+            ]
+        };
+        vec![
+            vec![
+                ("-15", 5u16, HitTarget::MediaSeekBack),
+                (toggle_label, 7, HitTarget::MediaTogglePause),
+                ("+15", 5, HitTarget::MediaSeekForward),
+                ("STOP", 6, HitTarget::MediaStop),
+                ("X", 3, HitTarget::MediaClose),
+            ],
+            row2,
+        ]
+    } else {
+        let mut row = vec![
+            ("-15", 5u16, HitTarget::MediaSeekBack),
+            (toggle_label, 7, HitTarget::MediaTogglePause),
+            ("+15", 5, HitTarget::MediaSeekForward),
+        ];
+        if inner.width >= 60 {
+            row.extend([
+                ("NEXT", 6u16, HitTarget::MediaNext),
+                ("V-", 4, HitTarget::MediaVolumeDown),
+                ("V+", 4, HitTarget::MediaVolumeUp),
+            ]);
+        }
+        if video {
+            // FULL survives pruning: the escape hatch for cramped terms.
+            row.push(("FULL", 6, HitTarget::MediaFullscreen));
+        }
+        row.push(("STOP", 6, HitTarget::MediaStop));
+        row.push(("X", 3, HitTarget::MediaClose));
+        vec![row]
+    };
+    for (index, specs) in control_rows.iter().enumerate() {
+        let y = controls_top + index as u16 * 3;
+        let layout: Vec<(&str, u16)> = specs
+            .iter()
+            .map(|(label, width, _)| (*label, *width))
+            .collect();
+        // `button_row` lays out horizontally at height 1; bordered buttons
+        // are always 3 rows tall (spec section 4).
+        for (btn_rect, (label, _, target)) in button_row(inner.x, y, inner.width, &layout)
+            .iter()
+            .zip(specs)
+        {
+            let button = Button::new(
+                Rect {
+                    height: 3,
+                    ..*btn_rect
+                },
+                *label,
+                *target,
+            )
+            .with_state(media_button_state(state, media, *target));
+            draw_button(frame, &button, &mut state.hit_map);
+        }
+    }
+
     match media.kind {
         MediaKind::Audio => {
-            if full && media_height > 0 && media.error.is_none() {
+            if media.error.is_none() && surface_rect.height > 0 {
+                // Spectrum bars fill the surface band bottom-up; mechanics
+                // unchanged, only the rect moved (spec section 1).
                 let column_width = (inner.width / 24).max(1);
-                let bars_height = media_height.min(10);
+                let bars_height = surface_rect.height.min(10);
                 let buffer = frame.buffer_mut();
                 for (index, level) in media.spectrum.iter().enumerate() {
                     let x = inner.x + index as u16 * column_width;
@@ -1309,7 +1573,7 @@ fn render_media_modal(
                     }
                     let height = (level.clamp(0.0, 1.0) * bars_height as f32).round() as u16;
                     for offset in 0..height {
-                        let y = media_top + bars_height - 1 - offset;
+                        let y = surface_rect.y + bars_height - 1 - offset;
                         buffer.set_stringn(x, y, "#", 1, Style::default().fg(ACCENT_SOFT));
                     }
                 }
@@ -1323,25 +1587,173 @@ fn render_media_modal(
                         },
                         muted_style(),
                     ))),
-                    surface.rect,
+                    surface_rect,
                 );
             }
         }
         // Video owns the surface: while frames are live (Playing/Paused)
         // nothing is drawn there so mpv's kitty output survives the
-        // diff-based redraws. Only startup shows placeholder chrome.
+        // diff-based redraws. Only startup shows placeholder chrome
+        // (spec section 2). Controls live outside `surface_rect` by
+        // construction: header/rail/spacers/controls never intersect it.
         MediaKind::Video => {
             if media.error.is_none()
-                && media_height > 0
+                && surface_rect.height > 0
                 && matches!(media.phase, MediaPhase::Preparing | MediaPhase::Starting)
             {
                 frame.render_widget(
                     Paragraph::new(Line::from(Span::styled("loading video", muted_style())))
                         .alignment(ratatui::layout::Alignment::Center),
-                    surface.rect,
+                    surface_rect,
                 );
             }
         }
+    }
+}
+
+/// Fullscreen video chrome (spec section 3): the whole area clears for
+/// mpv and a 2-row bottom strip carries time+rail (row 1) and filename
+/// plus flat bracket-text controls (row 2). Bordered buttons need 3 rows,
+/// which cannot fit the hard 2-row budget, so this is the one place
+/// bracket controls remain (spec section 0).
+fn render_media_fullscreen(
+    frame: &mut Frame,
+    area: Rect,
+    state: &mut AppState,
+    media: &crate::app::state::MediaState,
+) {
+    use crate::media::MediaPhase;
+
+    frame.render_widget(Clear, area);
+    let video_rect = Rect::new(area.x, area.y, area.width, area.height.saturating_sub(2));
+    // Surface geometry flows through the awaiting_surface_ready restart
+    // cycle: these two rects are what the stop->Preparing->SurfaceReady
+    // restart resolves into (spec section 3).
+    let surface = crate::app::state::MediaSurface {
+        rect: video_rect,
+        terminal_cells: (area.width, area.height),
+        cell_pixels: state.picker.font_size(),
+    };
+    if let Mode::Media(current) = &mut state.mode
+        && current.session == media.session
+    {
+        current.surface = Some(surface);
+    }
+    if area.height < 2 {
+        return;
+    }
+    let strip_y = area.y + area.height - 2;
+    surface_fill(frame, Rect::new(area.x, strip_y, area.width, 2), SURFACE_2);
+
+    // Strip row 1: elapsed | rail | -remaining, seven columns reserved at
+    // each end; on error the whole row becomes the error text.
+    if let Some(error) = media.error.as_deref() {
+        frame.render_widget(
+            Paragraph::new(Line::from(Span::styled(
+                truncate(&format!("[!] {error}"), area.width as usize),
+                error_style(),
+            ))),
+            Rect::new(area.x, strip_y, area.width, 1),
+        );
+    } else {
+        let elapsed_text = format_time_duration(std::time::Duration::from_secs_f64(
+            media_display_position(media).max(0.0),
+        ));
+        frame.render_widget(
+            Paragraph::new(Line::from(Span::styled(
+                elapsed_text,
+                Style::default().fg(TEXT_PRIMARY),
+            ))),
+            Rect::new(area.x, strip_y, 6.min(area.width), 1),
+        );
+        let remaining_text = match media.duration {
+            Some(seconds) => format!(
+                "-{}",
+                format_time_duration(std::time::Duration::from_secs_f64(
+                    (seconds - media.position).max(0.0)
+                ))
+            ),
+            None => "--:--".to_string(),
+        };
+        let remaining_width = 7u16.min(area.width);
+        frame.render_widget(
+            Paragraph::new(Line::from(Span::styled(
+                remaining_text,
+                Style::default().fg(TEXT_PRIMARY),
+            ))),
+            Rect::new(
+                area.x + area.width - remaining_width,
+                strip_y,
+                remaining_width,
+                1,
+            ),
+        );
+        draw_seek_rail(
+            frame,
+            Rect::new(area.x + 7, strip_y, area.width.saturating_sub(14), 1),
+            media,
+            &mut state.hit_map,
+            // No floating timestamp here: no spare width; the bare hover
+            // tick still renders (spec section 3).
+            false,
+        );
+    }
+
+    // Strip row 2: filename (at most 24 cols) + 1-col gap + flat bracket
+    // controls using the overflow-guard loop pattern; colors mirror the
+    // ButtonState matrix fg-only (spec section 3).
+    let filename = media
+        .path
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_else(|| media.path.display().to_string());
+    frame.buffer_mut().set_stringn(
+        area.x,
+        strip_y + 1,
+        truncate(&filename, 24),
+        (area.width as usize).min(24),
+        dir_style(),
+    );
+    let toggle_label = if matches!(media.phase, MediaPhase::Playing) {
+        "[PAUSE]"
+    } else {
+        "[PLAY]"
+    };
+    let controls: [(&str, u16, HitTarget); 9] = [
+        ("[-15]", 5, HitTarget::MediaSeekBack),
+        (toggle_label, 7, HitTarget::MediaTogglePause),
+        ("[+15]", 5, HitTarget::MediaSeekForward),
+        ("[NEXT]", 6, HitTarget::MediaNext),
+        ("[V-]", 4, HitTarget::MediaVolumeDown),
+        ("[V+]", 4, HitTarget::MediaVolumeUp),
+        ("[FULL]", 6, HitTarget::MediaFullscreen),
+        ("[STOP]", 6, HitTarget::MediaStop),
+        ("[X]", 3, HitTarget::MediaClose),
+    ];
+    let mut control_x = area.x + 25; // 24-col filename + 1-col gap
+    for (label, width, target) in controls {
+        if control_x + width > area.x + area.width {
+            break;
+        }
+        let style = if state.hover.control == Some(target) {
+            Style::default().fg(ACCENT_HOVER)
+        } else if target == HitTarget::MediaFullscreen {
+            // This branch IS the fullscreen-on state indicator.
+            accent_border_style()
+        } else if target == HitTarget::MediaTogglePause
+            && matches!(media.phase, MediaPhase::Playing)
+        {
+            accent_border_style()
+        } else {
+            Style::default().fg(TEXT_SECONDARY)
+        };
+        frame
+            .buffer_mut()
+            .set_stringn(control_x, strip_y + 1, label, width as usize, style);
+        state
+            .hit_map
+            .push(Rect::new(control_x, strip_y + 1, width, 1), target);
+        control_x += width + 1;
     }
 }
 
@@ -1364,13 +1776,9 @@ fn render_status(frame: &mut Frame, area: Rect, state: &AppState) {
         Span::styled(format!(" {} ", state.mode_name()), mode_chip_style()),
         Span::raw(" "),
     ];
-    let selected_count = state.browser.selection.len();
-    if selected_count > 0 {
-        spans.push(Span::styled(
-            format!("{selected_count} selected  "),
-            tag_style(),
-        ));
-    }
+    // Left dynamic segment priority (spec section 6): operation, then any
+    // message (error presence suppresses the filename segment), then the
+    // hovered/selected focus text.
     if let Some(op) = &state.operation {
         spans.push(Span::styled(
             format!(
@@ -1396,6 +1804,14 @@ fn render_status(frame: &mut Frame, area: Rect, state: &AppState) {
                 base_style()
             },
         ));
+    } else if let Some(text) = footer_focus_text(state) {
+        spans.push(Span::styled(
+            format!(
+                "{}  ",
+                truncate(&text, (area.width as usize).saturating_sub(24))
+            ),
+            tag_style(),
+        ));
     }
     // Right side: focused file size, position and percent.
     let len = state.browser.visible_len();
@@ -1415,11 +1831,25 @@ fn render_status(frame: &mut Frame, area: Rect, state: &AppState) {
         .filter(|v| !v.entry.kind.is_dir())
         .map(|v| format_size(v.entry.size))
         .unwrap_or_default();
-    let right = format!("{size_label}  {pct}  {pos_label}");
+    let metrics = format!("{size_label}  {pct}  {pos_label}");
+    // Clipboard chip (spec section 6): its own span ahead of the metrics
+    // cluster, shaded per mode — ACCENT for Copy, ACCENT_HOVER for Cut.
+    let chip = state.clipboard.chip();
+    let chip_len = chip.as_ref().map(|c| c.chars().count() + 2).unwrap_or(0);
     let used: usize = spans.iter().map(|s| s.content.chars().count()).sum();
-    let pad = (area.width as usize).saturating_sub(used + right.chars().count() + 1);
+    let pad = (area.width as usize).saturating_sub(used + chip_len + metrics.chars().count() + 1);
     spans.push(Span::raw(" ".repeat(pad)));
-    spans.push(Span::styled(right, muted_style()));
+    if let Some(chip_text) = &chip {
+        let chip_style = match state.clipboard.mode {
+            Some(crate::app::state::ClipMode::Cut) => {
+                Style::default().fg(ACCENT_HOVER).bg(ROOT_INK)
+            }
+            _ => Style::default().fg(ACCENT).bg(ROOT_INK),
+        };
+        spans.push(Span::styled(chip_text.clone(), chip_style));
+        spans.push(Span::raw("  "));
+    }
+    spans.push(Span::styled(metrics, muted_style()));
     frame.render_widget(Paragraph::new(Line::from(spans)), area);
 }
 
@@ -1552,10 +1982,70 @@ fn push_blocker(area: Rect, hits: &mut HitMap) {
     hits.push(area, HitTarget::Blocker);
 }
 
+/// Context-menu overlay width (spec section 5): fits "Open with" plus the
+/// cursor prefix.
+const MENU_WIDTH: u16 = 20;
+
+/// Lays out a row of bordered modal buttons (spec sections 0 and 7):
+/// widths are label+2, height 3, hover feedback from the pointer state,
+/// hit registration through `draw_button`. `y_rel` is measured from the
+/// modal's inner top.
+fn draw_modal_buttons(
+    frame: &mut Frame,
+    inner: Rect,
+    y_rel: u16,
+    specs: &[(&str, HitTarget, bool)], // (label, target, danger)
+    hover: Option<HitTarget>,
+    hits: &mut HitMap,
+) {
+    let y = inner.y + y_rel;
+    let layout: Vec<(&str, u16)> = specs
+        .iter()
+        .map(|(label, _, _)| (*label, label.chars().count() as u16 + 2))
+        .collect();
+    for (btn_rect, (label, target, danger)) in button_row(inner.x, y, inner.width, &layout)
+        .iter()
+        .zip(specs)
+    {
+        let state = if hover == Some(*target) {
+            ButtonState::Hovered
+        } else {
+            ButtonState::Idle
+        };
+        let mut button = Button::new(
+            Rect {
+                height: 3,
+                ..*btn_rect
+            },
+            *label,
+            *target,
+        )
+        .with_state(state);
+        if *danger {
+            button = button.danger();
+        }
+        draw_button(frame, &button, hits);
+    }
+}
+
+/// Title for the context-menu overlay (spec section 5): Single/Bulk
+/// delegate to the captured target; Background names the current
+/// directory instead of the placeholder in `ContextTarget::title`.
+fn context_menu_title(target: &crate::app::state::ContextTarget, cwd: &Path) -> String {
+    match target {
+        crate::app::state::ContextTarget::Background => cwd
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "/".to_string()),
+        other => other.title(),
+    }
+}
+
 fn render_confirm(
     frame: &mut Frame,
     area: Rect,
     confirm: &crate::app::state::ConfirmState,
+    hover: Option<HitTarget>,
     hits: &mut HitMap,
 ) {
     push_blocker(area, hits);
@@ -1573,19 +2063,20 @@ fn render_confirm(
             truncate(&confirm.detail, inner.width as usize),
             base_style(),
         )),
-        Line::from(""),
-        Line::from(vec![
-            Span::styled(" [y] delete forever ", error_style()),
-            Span::raw("  "),
-            Span::styled(" [n] cancel ", base_style()),
-        ]),
     ];
+    // Keyboard y/n still works; the buttons carry the same ModalConfirm /
+    // ModalCancel targets as before (plan item f).
     frame.render_widget(Paragraph::new(lines), inner);
-    let button_y = inner.y + 3;
-    hits.push(Rect::new(inner.x, button_y, 21, 1), HitTarget::ModalConfirm);
-    hits.push(
-        Rect::new(inner.x + 23, button_y, 12, 1),
-        HitTarget::ModalCancel,
+    draw_modal_buttons(
+        frame,
+        inner,
+        3,
+        &[
+            ("Delete forever", HitTarget::ModalConfirm, true),
+            ("Cancel", HitTarget::ModalCancel, false),
+        ],
+        hover,
+        hits,
     );
 }
 
@@ -1593,6 +2084,7 @@ fn render_conflict(
     frame: &mut Frame,
     area: Rect,
     conflict: &crate::app::state::ConflictState,
+    hover: Option<HitTarget>,
     hits: &mut HitMap,
 ) {
     push_blocker(area, hits);
@@ -1613,26 +2105,29 @@ fn render_conflict(
         )));
     }
     lines.push(Line::from(""));
-    lines.push(Line::from(vec![
-        Span::styled(" [c] cancel ", base_style()),
-        Span::raw(" "),
-        Span::styled(" [s] skip existing ", base_style()),
-        Span::raw(" "),
-        Span::styled(" [r] replace ", error_style()),
-    ]));
-    frame.render_widget(Paragraph::new(lines), inner);
-    let button_y = inner.y + inner.height - 1;
-    hits.push(
-        Rect::new(inner.x, button_y, 12, 1),
-        HitTarget::ConflictCancel,
+    // Buttons occupy the bottom three rows; the list paragraph gets the
+    // rest. Same Conflict* targets as before (plan item f).
+    let list_height = inner.height.saturating_sub(3);
+    frame.render_widget(
+        Paragraph::new(lines),
+        Rect {
+            x: inner.x,
+            y: inner.y,
+            width: inner.width,
+            height: list_height,
+        },
     );
-    hits.push(
-        Rect::new(inner.x + 13, button_y, 18, 1),
-        HitTarget::ConflictSkip,
-    );
-    hits.push(
-        Rect::new(inner.x + 32, button_y, 12, 1),
-        HitTarget::ConflictReplace,
+    draw_modal_buttons(
+        frame,
+        inner,
+        inner.height.saturating_sub(3),
+        &[
+            ("Cancel", HitTarget::ConflictCancel, false),
+            ("Skip", HitTarget::ConflictSkip, false),
+            ("Replace", HitTarget::ConflictReplace, false),
+        ],
+        hover,
+        hits,
     );
 }
 
@@ -1701,36 +2196,52 @@ fn render_picker(
             Span::styled(input.clone(), tag_style()),
             Span::styled("_", muted_style()),
         ]));
+        frame.render_widget(Paragraph::new(lines), inner);
     } else {
-        lines.push(Line::from(vec![
-            Span::styled(" [n] new ", accent_border_style()),
-            Span::styled(" [d] delete ", error_style()),
-            Span::styled(" [Esc] close ", base_style()),
-        ]));
-        let button_y = inner.y + lines.len() as u16 - 1;
-        state
-            .hit_map
-            .push(Rect::new(inner.x, button_y, 9, 1), HitTarget::PickerNew);
-        state.hit_map.push(
-            Rect::new(inner.x + 9, button_y, 12, 1),
-            HitTarget::PickerDelete,
+        // Keyboard n/d/Esc still work; buttons carry the same Picker*
+        // targets as before (plan item f). Delete keeps DANGER per spec
+        // section 7 (word plus confirm flow carry the meaning).
+        let list_height = inner.height.saturating_sub(3);
+        frame.render_widget(
+            Paragraph::new(lines),
+            Rect {
+                x: inner.x,
+                y: inner.y,
+                width: inner.width,
+                height: list_height,
+            },
         );
-        state.hit_map.push(
-            Rect::new(inner.x + 21, button_y, 13, 1),
-            HitTarget::PickerClose,
+        let hover = state.hover.control;
+        draw_modal_buttons(
+            frame,
+            inner,
+            inner.height.saturating_sub(3),
+            &[
+                ("New", HitTarget::PickerNew, false),
+                ("Delete", HitTarget::PickerDelete, true),
+                ("Close", HitTarget::PickerClose, false),
+            ],
+            hover,
+            &mut state.hit_map,
         );
     }
-    frame.render_widget(Paragraph::new(lines), inner);
 }
 
 fn render_context_menu(
     frame: &mut Frame,
     area: Rect,
     menu: &crate::app::state::ContextMenuState,
+    cwd: &Path,
     hits: &mut HitMap,
 ) {
     push_blocker(area, hits);
-    let width = 16u16;
+    // Chrome matches every other overlay: SURFACE_3 fill, BORDER_STRONG
+    // frame, accent-styled title in the top border (spec section 5).
+    let title = truncate(
+        &context_menu_title(&menu.target, cwd),
+        (MENU_WIDTH - 4) as usize,
+    );
+    let width = MENU_WIDTH;
     let height = menu.items.len() as u16 + 2;
     let x = menu.x.min(area.width.saturating_sub(width));
     let y = menu.y.min(area.height.saturating_sub(height));
@@ -1741,57 +2252,71 @@ fn render_context_menu(
         height.min(area.height),
     );
     frame.render_widget(Clear, rect);
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_set(ASCII_BORDERS)
-        .border_style(Style::default().fg(BORDER_STRONG))
-        .style(Style::default().bg(SURFACE_3));
+    let block = overlay_block(&title, accent_border_style());
     let inner = block.inner(rect);
     frame.render_widget(block, rect);
-    let lines: Vec<Line> = menu
-        .items
-        .iter()
-        .enumerate()
-        .map(|(idx, item)| {
-            let focused = idx == menu.selected;
-            let mut style = if focused {
-                focused_style()
-            } else {
-                base_style()
-            };
-            if !item.enabled {
-                style = Style::default().fg(TEXT_MUTED).bg(SURFACE_3);
-            }
-            Line::from(Span::styled(
-                pad_right(item.action.label(), inner.width as usize),
-                style,
-            ))
-        })
-        .collect();
+    // Flat rows reuse the button state-color vocabulary, not the widget.
+    // Precedence per spec section 5: disabled (TEXT_MUTED) beats the
+    // Delete DANGER rule beats selected (ACCENT_HOVER + bold) beats plain.
+    // The background never varies per row: it inherits the menu fill.
     for (idx, item) in menu.items.iter().enumerate() {
-        if !item.enabled {
-            continue; // Disabled entries render muted and register no hit.
-        }
-        hits.push(
+        let selected = idx == menu.selected;
+        let cursor = if selected { ">" } else { " " };
+        let style = if !item.enabled {
+            muted_style()
+        } else if item.action == crate::app::state::ContextItem::Delete {
+            if selected {
+                Style::default().fg(DANGER).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(DANGER)
+            }
+        } else if selected {
+            Style::default()
+                .fg(ACCENT_HOVER)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            base_style()
+        };
+        frame.render_widget(
+            Paragraph::new(Line::from(Span::styled(
+                pad_right(
+                    &format!("{cursor} {}", item.action.label()),
+                    inner.width as usize,
+                ),
+                style,
+            ))),
             Rect::new(inner.x, inner.y + idx as u16, inner.width, 1),
-            HitTarget::ContextItem(idx),
         );
+        if item.enabled {
+            hits.push(
+                Rect::new(inner.x, inner.y + idx as u16, inner.width, 1),
+                HitTarget::ContextItem(idx),
+            );
+        }
     }
-    frame.render_widget(Paragraph::new(lines), inner);
+}
+
+/// Values render_password needs from the password dialog, extracted before
+/// the hit map is mutably borrowed.
+struct PasswordView {
+    purpose: PasswordPurpose,
+    confirming: bool,
+    target: String,
+    input_len: usize,
 }
 
 fn render_password(
     frame: &mut Frame,
     area: Rect,
-    purpose: PasswordPurpose,
-    confirming: bool,
-    input_len: usize,
-    target: &str,
+    view: &PasswordView,
+    hover: Option<HitTarget>,
     hits: &mut HitMap,
 ) {
     push_blocker(area, hits);
     let rect = centered_rect(area, 56, 9);
     frame.render_widget(Clear, rect);
+    let purpose = view.purpose;
+    let confirming = view.confirming;
     let title = match purpose {
         PasswordPurpose::Encrypt => "ENCRYPT",
         PasswordPurpose::Decrypt => "DECRYPT",
@@ -1806,10 +2331,10 @@ fn render_password(
         (PasswordPurpose::Decrypt, _) => "password:",
     };
     // The password is masked; its length is the only thing rendered.
-    let masked = "*".repeat(input_len);
+    let masked = "*".repeat(view.input_len);
     let lines = vec![
         Line::from(Span::styled(
-            truncate(target, inner.width as usize),
+            truncate(&view.target, inner.width as usize),
             base_style(),
         )),
         Line::from(""),
@@ -1819,22 +2344,31 @@ fn render_password(
             Span::styled("_", muted_style()),
         ]),
         Line::from(""),
-        Line::from(vec![
-            Span::styled(" [Enter] submit ", style),
-            Span::raw(" "),
-            Span::styled(" [Esc] cancel ", base_style()),
-        ]),
     ];
+    // Keyboard Enter/Esc still work; same ModalConfirm / ModalCancel
+    // targets as before (plan item f).
     frame.render_widget(Paragraph::new(lines), inner);
-    let button_y = inner.y + 4;
-    hits.push(Rect::new(inner.x, button_y, 16, 1), HitTarget::ModalConfirm);
-    hits.push(
-        Rect::new(inner.x + 17, button_y, 14, 1),
-        HitTarget::ModalCancel,
+    draw_modal_buttons(
+        frame,
+        inner,
+        4,
+        &[
+            ("Submit", HitTarget::ModalConfirm, false),
+            ("Cancel", HitTarget::ModalCancel, false),
+        ],
+        hover,
+        hits,
     );
 }
 
-fn render_open_with(frame: &mut Frame, area: Rect, target: &str, input: &str, hits: &mut HitMap) {
+fn render_open_with(
+    frame: &mut Frame,
+    area: Rect,
+    target: &str,
+    input: &str,
+    hover: Option<HitTarget>,
+    hits: &mut HitMap,
+) {
     push_blocker(area, hits);
     let rect = centered_rect(area, 56, 9);
     frame.render_widget(Clear, rect);
@@ -1854,18 +2388,20 @@ fn render_open_with(frame: &mut Frame, area: Rect, target: &str, input: &str, hi
             Span::styled("_", muted_style()),
         ]),
         Line::from(""),
-        Line::from(vec![
-            Span::styled(" [Enter] run ", style),
-            Span::raw(" "),
-            Span::styled(" [Esc] cancel ", base_style()),
-        ]),
     ];
+    // Keyboard Enter/Esc still work; same ModalConfirm / ModalCancel
+    // targets as before (plan item f).
     frame.render_widget(Paragraph::new(lines), inner);
-    let button_y = inner.y + 4;
-    hits.push(Rect::new(inner.x, button_y, 13, 1), HitTarget::ModalConfirm);
-    hits.push(
-        Rect::new(inner.x + 14, button_y, 14, 1),
-        HitTarget::ModalCancel,
+    draw_modal_buttons(
+        frame,
+        inner,
+        4,
+        &[
+            ("Run", HitTarget::ModalConfirm, false),
+            ("Cancel", HitTarget::ModalCancel, false),
+        ],
+        hover,
+        hits,
     );
 }
 
@@ -1999,8 +2535,10 @@ fn render_help(frame: &mut Frame, area: Rect, hits: &mut HitMap) {
         ("?", "this help"),
         ("q", "quit"),
         ("Space (media)", "play or pause the focused audio"),
-        ("Left/Right (media)", "seek 5 seconds"),
+        ("Left/Right (media)", "seek +/-15 seconds"),
         ("Up/Down (media)", "volume up/down"),
+        ("f (media)", "toggle fullscreen video"),
+        ("n (media)", "next playlist track"),
         ("s (media)", "restart from the beginning"),
         ("Esc/q (media)", "close the media modal"),
         (":copy <dest>", "copy selection"),
@@ -2025,7 +2563,11 @@ fn render_help(frame: &mut Frame, area: Rect, hits: &mut HitMap) {
         (":refresh", "reload current directory"),
         (":quit", "quit"),
         (":help", "this help"),
-        ("mouse right", "context menu"),
+        ("mouse right", "context menu (bulk acts on the selection)"),
+        (
+            "right-click background",
+            "menu with paste for copied/cut files",
+        ),
         ("mouse wheel", "scroll grid"),
     ];
     let max_rows = inner.height as usize;
@@ -2108,5 +2650,183 @@ mod tests {
             &state.preview.content,
             Some(PreviewContent::Text { .. })
         ));
+    }
+}
+
+/// Render-contract tests for the designer-spec media chrome (spec §1-§5).
+#[cfg(test)]
+mod media_render_tests {
+    use super::*;
+    use ratatui::backend::TestBackend;
+    use std::path::PathBuf;
+
+    use crate::app::state::MediaState;
+    use crate::media::{MediaKind, MediaPhase};
+
+    fn row_text(buffer: &ratatui::buffer::Buffer, y: u16, width: u16) -> String {
+        let mut line = String::new();
+        for x in 0..width {
+            line.push_str(buffer[(x, y)].symbol());
+        }
+        line
+    }
+
+    fn rendered(state: &mut AppState, width: u16, height: u16) -> ratatui::buffer::Buffer {
+        state.width = width;
+        state.height = height;
+        let backend = TestBackend::new(width, height);
+        let mut terminal = ratatui::Terminal::new(backend).expect("terminal");
+        terminal.draw(|frame| render(frame, state)).expect("draw");
+        terminal.backend().buffer().clone()
+    }
+
+    fn playing_audio(duration: Option<f64>) -> (AppState, MediaState) {
+        let state = AppState::new(PathBuf::from("/"), PathBuf::from("/tmp"));
+        let mut media = MediaState::preparing(7, PathBuf::from("/tmp/song.mp3"), MediaKind::Audio);
+        media.phase = MediaPhase::Playing;
+        media.position = 30.0;
+        media.duration = duration;
+        (state, media)
+    }
+
+    #[test]
+    fn audio_modal_shows_chip_time_rail_and_button_labels() {
+        use crate::app::state::Mode;
+        let (mut state, media) = playing_audio(Some(90.0));
+        state.mode = Mode::Media(Box::new(media));
+        let buffer = rendered(&mut state, 100, 30);
+        let text: String = (0..30)
+            .map(|y| format!("{}|", row_text(&buffer, y, 100)))
+            .collect();
+        assert!(text.contains("PLAYING"), "phase chip: {text}");
+        assert!(
+            text.contains("00:30 / 01:30 / -01:00 | VOL 100%"),
+            "time row format per spec section 1: {text}"
+        );
+        assert!(text.contains('\u{25CF}'), "rail thumb drawn");
+        assert!(text.contains('\u{2501}'), "played rail segment drawn");
+        for label in ["-15", "PAUSE", "+15", "NEXT", "V-", "V+", "STOP", "X"] {
+            assert!(text.contains(label), "button label {label}: {text}");
+        }
+        // Wide tier keeps the video-only FULL button out of audio modals.
+        assert!(!text.contains("FULL "), "no FULL button on audio");
+    }
+
+    #[test]
+    fn rail_hit_registered_even_when_duration_is_unknown() {
+        use crate::app::state::Mode;
+        let (mut state, mut media) = playing_audio(None);
+        media.duration = None;
+        state.mode = Mode::Media(Box::new(media));
+        let _buffer = rendered(&mut state, 100, 30);
+        let rail = state.hit_map.rect_for(HitTarget::MediaSeekRail);
+        assert!(
+            rail.is_some_and(|rect| rect.width > 0),
+            "MediaSeekRail must be registered without a duration"
+        );
+    }
+
+    #[test]
+    fn split_tier_lays_two_control_rows_and_pruned_tier_drops_conveniences() {
+        use crate::app::state::Mode;
+        // Split tier: 40 <= inner.width < 60.
+        let (mut state, media) = playing_audio(Some(90.0));
+        state.mode = Mode::Media(Box::new(media));
+        rendered(&mut state, 50, 24);
+        assert!(
+            state.hit_map.rect_for(HitTarget::MediaNext).is_some(),
+            "split tier registers NEXT"
+        );
+
+        // Pruned tier: inner.width < 40 drops NEXT/V-/V+, keeps STOP/X.
+        let (mut state, media) = playing_audio(Some(90.0));
+        state.mode = Mode::Media(Box::new(media));
+        let _buffer = rendered(&mut state, 36, 20);
+        assert!(
+            state.hit_map.rect_for(HitTarget::MediaNext).is_none(),
+            "pruned tier drops NEXT"
+        );
+        assert!(
+            state.hit_map.rect_for(HitTarget::MediaVolumeDown).is_none(),
+            "pruned tier drops V-"
+        );
+        assert!(state.hit_map.rect_for(HitTarget::MediaStop).is_some());
+        assert!(state.hit_map.rect_for(HitTarget::MediaClose).is_some());
+    }
+
+    #[test]
+    fn fullscreen_video_reserves_two_row_strip_and_clears_the_rest() {
+        use crate::app::state::Mode;
+        let (mut state, mut media) = playing_audio(Some(90.0));
+        media.kind = MediaKind::Video;
+        media.fullscreen = true;
+        state.mode = Mode::Media(Box::new(media));
+        let width = 90u16;
+        let height = 26u16;
+        let buffer = rendered(&mut state, width, height);
+        // Surface gets everything above the strip.
+        if let Mode::Media(current) = &state.mode {
+            let surface = current.surface.expect("surface registered");
+            assert_eq!(surface.rect.height, height - 2, "video rect is area-2");
+            assert_eq!(surface.rect.y, 0);
+        } else {
+            panic!("media mode expected");
+        }
+        // Strip rows hold transport and flat bracket controls.
+        let strip_text = format!(
+            "{}\n{}",
+            row_text(&buffer, height - 2, width),
+            row_text(&buffer, height - 1, width)
+        );
+        assert!(
+            strip_text.contains("[PAUSE]"),
+            "flat controls: {strip_text}"
+        );
+        assert!(strip_text.contains("[X]"), "close control: {strip_text}");
+        assert!(
+            strip_text.contains("-01:00"),
+            "remaining time: {strip_text}"
+        );
+        // The cleared region above the strip must not leak modal borders.
+        assert_ne!(
+            buffer[(0, 0)].symbol(),
+            "+",
+            "fullscreen clears windowed chrome"
+        );
+    }
+
+    #[test]
+    fn context_menu_background_titles_cwd_and_disabled_paste_has_no_hit() {
+        use crate::app::state::{
+            ClipboardState, ContextItem, ContextMenuState, ContextTarget, MenuItem, Mode,
+        };
+        let mut state = AppState::new(PathBuf::from("/home/u/docs"), PathBuf::from("/"));
+        state.mode = Mode::ContextMenu(Box::new(ContextMenuState {
+            target: ContextTarget::Background,
+            items: vec![MenuItem {
+                action: ContextItem::Paste,
+                enabled: false,
+            }],
+            selected: 0,
+            x: 2,
+            y: 2,
+        }));
+        state.clipboard = ClipboardState::default();
+        let buffer = rendered(&mut state, 60, 20);
+        // Title row (menu top border) carries the cwd basename.
+        let top = row_text(&buffer, 2, 60);
+        assert!(
+            top.contains("docs"),
+            "background title is cwd basename: {top}"
+        );
+        // Disabled Paste renders but registers no hit.
+        assert!(
+            !state
+                .hit_map
+                .regions
+                .iter()
+                .any(|(_, t)| matches!(t, HitTarget::ContextItem(_))),
+            "disabled paste registers no hit"
+        );
     }
 }

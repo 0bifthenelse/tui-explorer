@@ -10,6 +10,7 @@ use crossterm::event::{self, Event, KeyCode, KeyModifiers, MouseButton, MouseEve
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 use tui_explorer::app::action::{Action, DirectorySnapshot, MouseKind};
+use tui_explorer::media::AudioBackend;
 use tui_explorer::media::mpv::{IpcMessage, PropertyChange};
 
 use tui_explorer::app::effects::{Effect, EffectHandler};
@@ -216,6 +217,13 @@ enum ActiveMedia {
         /// Tells the spectrum publisher thread to exit with the session.
         spectrum_stop: Arc<AtomicBool>,
     },
+    /// mpv-driven playback through one IPC connection. Covers both real
+    /// video and the AUDIO FALLBACK for codecs symphonia cannot decode
+    /// (opus, wma): `MpvProcess::spawn_audio` produces the same process
+    /// wrapper minus the vo-kitty geometry, so status sampling, command
+    /// routing (apply_video_command), and EOF handling are shared verbatim.
+    /// Duration/position/pause/volume are all mpv-authoritative on this
+    /// path; no spectrum thread exists.
     Video(VideoPlayback),
 }
 
@@ -275,6 +283,48 @@ fn handle_media_request(
             // Replacing any previous backend drops it first.
             stop_active(active);
             if kind != tui_explorer::media::MediaKind::Video {
+                // Codec routing: extensions without an in-process symphonia
+                // decoder play through the mpv fallback. The process wraps
+                // into the SAME VideoPlayback observer machinery as video
+                // (reusing the ActiveMedia::Video variant, see the comment
+                // there): duration/position/pause/volume are all
+                // mpv-authoritative starting from duration=None until the
+                // property observation arrives, commands route through
+                // apply_video_command, and EOF/end-file handling is
+                // identical. No spectrum thread exists on this path.
+                let extension = path
+                    .extension()
+                    .and_then(|ext| ext.to_str())
+                    .map(|ext| ext.to_ascii_lowercase())
+                    .unwrap_or_default();
+                if tui_explorer::media::audio_backend_for_extension(&extension)
+                    == Some(AudioBackend::Mpv)
+                {
+                    match tui_explorer::media::mpv::MpvProcess::spawn_audio(&path, session) {
+                        Ok(process) => {
+                            let mut playback = VideoPlayback {
+                                process: Box::new(process),
+                                position: resume_position.unwrap_or(0.0),
+                                duration: None,
+                                volume: 100,
+                                paused: resume_paused.unwrap_or(false),
+                                finished: false,
+                                end_reported: false,
+                            };
+                            if let Err(message) = observe_playback_properties(&mut playback.process)
+                            {
+                                let _ = sender.send(Action::MediaFailed { session, message });
+                                return true; // playback dropped -> graceful shutdown
+                            }
+                            let _ = sender.send(Action::MediaBackendReady { session });
+                            *active = Some((session, ActiveMedia::Video(playback)));
+                        }
+                        Err(message) => {
+                            let _ = sender.send(Action::MediaFailed { session, message });
+                        }
+                    }
+                    return true;
+                }
                 match start_audio(sender, session, &path) {
                     Ok((stream, sink, duration, spectrum_stop)) => {
                         if let Some(position) = resume_position {
@@ -328,30 +378,7 @@ fn handle_media_request(
                         finished: false,
                         end_reported: false,
                     };
-                    // Distinct observer ids per property; dispatch keys off
-                    // the echoed property name, ids keep the mapping explicit.
-                    const OBSERVED: [(u64, &str); 5] = [
-                        (1, "time-pos"),
-                        (2, "duration"),
-                        (3, "pause"),
-                        (4, "volume"),
-                        (5, "eof-reached"),
-                    ];
-                    let mut observe_error = None;
-                    for (id, property) in OBSERVED {
-                        if let Err(error) = playback.process.send_command(
-                            &[
-                                serde_json::Value::from("observe_property"),
-                                serde_json::Value::from(id),
-                                serde_json::Value::from(property),
-                            ],
-                            None,
-                        ) {
-                            observe_error = Some(format!("cannot observe mpv {property}: {error}"));
-                            break;
-                        }
-                    }
-                    if let Some(message) = observe_error {
+                    if let Err(message) = observe_playback_properties(&mut playback.process) {
                         let _ = sender.send(Action::MediaFailed { session, message });
                         return true; // playback dropped -> graceful shutdown
                     }
@@ -512,6 +539,36 @@ fn tick_status(active: &mut Option<(u64, ActiveMedia)>, sender: &SyncSender<Acti
     }
 }
 
+/// Registers the property observers shared by every mpv-driven backend
+/// (video and the mpv audio fallback): time-pos, duration, pause, volume,
+/// eof-reached. Distinct observer ids per property; dispatch keys off the
+/// echoed property name, ids keep the mapping explicit. Returns the first
+/// registration failure message, if any.
+fn observe_playback_properties(
+    process: &mut tui_explorer::media::mpv::MpvProcess,
+) -> Result<(), String> {
+    const OBSERVED: [(u64, &str); 5] = [
+        (1, "time-pos"),
+        (2, "duration"),
+        (3, "pause"),
+        (4, "volume"),
+        (5, "eof-reached"),
+    ];
+    for (id, property) in OBSERVED {
+        process
+            .send_command(
+                &[
+                    serde_json::Value::from("observe_property"),
+                    serde_json::Value::from(id),
+                    serde_json::Value::from(property),
+                ],
+                None,
+            )
+            .map_err(|error| format!("cannot observe mpv {property}: {error}"))?;
+    }
+    Ok(())
+}
+
 /// Folds one observed mpv property into the cached playback state. Missing,
 /// null, or mistyped values are ignored; the next observation corrects them.
 fn apply_property(playback: &mut VideoPlayback, change: PropertyChange) {
@@ -627,7 +684,20 @@ fn start_audio(
     ),
     String,
 > {
-    let source = tui_explorer::media::audio::SymphoniaSource::new(path)?;
+    // AIFF containers have no symphonia demuxer; the dedicated parser
+    // (same rodio::Source shape) covers aif/aiff/aifc natively.
+    let is_aiff = path
+        .extension()
+        .map(|e| {
+            let e = e.to_string_lossy().to_ascii_lowercase();
+            e == "aif" || e == "aiff" || e == "aifc"
+        })
+        .unwrap_or(false);
+    let source: Box<dyn rodio::Source<Item = f32> + Send> = if is_aiff {
+        Box::new(tui_explorer::media::aiff::AiffSource::new(path)?)
+    } else {
+        Box::new(tui_explorer::media::audio::SymphoniaSource::new(path)?)
+    };
     let duration = source.total_duration().map(|d| d.as_secs_f64());
     let (spectrum, snapshot) = tui_explorer::media::audio::SpectrumSource::new(source);
     let spectrum_stop = Arc::new(AtomicBool::new(false));

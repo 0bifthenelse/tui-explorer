@@ -32,5 +32,5 @@ BOOKMARKS -------------|| docs       || src        || a very lon~|| app.tsx    |
                        |
                        |
                        |
-:copy "/mnt/backup drive"
 | Enter run | Esc cancel
+:copy "/mnt/backup drive"
