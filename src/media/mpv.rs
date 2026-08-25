@@ -45,18 +45,24 @@ impl MpvProcess {
     /// `geometry_cells` is (left, top) of the reserved rectangle in cells;
     /// `size_cells` is its (width, height) in cells; `cell_pixels` is the
     /// font size in pixels used to convert cells to vo-kitty pixel values.
+    /// Resume hints apply natively at load time: `--start=<secs>` seeks
+    /// once the file is loaded (no IPC race) and `--pause` holds the
+    /// first frame, so the supervised restart cycles (fullscreen/resize)
+    /// land exactly where the previous session stopped.
     pub fn spawn(
         path: &Path,
         geometry_cells: (u16, u16),
         size_cells: (u16, u16),
         cell_pixels: (u16, u16),
         session: u64,
+        resume: Option<(f64, bool)>,
     ) -> Result<Self, String> {
         let socket_path = open_private_socket(session)?;
 
         let mut command = Command::new("mpv");
         command
             .args(common_mpv_args(path, &socket_path))
+            .args(resume_args(resume))
             .args(kitty_video_args(geometry_cells, size_cells, cell_pixels))
             .stdin(Stdio::null())
             // The Kitty video output paints through stdout; discarding it
@@ -72,13 +78,18 @@ impl MpvProcess {
     /// supervisor for audio codecs symphonia cannot decode; no vo-kitty
     /// geometry is passed and nothing ever paints, so the child's stdout is
     /// discarded.
-    pub fn spawn_audio(path: &Path, session: u64) -> Result<Self, String> {
+    pub fn spawn_audio(
+        path: &Path,
+        session: u64,
+        resume: Option<(f64, bool)>,
+    ) -> Result<Self, String> {
         let socket_path = open_private_socket(session)?;
 
         let mut command = Command::new("mpv");
         command
             .args(common_mpv_args(path, &socket_path))
             .args(AUDIO_ONLY_ARGS.iter().copied())
+            .args(resume_args(resume))
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::piped());
@@ -255,6 +266,24 @@ fn open_private_socket(session: u64) -> Result<PathBuf, String> {
     prepare_socket_dir(&socket_path)?;
     let _ = std::fs::remove_file(&socket_path);
     Ok(socket_path)
+}
+
+/// `--start`/`--pause` flags for the resume hints; omitted entirely when
+/// no resume is requested so first opens behave exactly as before.
+fn resume_args(resume: Option<(f64, bool)>) -> Vec<String> {
+    match resume {
+        None => Vec::new(),
+        Some((position, paused)) => {
+            let mut args = Vec::new();
+            if position.is_finite() && position > 0.05 {
+                args.push(format!("--start={position:.3}"));
+            }
+            if paused {
+                args.push("--pause".to_string());
+            }
+            args
+        }
+    }
 }
 
 /// Flags shared by every mpv invocation: clean environment, quiet terminal,

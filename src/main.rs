@@ -300,7 +300,9 @@ fn handle_media_request(
                 if tui_explorer::media::audio_backend_for_extension(&extension)
                     == Some(AudioBackend::Mpv)
                 {
-                    match tui_explorer::media::mpv::MpvProcess::spawn_audio(&path, session) {
+                    let resume = resume_position.map(|p| (p, resume_paused.unwrap_or(false)));
+                    match tui_explorer::media::mpv::MpvProcess::spawn_audio(&path, session, resume)
+                    {
                         Ok(process) => {
                             let mut playback = VideoPlayback {
                                 process: Box::new(process),
@@ -361,12 +363,14 @@ fn handle_media_request(
                 });
                 return true;
             }
+            let resume = resume_position.map(|p| (p, resume_paused.unwrap_or(false)));
             match tui_explorer::media::mpv::MpvProcess::spawn(
                 &path,
                 (surface.rect.x, surface.rect.y),
                 (surface.rect.width, surface.rect.height),
                 surface.cell_pixels,
                 session,
+                resume,
             ) {
                 Ok(process) => {
                     let mut playback = VideoPlayback {
