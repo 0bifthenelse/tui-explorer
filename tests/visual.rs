@@ -1,8 +1,10 @@
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
+
 use ratatui::Terminal;
 use ratatui::backend::TestBackend;
 use ratatui::buffer::Buffer;
-use ratatui::style::Modifier;
-use std::path::{Path, PathBuf};
+use ratatui::style::{Color, Modifier};
 
 use tui_explorer::app::action::Action;
 use tui_explorer::app::reduce::reduce;
@@ -20,6 +22,7 @@ use tui_explorer::ui::palette::{
     ACCENT, ACCENT_SOFT, BORDER_STRONG, BORDER_SUBTLE, DANGER, FOCUS_BG, SELECTED_BG, SURFACE_2,
     SURFACE_3, TEXT_PRIMARY,
 };
+use tui_explorer::ui::theme;
 
 fn buffer_text(terminal: &Terminal<TestBackend>) -> String {
     let buffer = terminal.backend().buffer();
@@ -335,6 +338,23 @@ fn palette_header_cell_is_primary_on_surface() {
             cell.fg == TEXT_PRIMARY && cell.bg == SURFACE_2 && !cell.symbol().trim().is_empty()
         }) > 0
     );
+}
+
+#[test]
+fn palette_constants_are_pinned_to_the_default_theme() {
+    // The palette constants are frozen copies of theme 0, so every color
+    // assertion in this file is only meaningful while theme 0 is active.
+    pin_default_theme();
+    assert_eq!(theme::current().accent, ACCENT);
+    assert_eq!(theme::current().surface_2, SURFACE_2);
+    assert_eq!(theme::current().surface_3, SURFACE_3);
+    assert_eq!(theme::current().text_primary, TEXT_PRIMARY);
+    assert_eq!(theme::current().border_subtle, BORDER_SUBTLE);
+    assert_eq!(theme::current().border_strong, BORDER_STRONG);
+    assert_eq!(theme::current().accent_soft, ACCENT_SOFT);
+    assert_eq!(theme::current().danger, DANGER);
+    assert_eq!(theme::current().selected_bg, SELECTED_BG);
+    assert_eq!(theme::current().focus_bg, FOCUS_BG);
 }
 
 #[test]
@@ -1010,4 +1030,181 @@ fn marquee_band_renders_accent_outline_without_fill() {
         accent_cells >= 2 * (31 + 15),
         "outline missing: {accent_cells}"
     );
+}
+
+// --- runtime theme selection ---
+
+/// Palette constants are frozen copies of theme 0; pin the active theme so
+/// these assertions can never drift onto a different color scheme.
+fn pin_default_theme() {
+    theme::set_current(0);
+    assert_eq!(theme::current_index(), 0, "default theme must be index 0");
+}
+
+/// Distinct explicitly-colored foregrounds in `buffer`, ignoring unset cells.
+fn distinct_foregrounds(buffer: &Buffer) -> HashSet<Color> {
+    let area = buffer.area;
+    let mut out = HashSet::new();
+    for y in 0..area.height {
+        for x in 0..area.width {
+            let fg = buffer[(x, y)].fg;
+            if fg != Color::default() {
+                out.insert(fg);
+            }
+        }
+    }
+    out
+}
+
+/// Draws one frame, turning a backend error into a message naming the theme.
+fn themed_render(
+    state: &mut AppState,
+    width: u16,
+    height: u16,
+    label: &str,
+) -> Terminal<TestBackend> {
+    let backend = TestBackend::new(width, height);
+    let mut terminal = Terminal::new(backend).expect("test terminal");
+    terminal
+        .draw(|frame| ui::render(frame, state))
+        .unwrap_or_else(|e| panic!("{label} failed to render at {width}x{height}: {e}"));
+    terminal
+}
+
+/// Fails if any cell needs truecolor, which would break 256-color terminals.
+fn assert_no_truecolor(terminal: &Terminal<TestBackend>, label: &str, width: u16, height: u16) {
+    let buffer = terminal.backend().buffer();
+    let area = buffer.area;
+    for y in 0..area.height {
+        for x in 0..area.width {
+            let cell = &buffer[(x, y)];
+            assert!(
+                !matches!(cell.fg, Color::Rgb(..)),
+                "{label} foreground needs truecolor at ({x},{y}) of {width}x{height}: {:?}",
+                cell.fg
+            );
+            assert!(
+                !matches!(cell.bg, Color::Rgb(..)),
+                "{label} background needs truecolor at ({x},{y}) of {width}x{height}: {:?}",
+                cell.bg
+            );
+        }
+    }
+}
+
+#[test]
+fn all_themes_render_every_surface() {
+    assert!(theme::count() >= 16, "themes were expected to be added");
+    for index in 0..theme::count() {
+        theme::set_current(index);
+        assert_eq!(
+            theme::current_index(),
+            index,
+            "set_current must accept every advertised index"
+        );
+        let names = theme::names();
+        let label = format!("theme {index} ({})", names[index % names.len()]);
+
+        for (w, h) in [(120, 36), (70, 22)] {
+            let (mut state, _) = loaded(w, h);
+            let terminal = themed_render(&mut state, w, h, &label);
+            let text = buffer_text(&terminal);
+            assert!(
+                !text.trim().is_empty(),
+                "{label} rendered an empty frame at {w}x{h}"
+            );
+        }
+
+        // The help overlay is the modal surface: it fills a centered block
+        // with its own background and frame colors.
+        let (mut state, mut handler) = loaded(120, 36);
+        drive(&mut state, &mut handler, [Action::ToggleHelp]);
+        assert!(
+            matches!(state.mode, Mode::Help),
+            "{label} help overlay did not open"
+        );
+        let terminal = themed_render(&mut state, 120, 36, &label);
+        let text = buffer_text(&terminal);
+        assert!(
+            text.contains("HELP"),
+            "{label} help overlay missing its title:\n{text}"
+        );
+    }
+    pin_default_theme();
+}
+
+#[test]
+fn themed_output_is_256_color_only() {
+    let index = theme::count() - 1;
+    theme::set_current(index);
+    assert_eq!(theme::current_index(), index);
+    let label = format!("theme {index}");
+
+    // Every theme surface, including the preview panel and the help modal,
+    // must stay inside the xterm-256 palette.
+    for (w, h) in [(120, 36), (160, 48), (70, 22)] {
+        let (mut state, _) = loaded(w, h);
+        let terminal = themed_render(&mut state, w, h, &label);
+        assert_no_truecolor(&terminal, &label, w, h);
+    }
+
+    let (mut state, mut handler) = loaded(120, 36);
+    drive(&mut state, &mut handler, [Action::ToggleHelp]);
+    let terminal = themed_render(&mut state, 120, 36, &label);
+    assert_no_truecolor(&terminal, &label, 120, 36);
+
+    // The 16-slot palette of the active theme is itself fully indexed.
+    let colors = theme::current();
+    for color in [
+        colors.surface_0,
+        colors.surface_1,
+        colors.surface_2,
+        colors.surface_3,
+        colors.border_subtle,
+        colors.border_strong,
+        colors.text_primary,
+        colors.text_secondary,
+        colors.text_muted,
+        colors.accent,
+        colors.accent_hover,
+        colors.accent_soft,
+        colors.danger,
+        colors.selected_bg,
+        colors.focus_bg,
+        colors.ink,
+    ] {
+        assert!(
+            matches!(color, Color::Indexed(_)),
+            "{color:?} is not indexed"
+        );
+    }
+    pin_default_theme();
+}
+
+#[test]
+fn theme_changes_actually_change_rendering() {
+    let render_fg = |index: usize| {
+        theme::set_current(index);
+        assert_eq!(theme::current_index(), index);
+        let (mut state, _) = loaded(120, 36);
+        let terminal = themed_render(&mut state, 120, 36, "theme comparison");
+        distinct_foregrounds(terminal.backend().buffer())
+    };
+
+    let base = render_fg(0);
+    let other = render_fg(7);
+    assert!(
+        !base.is_empty() && !other.is_empty(),
+        "expected colored foregrounds in both frames"
+    );
+    assert_ne!(
+        base, other,
+        "theme 0 and theme 7 rendered identical foregrounds; colors are frozen constants"
+    );
+    let shared: Vec<Color> = base.intersection(&other).copied().collect();
+    assert!(
+        !shared.is_empty(),
+        "the two themes share no foreground at all, so the comparison proves nothing: {shared:?}"
+    );
+    pin_default_theme();
 }

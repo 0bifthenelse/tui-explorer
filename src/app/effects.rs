@@ -31,6 +31,8 @@ pub enum Effect {
         kind: CryptoKind,
         target: PathBuf,
         password: Password,
+        /// Whether a successful run removes the consumed source.
+        disposition: crate::crypto::SourceDisposition,
     },
     ToggleBookmark(PathBuf),
     TagAssign {
@@ -63,6 +65,8 @@ pub enum Effect {
     StopMedia {
         session: u64,
     },
+    /// Remember the active theme for the next launch.
+    PersistTheme(usize),
     Quit,
 }
 

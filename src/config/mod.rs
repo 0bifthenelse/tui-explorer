@@ -49,6 +49,26 @@ pub fn log_path(dirs: &XdgDirs) -> PathBuf {
     cache_dir(dirs).join("tui-explorer.log")
 }
 
+pub fn theme_path(dirs: &XdgDirs) -> PathBuf {
+    dirs.config.join("tui-explorer").join("theme")
+}
+
+/// Reads the persisted theme index, or `None` when the file is missing,
+/// unreadable, or does not hold a plain decimal index.
+pub fn load_theme(path: &Path) -> Option<usize> {
+    std::fs::read_to_string(path)
+        .ok()?
+        .trim()
+        .parse::<usize>()
+        .ok()
+}
+
+/// Writes the theme index as `"<index>\n"`, creating private parents first.
+pub fn save_theme(path: &Path, index: usize) -> std::io::Result<()> {
+    ensure_private_parent(path)?;
+    std::fs::write(path, format!("{index}\n"))
+}
+
 #[cfg(unix)]
 pub fn ensure_private_parent(path: &Path) -> std::io::Result<()> {
     use std::os::unix::fs::DirBuilderExt;
@@ -132,5 +152,21 @@ mod tests {
         for path in [database_path(&dirs), config_path(&dirs), cache_dir(&dirs)] {
             assert!(!path.starts_with("/usr"), "{}", path.display());
         }
+    }
+
+    #[test]
+    fn theme_roundtrip_under_sandbox() {
+        let dir = crate::filesystem::sandbox::fixture("config-theme");
+        let path = theme_path(&XdgDirs {
+            data: dir.clone(),
+            config: dir.clone(),
+            cache: dir.clone(),
+        });
+        assert!(load_theme(&path).is_none());
+        save_theme(&path, 7).expect("theme save");
+        assert_eq!(load_theme(&path), Some(7));
+        assert_eq!(std::fs::read_to_string(&path).expect("theme read"), "7\n");
+        std::fs::write(&path, "not-a-number").expect("malformed theme write");
+        assert_eq!(load_theme(&path), None);
     }
 }

@@ -17,6 +17,8 @@ pub enum LegendAction {
     Sidebar,
     Preview,
     Bookmarks,
+    /// Switch the terminal palette from the command center.
+    Themes,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -51,6 +53,10 @@ pub enum HitTarget {
     MediaClose,
     Blocker,
     Details,
+    /// Row of the Escape command center; themes and quick actions share one index space.
+    EscapeItem(usize),
+    /// Row of the bookmark navigator.
+    BookmarkRow(usize),
 }
 
 #[derive(Clone, Debug, Default)]

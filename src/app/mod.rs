@@ -1,4 +1,5 @@
 pub mod action;
+pub mod anim;
 pub mod effects;
 pub mod fuzzy;
 pub mod reduce;

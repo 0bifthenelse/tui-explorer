@@ -254,7 +254,7 @@ mod tests {
 
     #[test]
     fn bookmark_roundtrip() {
-        let dir = std::env::temp_dir().join(format!("tui-explorer-bm-{}", std::process::id()));
+        let dir = crate::filesystem::sandbox::fixture("bookmarks");
         let store = BookmarkStore::new(dir.join("bookmarks.txt"));
         let mut bm = Vec::new();
         assert!(store.toggle(&mut bm, Path::new("/tmp")).unwrap());

@@ -90,6 +90,8 @@ struct ProdHandler {
     bookmarks: tui_explorer::sidebar::BookmarkStore,
     sender: SyncSender<Action>,
     media: MediaSupervisor,
+    /// Where the chosen theme index is remembered between launches.
+    theme_path: PathBuf,
 }
 
 /// Owns the active media runtime on one dedicated thread. Audio keeps a real
@@ -920,6 +922,7 @@ impl EffectHandler for ProdHandler {
                 kind,
                 target,
                 password,
+                disposition,
             } => {
                 let sender = self.sender.clone();
                 std::thread::spawn(move || {
@@ -930,6 +933,7 @@ impl EffectHandler for ProdHandler {
                         std::slice::from_ref(&target),
                         &secret,
                         &cancel,
+                        disposition,
                         &mut |_, _, _| {},
                     );
                     let _ = sender.send(Action::CryptoFinished {
@@ -1075,6 +1079,14 @@ impl EffectHandler for ProdHandler {
             }
             Effect::StopMedia { session } => {
                 self.media.stop(session);
+                Vec::new()
+            }
+            Effect::PersistTheme(index) => {
+                if let Err(err) = config::save_theme(&self.theme_path, index) {
+                    return vec![Action::ErrorMessage(format!(
+                        "could not save theme choice: {err}"
+                    ))];
+                }
                 Vec::new()
             }
             Effect::Quit => Vec::new(),
@@ -1272,12 +1284,16 @@ fn run(start: PathBuf) -> std::io::Result<()> {
     let (sender, receiver) = sync_channel::<Action>(64);
     let bookmark_store = tui_explorer::sidebar::BookmarkStore::new(config::bookmarks_path(&dirs));
     let bookmarks = bookmark_store.load();
+    let theme_file = config::theme_path(&dirs);
+    let startup_theme =
+        config::load_theme(&theme_file).filter(|index| *index < tui_explorer::ui::theme::count());
     let mut handler = ProdHandler {
         fs: RealFileSystem::new(),
         mutations: RealMutations::new(),
         tags,
         bookmarks: bookmark_store,
         media: MediaSupervisor::new(sender.clone(), picker.protocol_type()),
+        theme_path: theme_file,
         sender,
     };
     let mut state = AppState::new(start, home);
@@ -1292,6 +1308,10 @@ fn run(start: PathBuf) -> std::io::Result<()> {
     }
     if let Some(err) = startup_error {
         state.set_error(err);
+    }
+    if let Some(index) = startup_theme {
+        state.theme_index = index;
+        tui_explorer::ui::theme::set_current(index);
     }
     let mut pending: VecDeque<Action> = VecDeque::new();
     pending.push_back(Action::LoadInitial);
@@ -1318,7 +1338,15 @@ fn run(start: PathBuf) -> std::io::Result<()> {
         }
         drain_channel(&receiver, &mut pending);
         if pending.is_empty() {
-            if event::poll(Duration::from_millis(100))? {
+            // Fast frames only while a transition is live; idle stays at the
+            // original 100 ms cadence and never busy-spins.
+            let wait = if state.anim.active() {
+                Duration::from_millis(tui_explorer::app::anim::TICK_MS)
+            } else {
+                Duration::from_millis(100)
+            };
+            let ticked = state.anim.active();
+            if event::poll(wait)? {
                 match event::read()? {
                     Event::Key(key) => {
                         if key.code == KeyCode::Char('l')
@@ -1339,6 +1367,9 @@ fn run(start: PathBuf) -> std::io::Result<()> {
                     }
                     _ => {}
                 }
+            }
+            if ticked {
+                pending.push_back(Action::Tick);
             }
             drain_channel(&receiver, &mut pending);
         }

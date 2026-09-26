@@ -8,9 +8,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 
 use crate::ui::hit::{HitMap, HitTarget};
-use crate::ui::palette::{
-    ACCENT, ACCENT_HOVER, BORDER_SUBTLE, DANGER, SURFACE_2, SURFACE_3, TEXT_MUTED, TEXT_PRIMARY,
-};
+use crate::ui::theme::current as theme;
 
 /// Same ASCII border set every modal in [`crate::ui`] uses.
 const ASCII_BORDERS: border::Set = border::Set {
@@ -43,7 +41,7 @@ pub struct Button {
     pub rect: Rect,
     pub label: String,
     pub target: HitTarget,
-    /// Destructive action: label foreground becomes DANGER (never colour
+    /// Destructive action: label foreground becomes theme().danger (never colour
     /// alone — wording plus confirm dialogs carry the meaning).
     pub danger: bool,
     pub state: ButtonState,
@@ -78,13 +76,28 @@ pub fn draw_button(frame: &mut ratatui::Frame, btn: &Button, hits: &mut HitMap) 
     }
 
     let (bg, border_fg, label_fg, bold) = match btn.state {
-        ButtonState::Idle => (SURFACE_2, BORDER_SUBTLE, TEXT_PRIMARY, false),
-        ButtonState::Hovered => (SURFACE_3, ACCENT_HOVER, TEXT_PRIMARY, false),
-        ButtonState::Active => (ACCENT, ACCENT_HOVER, Color::Black, true),
-        ButtonState::Disabled => (SURFACE_2, BORDER_SUBTLE, TEXT_MUTED, false),
+        ButtonState::Idle => (
+            theme().surface_2,
+            theme().border_subtle,
+            theme().text_primary,
+            false,
+        ),
+        ButtonState::Hovered => (
+            theme().surface_3,
+            theme().accent_hover,
+            theme().text_primary,
+            false,
+        ),
+        ButtonState::Active => (theme().accent, theme().accent_hover, Color::Black, true),
+        ButtonState::Disabled => (
+            theme().surface_2,
+            theme().border_subtle,
+            theme().text_muted,
+            false,
+        ),
     };
     let label_fg = if btn.danger && btn.state != ButtonState::Disabled {
-        DANGER
+        theme().danger
     } else {
         label_fg
     };
@@ -381,34 +394,34 @@ mod tests {
     #[test]
     fn draw_button_state_colors() {
         let idle = render_button(ButtonState::Idle, false);
-        assert_eq!(idle[(0, 0)].fg, BORDER_SUBTLE);
-        assert_eq!(idle[(1, 1)].bg, SURFACE_2);
-        assert_eq!(idle[(2, 1)].fg, TEXT_PRIMARY);
+        assert_eq!(idle[(0, 0)].fg, theme().border_subtle);
+        assert_eq!(idle[(1, 1)].bg, theme().surface_2);
+        assert_eq!(idle[(2, 1)].fg, theme().text_primary);
         assert_eq!(idle[(2, 1)].symbol(), "O");
 
         let hovered = render_button(ButtonState::Hovered, false);
-        assert_eq!(hovered[(0, 0)].fg, ACCENT_HOVER);
-        assert_eq!(hovered[(1, 1)].bg, SURFACE_3);
+        assert_eq!(hovered[(0, 0)].fg, theme().accent_hover);
+        assert_eq!(hovered[(1, 1)].bg, theme().surface_3);
 
         let active = render_button(ButtonState::Active, false);
-        assert_eq!(active[(1, 1)].bg, ACCENT);
+        assert_eq!(active[(1, 1)].bg, theme().accent);
         assert_eq!(active[(2, 1)].fg, Color::Black);
         assert!(active[(2, 1)].modifier.contains(Modifier::BOLD));
 
         let disabled = render_button(ButtonState::Disabled, false);
-        assert_eq!(disabled[(2, 1)].fg, TEXT_MUTED);
-        assert_eq!(disabled[(1, 1)].bg, SURFACE_2);
+        assert_eq!(disabled[(2, 1)].fg, theme().text_muted);
+        assert_eq!(disabled[(1, 1)].bg, theme().surface_2);
     }
 
     #[test]
     fn draw_button_danger_label_uses_danger_color() {
         let buf = render_button(ButtonState::Idle, true);
-        assert_eq!(buf[(2, 1)].fg, DANGER);
+        assert_eq!(buf[(2, 1)].fg, theme().danger);
         // Border styling stays state-driven.
-        assert_eq!(buf[(0, 0)].fg, BORDER_SUBTLE);
+        assert_eq!(buf[(0, 0)].fg, theme().border_subtle);
 
         // Disabled wins: muted label even when marked dangerous.
         let off = render_button(ButtonState::Disabled, true);
-        assert_eq!(off[(2, 1)].fg, TEXT_MUTED);
+        assert_eq!(off[(2, 1)].fg, theme().text_muted);
     }
 }

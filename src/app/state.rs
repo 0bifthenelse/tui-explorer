@@ -2,6 +2,7 @@ use ratatui::layout::Rect;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
+use crate::app::anim::Anim;
 use crate::browser::Browser;
 use crate::media::{AfterStop, MediaKind, MediaPhase};
 use crate::operations::{OperationKind, OperationPlan};
@@ -69,6 +70,28 @@ pub struct BookmarkNavState {
     pub query: String,
     pub matches: Vec<PathBuf>,
     pub selected: usize,
+    /// True while `/` search input is being edited; `j`/`k` then still move.
+    pub searching: bool,
+    /// Index of the first visible result row, so movement never jitters.
+    pub scroll: usize,
+}
+
+impl BookmarkNavState {
+    pub fn new() -> Self {
+        BookmarkNavState {
+            query: String::new(),
+            matches: Vec::new(),
+            selected: 0,
+            searching: false,
+            scroll: 0,
+        }
+    }
+}
+
+impl Default for BookmarkNavState {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 /// Decoded preview content for the focused entry.
@@ -118,7 +141,13 @@ pub struct OperationState {
 
 #[derive(Clone, Debug)]
 pub enum ConfirmAction {
-    Delete { plan: Box<OperationPlan> },
+    Delete {
+        plan: Box<OperationPlan>,
+    },
+    /// Encrypt `target` after the user accepted the destructive warning.
+    Encrypt {
+        target: PathBuf,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -152,8 +181,22 @@ pub enum ContextItem {
     Cut,
     ClipboardCopy,
     Paste,
-    Delete,
     Tags,
+    Bookmark,
+    Encrypt,
+    Decrypt,
+    Delete,
+}
+
+/// Facts about the captured target that decide which actions are offered.
+/// Computed once when the menu opens so the item set never shifts under the
+/// pointer while it is on screen.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct MenuFacts {
+    pub clipboard_has_items: bool,
+    pub is_dir: bool,
+    pub is_encrypted: bool,
+    pub is_bookmarked: bool,
 }
 
 impl ContextItem {
@@ -165,31 +208,69 @@ impl ContextItem {
             ContextItem::Cut => "Cut",
             ContextItem::ClipboardCopy => "Copy",
             ContextItem::Paste => "Paste",
-            ContextItem::Delete => "Delete",
             ContextItem::Tags => "Tags",
+            ContextItem::Bookmark => "Bookmark",
+            ContextItem::Encrypt => "Encrypt",
+            ContextItem::Decrypt => "Decrypt",
+            ContextItem::Delete => "Delete",
         }
     }
 
-    /// The menu shown for a context target. `clipboard_has_items` enables
-    /// the background Paste entry.
-    pub fn menu_for(target: &ContextTarget, clipboard_has_items: bool) -> Vec<MenuItem> {
+    /// Single-key mnemonic, chosen so no two visible items collide.
+    pub fn mnemonic(&self) -> char {
+        match self {
+            ContextItem::Open => 'o',
+            ContextItem::OpenWith => 'w',
+            ContextItem::Rename => 'r',
+            ContextItem::Cut => 'x',
+            ContextItem::ClipboardCopy => 'c',
+            ContextItem::Paste => 'p',
+            ContextItem::Tags => 't',
+            ContextItem::Bookmark => 'b',
+            ContextItem::Encrypt => 'E',
+            ContextItem::Decrypt => 'D',
+            ContextItem::Delete => 'd',
+        }
+    }
+
+    /// Destructive entries render after a divider, never inline.
+    pub fn is_destructive(&self) -> bool {
+        matches!(self, ContextItem::Delete)
+    }
+
+    /// The menu shown for a context target. Only actions that can actually
+    /// apply are offered; everything else is absent rather than disabled.
+    pub fn menu_for(target: &ContextTarget, facts: MenuFacts) -> Vec<MenuItem> {
         let item = |action: ContextItem, enabled: bool| MenuItem { action, enabled };
         match target {
-            ContextTarget::Single { .. } => vec![
-                item(ContextItem::Open, true),
-                item(ContextItem::OpenWith, true),
-                item(ContextItem::Rename, true),
-                item(ContextItem::Cut, true),
-                item(ContextItem::ClipboardCopy, true),
-                item(ContextItem::Delete, true),
-                item(ContextItem::Tags, true),
-            ],
+            ContextTarget::Single { .. } => {
+                let mut items = vec![
+                    item(ContextItem::Open, true),
+                    item(ContextItem::OpenWith, true),
+                    item(ContextItem::Rename, true),
+                    item(ContextItem::Cut, true),
+                    item(ContextItem::ClipboardCopy, true),
+                    item(ContextItem::Tags, true),
+                ];
+                // Bookmarking only means something for directories, and the
+                // label reflects what the click will do.
+                if facts.is_dir {
+                    items.push(item(ContextItem::Bookmark, true));
+                }
+                items.push(if facts.is_encrypted {
+                    item(ContextItem::Decrypt, true)
+                } else {
+                    item(ContextItem::Encrypt, true)
+                });
+                items.push(item(ContextItem::Delete, true));
+                items
+            }
             ContextTarget::Bulk { .. } => vec![
                 item(ContextItem::Cut, true),
                 item(ContextItem::ClipboardCopy, true),
                 item(ContextItem::Delete, true),
             ],
-            ContextTarget::Background => vec![item(ContextItem::Paste, clipboard_has_items)],
+            ContextTarget::Background => vec![item(ContextItem::Paste, facts.clipboard_has_items)],
         }
     }
 }
@@ -308,6 +389,38 @@ pub struct DragState {
     /// sorting/filtering changes during the drag).
     pub sources: Vec<PathBuf>,
     pub cursor: (u16, u16),
+}
+
+/// One selectable row of the Escape command center. Themes and quick
+/// actions share a single index space so mouse and keyboard agree.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EscapeEntry {
+    /// Select the theme at this index.
+    Theme(usize),
+    /// Drop the active directory filter.
+    ClearFilter,
+    /// Drop the current selection.
+    ClearSelection,
+}
+
+/// Escape command center: a theme grid plus contextual quick actions.
+#[derive(Clone, Debug)]
+pub struct EscapeState {
+    pub selected: usize,
+    /// Theme active when the menu opened, restored when Esc closes it.
+    pub original: usize,
+    /// True once a quick action ran, so closing keeps the change.
+    pub committed: bool,
+}
+
+impl EscapeState {
+    pub fn new(original: usize) -> Self {
+        EscapeState {
+            selected: 0,
+            original,
+            committed: false,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -435,6 +548,8 @@ pub enum Mode {
     OpenWith(Box<OpenWithState>),
     Bookmarks(Box<BookmarkNavState>),
     Help,
+    /// Escape command center (themes and contextual quick actions).
+    Escape(Box<EscapeState>),
     Media(Box<MediaState>),
 }
 
@@ -457,6 +572,7 @@ impl Clone for Mode {
             Mode::OpenWith(o) => Mode::OpenWith(o.clone()),
             Mode::Bookmarks(b) => Mode::Bookmarks(b.clone()),
             Mode::Help => Mode::Help,
+            Mode::Escape(e) => Mode::Escape(e.clone()),
             Mode::Media(media) => Mode::Media(media.clone()),
         }
     }
@@ -475,6 +591,7 @@ impl Mode {
             Mode::OpenWith(_) => "OPEN WITH",
             Mode::Bookmarks(_) => "BOOKMARKS",
             Mode::Help => "HELP",
+            Mode::Escape(_) => "ESCAPE",
             Mode::Media(_) => "MEDIA",
         }
     }
@@ -532,6 +649,10 @@ pub struct AppState {
     /// Mode of an in-flight paste started from the context menu; consumed
     /// by operation_finished to prune moved sources out of the clipboard.
     pub pending_paste_mode: Option<ClipMode>,
+    /// Presentation-only transitions; never consulted by mutation logic.
+    pub anim: Anim,
+    /// Active theme index; mirrored into `ui::theme` on every change.
+    pub theme_index: usize,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MediaSurface {
@@ -595,6 +716,8 @@ impl AppState {
             clipboard: ClipboardState::default(),
             hover: HoverState::default(),
             pending_paste_mode: None,
+            anim: Anim::default(),
+            theme_index: crate::ui::theme::current_index(),
         }
     }
 

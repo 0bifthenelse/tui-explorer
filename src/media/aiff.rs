@@ -375,10 +375,12 @@ mod tests {
     #[test]
     fn truncated_header_is_rejected_cleanly() {
         let full = std::fs::read(fixture_path("tone.aiff")).expect("fixture readable");
-        let victim = std::env::temp_dir().join("tui_explorer_aiff_truncation_probe.aiff");
+        let dir = crate::filesystem::sandbox::fixture("aiff-probe");
+        let victim = dir.join("tui_explorer_aiff_truncation_probe.aiff");
         std::fs::write(&victim, &full[..20]).expect("write probe");
         let result = AiffSource::new(&victim);
         let _ = std::fs::remove_file(&victim);
+        let _ = std::fs::remove_dir_all(&dir);
         let error = match result {
             Err(error) => error,
             Ok(_) => panic!("truncated header must be rejected"),
@@ -388,10 +390,12 @@ mod tests {
 
     #[test]
     fn wrong_magic_is_rejected_cleanly() {
-        let victim = std::env::temp_dir().join("tui_explorer_aiff_bad_magic.aiff");
+        let dir = crate::filesystem::sandbox::fixture("aiff-probe");
+        let victim = dir.join("tui_explorer_aiff_bad_magic.aiff");
         std::fs::write(&victim, b"RIFFxxxxWAVEjunk").expect("write probe");
         let result = AiffSource::new(&victim);
         let _ = std::fs::remove_file(&victim);
+        let _ = std::fs::remove_dir_all(&dir);
         let error = match result {
             Err(error) => error,
             Ok(_) => panic!("wrong magic must be rejected"),

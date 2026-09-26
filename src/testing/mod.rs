@@ -176,6 +176,8 @@ pub struct SyncHandler {
     pub started_media: Vec<(u64, PathBuf)>,
     pub media_commands: Vec<(u64, crate::media::MediaCommand)>,
     pub stopped_media: Vec<u64>,
+    /// Last theme index the reducer asked to persist.
+    pub persisted_theme: Option<usize>,
     pub quit: bool,
     pub now: i64,
     pub bookmarks: Vec<PathBuf>,
@@ -195,6 +197,7 @@ impl SyncHandler {
             started_media: Vec::new(),
             media_commands: Vec::new(),
             stopped_media: Vec::new(),
+            persisted_theme: None,
             bookmarks: Vec::new(),
             bookmark_store: crate::sidebar::MemoryBookmarks::default(),
         }
@@ -263,6 +266,7 @@ impl EffectHandler for SyncHandler {
                 kind,
                 target,
                 password,
+                disposition,
             } => {
                 let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
                 let secret = age::secrecy::SecretString::from(password.0.clone());
@@ -271,6 +275,7 @@ impl EffectHandler for SyncHandler {
                     std::slice::from_ref(&target),
                     &secret,
                     &cancel,
+                    disposition,
                     &mut |_, _, _| {},
                 );
                 vec![Action::CryptoFinished {
@@ -402,6 +407,10 @@ impl EffectHandler for SyncHandler {
             Effect::StopMedia { session } => {
                 self.stopped_media.push(session);
                 vec![Action::MediaStopped { session }]
+            }
+            Effect::PersistTheme(index) => {
+                self.persisted_theme = Some(index);
+                Vec::new()
             }
             Effect::Quit => {
                 self.quit = true;

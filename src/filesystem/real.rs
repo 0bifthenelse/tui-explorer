@@ -222,16 +222,7 @@ mod tests {
     use super::*;
 
     fn tmp_dir(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!(
-            "tui-explorer-real-fs-test-{name}-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        fs::create_dir_all(&dir).unwrap();
-        dir
+        crate::filesystem::sandbox::fixture(&format!("real-{name}"))
     }
 
     #[test]

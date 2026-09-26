@@ -5,10 +5,10 @@ use std::time::Instant;
 use crate::app::action::{Action, ConflictDecision, DirectorySnapshot, MouseKind};
 use crate::app::effects::Effect;
 use crate::app::state::{
-    AppState, BookmarkNavState, ClipMode, ClipboardState, ConfirmAction, ConfirmState,
-    ConflictState, ContextItem, ContextMenuState, ContextTarget, DragPhase, DragState, HoverState,
-    MarqueePhase, MarqueeState, MediaState, Mode, OpenWithState, OperationState, Password,
-    PasswordPurpose, PasswordState, PreviewContent, StatusMessage, TagPickerState,
+    AppState, ClipMode, ClipboardState, ConfirmAction, ConfirmState, ConflictState, ContextItem,
+    ContextMenuState, ContextTarget, DragPhase, DragState, EscapeEntry, EscapeState, HoverState,
+    MarqueePhase, MarqueeState, MediaState, MenuFacts, Mode, OpenWithState, OperationState,
+    Password, PasswordPurpose, PasswordState, PreviewContent, StatusMessage, TagPickerState,
 };
 use crate::browser::SortMode;
 use crate::crypto::CryptoKind;
@@ -173,16 +173,15 @@ fn reduce_inner(state: &mut AppState, action: Action) -> Vec<Effect> {
             Vec::new()
         }
         Action::OpenBookmarks => browser_only_fx(state, |s| {
-            s.mode = Mode::Bookmarks(Box::new(BookmarkNavState {
-                query: String::new(),
-                matches: Vec::new(),
-                selected: 0,
-            }));
+            s.mode = Mode::Bookmarks(Box::default());
             refresh_bookmark_matches(s);
             Vec::new()
         }),
         Action::BookmarkChar(c) => {
             if let Mode::Bookmarks(nav) = &mut state.mode {
+                // Typing during navigation opens the editor, so no keystroke
+                // is ever silently dropped.
+                nav.searching = true;
                 nav.query.push(c);
             }
             refresh_bookmark_matches(state);
@@ -215,6 +214,36 @@ fn reduce_inner(state: &mut AppState, action: Action) -> Vec<Effect> {
             };
             state.mode = Mode::Browser;
             navigate(state, path)
+        }
+        Action::BookmarkVim(delta) => {
+            bookmark_move(state, delta);
+            Vec::new()
+        }
+        Action::BookmarkFirst => {
+            bookmark_jump(state, BookmarkJump::First);
+            Vec::new()
+        }
+        Action::BookmarkLast => {
+            bookmark_jump(state, BookmarkJump::Last);
+            Vec::new()
+        }
+        Action::BookmarkHalfPage(delta) => {
+            let rows = bookmark_page_rows(state);
+            bookmark_move(state, delta * (rows as isize / 2).max(1));
+            Vec::new()
+        }
+        Action::BookmarkSearchStart => {
+            if let Mode::Bookmarks(nav) = &mut state.mode {
+                nav.searching = true;
+            }
+            Vec::new()
+        }
+        Action::BookmarkSearchStop => {
+            if let Mode::Bookmarks(nav) = &mut state.mode {
+                // Esc leaves the editor first, then clears, then closes.
+                nav.searching = false;
+            }
+            Vec::new()
         }
         Action::BookmarksChanged { bookmarks, message } => {
             state.bookmarks = bookmarks;
@@ -470,6 +499,54 @@ fn reduce_inner(state: &mut AppState, action: Action) -> Vec<Effect> {
             Vec::new()
         }
         Action::CommandSubmit => submit_command(state),
+        Action::OpenEscape => open_escape(state),
+        Action::EscapeMove(delta) => {
+            escape_move(state, delta);
+            Vec::new()
+        }
+        Action::EscapeKeyG => {
+            escape_key_g(state);
+            Vec::new()
+        }
+        Action::EscapeFirst => {
+            escape_jump(state, BookmarkJump::First);
+            Vec::new()
+        }
+        Action::EscapeLast => {
+            escape_jump(state, BookmarkJump::Last);
+            Vec::new()
+        }
+        Action::EscapeHalfPage(delta) => {
+            escape_move(state, delta * ESCAPE_COLS as isize * 2);
+            Vec::new()
+        }
+        Action::EscapePreview => {
+            if let Mode::Escape(menu) = &state.mode
+                && let Some(EscapeEntry::Theme(index)) = escape_entries(state).get(menu.selected)
+            {
+                set_theme(state, *index);
+            }
+            Vec::new()
+        }
+        Action::EscapeApply => escape_apply(state),
+        Action::EscapeClearFilter => {
+            escape_clear_filter(state);
+            Vec::new()
+        }
+        Action::EscapeClearSelection => {
+            escape_clear_selection(state);
+            Vec::new()
+        }
+        Action::Tick => {
+            state
+                .anim
+                .advance(crate::app::anim::TICK_MS as f32 / 1000.0);
+            Vec::new()
+        }
+        Action::ThemeLoaded(index) => {
+            set_theme(state, index);
+            Vec::new()
+        }
         Action::Cancel => cancel(state),
         Action::ToggleHelp => {
             state.mode = if matches!(state.mode, Mode::Help) {
@@ -571,6 +648,8 @@ fn reduce_inner(state: &mut AppState, action: Action) -> Vec<Effect> {
             state.width = width;
             state.height = height;
             state.drag = None;
+            // Stale transitions would otherwise target pre-resize geometry.
+            state.anim.settle();
             // Seek-rail interaction geometry is stale at the new size.
             if let Mode::Media(media) = &mut state.mode {
                 media.clear_slider_state();
@@ -650,7 +729,8 @@ fn grid_dims(state: &AppState) -> (usize, usize) {
 }
 
 /// `X` on the focused entry: encrypted outputs decrypt, everything else
-/// encrypts. Opens the masked password dialog.
+/// encrypts. Encryption first demands an explicit destructive confirmation;
+/// decryption restores the original and needs no extra warning.
 fn encrypt_toggle(state: &mut AppState) -> Vec<Effect> {
     if !matches!(state.mode, Mode::Browser) {
         return Vec::new();
@@ -661,18 +741,53 @@ fn encrypt_toggle(state: &mut AppState) -> Vec<Effect> {
     };
     let target = view.entry.path.clone();
     let name = view.entry.display_name();
-    let purpose = if crate::crypto::is_encrypted_name(&name) {
-        PasswordPurpose::Decrypt
+    if crate::crypto::is_encrypted_name(&name) {
+        prompt_password(state, PasswordPurpose::Decrypt, target);
+        return Vec::new();
+    }
+    confirm_encrypt(state, target);
+    Vec::new()
+}
+
+/// Shared destructive gate for both the `X` key and the context menu.
+pub fn confirm_encrypt(state: &mut AppState, target: PathBuf) {
+    let is_dir = target.is_dir();
+    let destination = crate::crypto::encrypted_destination(&target, is_dir);
+    state.mode = Mode::Confirm(Box::new(ConfirmState {
+        title: "Are you sure?".to_string(),
+        detail: encrypt_warning(&target, &destination),
+        stage: 0,
+        recursive: false,
+        action: ConfirmAction::Encrypt { target },
+    }));
+}
+
+/// Destructive warning copy: encryption replaces the plaintext with the
+/// encrypted form, and the original comes back only by decrypting it.
+fn encrypt_warning(source: &Path, destination: &Path) -> String {
+    let name = destination
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| destination.display().to_string());
+    let kind = if source.is_dir() {
+        "A tar archive of this folder"
     } else {
-        PasswordPurpose::Encrypt
+        "This file"
     };
+    format!(
+        "{kind} is encrypted into {name}. Once encryption finishes successfully \
+the original is deleted; the only way back is decrypting {name} with the same \
+password. If encryption fails or is cancelled nothing is changed."
+    )
+}
+
+fn prompt_password(state: &mut AppState, purpose: PasswordPurpose, target: PathBuf) {
     state.mode = Mode::Password(Box::new(PasswordState {
         purpose,
         target,
         input: String::new(),
         first: None,
     }));
-    Vec::new()
 }
 
 fn password_submit(state: &mut AppState) -> Vec<Effect> {
@@ -726,6 +841,9 @@ fn start_crypto(state: &mut AppState, kind: CryptoKind) -> Vec<Effect> {
         kind,
         target: dialog.target,
         password: Password(dialog.input),
+        // Encryption and decryption both consume their source once the new
+        // output is finalized and verified; callers confirm first.
+        disposition: crate::crypto::SourceDisposition::RemoveAfterSuccess,
     }]
 }
 
@@ -756,6 +874,224 @@ fn bookmark_matches(bookmarks: &[PathBuf], query: &str) -> Vec<PathBuf> {
         .collect();
     scored.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
     scored.into_iter().map(|(_, _, p)| p.clone()).collect()
+}
+
+/// Escape command center geometry: one flat index space of themes then
+/// quick actions, matching the renderer's row order exactly.
+pub const ESCAPE_COLS: usize = 2;
+
+/// Bookmark list rows the overlay can show at the current terminal size.
+fn bookmark_page_rows(state: &AppState) -> usize {
+    (state.height.saturating_sub(9) as usize).max(1)
+}
+
+#[derive(Clone, Copy)]
+enum BookmarkJump {
+    First,
+    Last,
+}
+
+fn bookmark_move(state: &mut AppState, delta: isize) {
+    let rows = bookmark_page_rows(state);
+    if let Mode::Bookmarks(nav) = &mut state.mode {
+        let len = nav.matches.len();
+        if len > 0 {
+            let next = (nav.selected as isize + delta).clamp(0, len as isize - 1);
+            nav.selected = next as usize;
+            nav.scroll = keep_row_visible(nav.selected, nav.scroll, rows);
+        }
+    }
+}
+
+fn bookmark_jump(state: &mut AppState, jump: BookmarkJump) {
+    let rows = bookmark_page_rows(state);
+    if let Mode::Bookmarks(nav) = &mut state.mode {
+        let len = nav.matches.len();
+        if len > 0 {
+            nav.selected = match jump {
+                BookmarkJump::First => 0,
+                BookmarkJump::Last => len - 1,
+            };
+            nav.scroll = keep_row_visible(nav.selected, nav.scroll, rows);
+        }
+    }
+}
+
+/// Scrolls the window just enough to keep `selected` visible, so fuzzy
+/// result reordering never makes the list jitter.
+fn keep_row_visible(selected: usize, scroll: usize, rows: usize) -> usize {
+    if rows == 0 {
+        return 0;
+    }
+    if selected < scroll {
+        selected
+    } else if selected >= scroll + rows {
+        selected + 1 - rows
+    } else {
+        scroll
+    }
+}
+
+/// Quick actions shown after the theme grid; each is only offered when it
+/// would actually change something.
+fn escape_actions(state: &AppState) -> Vec<(EscapeEntry, &'static str, &'static str)> {
+    let mut actions = Vec::new();
+    if state.browser.filter.is_some() {
+        actions.push((
+            EscapeEntry::ClearFilter,
+            "Clear filter",
+            "show every entry again",
+        ));
+    }
+    if !state.browser.selection.is_empty() || state.browser.visual {
+        actions.push((
+            EscapeEntry::ClearSelection,
+            "Clear selection",
+            "drop the current selection",
+        ));
+    }
+    actions
+}
+
+/// Full command center index space: every theme, then the quick actions.
+pub fn escape_entries(state: &AppState) -> Vec<EscapeEntry> {
+    let mut entries: Vec<EscapeEntry> = (0..crate::ui::theme::count())
+        .map(EscapeEntry::Theme)
+        .collect();
+    entries.extend(escape_actions(state).into_iter().map(|(entry, _, _)| entry));
+    entries
+}
+
+/// Human label for one command center row.
+pub fn escape_entry_label(entry: EscapeEntry) -> (&'static str, &'static str) {
+    match entry {
+        EscapeEntry::Theme(_) => ("", ""),
+        EscapeEntry::ClearFilter => ("Clear filter", "show every entry again"),
+        EscapeEntry::ClearSelection => ("Clear selection", "drop the current selection"),
+    }
+}
+
+fn open_escape(state: &mut AppState) -> Vec<Effect> {
+    if !matches!(state.mode, Mode::Browser) {
+        return Vec::new();
+    }
+    let original = crate::ui::theme::current_index();
+    let mut menu = EscapeState::new(original);
+    menu.selected = original;
+    state.mode = Mode::Escape(Box::new(menu));
+    Vec::new()
+}
+
+fn escape_move(state: &mut AppState, delta: isize) {
+    let len = escape_entries(state).len();
+    let index = if let Mode::Escape(menu) = &mut state.mode {
+        if len > 0 {
+            let next = (menu.selected as isize + delta).clamp(0, len as isize - 1);
+            menu.selected = next as usize;
+        }
+        menu.selected
+    } else {
+        return;
+    };
+    preview_escape_theme(state, index);
+}
+
+fn escape_jump(state: &mut AppState, jump: BookmarkJump) {
+    let len = escape_entries(state).len();
+    let index = if let Mode::Escape(menu) = &mut state.mode {
+        if len > 0 {
+            menu.selected = match jump {
+                BookmarkJump::First => 0,
+                BookmarkJump::Last => len - 1,
+            };
+        }
+        menu.selected
+    } else {
+        return;
+    };
+    preview_escape_theme(state, index);
+}
+
+fn escape_key_g(state: &mut AppState) {
+    let pending = state.pending_g;
+    if pending {
+        escape_jump(state, BookmarkJump::First);
+    } else {
+        state.pending_g = true;
+    }
+}
+
+/// Live preview: highlight adopts the theme immediately; Esc restores the
+/// theme that was active when the menu opened.
+fn preview_escape_theme(state: &mut AppState, index: usize) {
+    if let Some(EscapeEntry::Theme(theme_index)) = escape_entries(state).get(index) {
+        set_theme(state, *theme_index);
+    }
+}
+
+fn set_theme(state: &mut AppState, index: usize) {
+    if index >= crate::ui::theme::count() {
+        return;
+    }
+    crate::ui::theme::set_current(index);
+    state.theme_index = index;
+}
+
+fn escape_apply(state: &mut AppState) -> Vec<Effect> {
+    let Some(menu) = (match std::mem::replace(&mut state.mode, Mode::Browser) {
+        Mode::Escape(menu) => Some(menu),
+        other => {
+            state.mode = other;
+            None
+        }
+    }) else {
+        return Vec::new();
+    };
+    let entries = escape_entries(state);
+    match entries.get(menu.selected) {
+        Some(EscapeEntry::Theme(index)) => {
+            set_theme(state, *index);
+            let name = crate::ui::theme::names()[*index];
+            state.message = Some(StatusMessage::info(format!("theme: {name}")));
+            vec![Effect::PersistTheme(*index)]
+        }
+        Some(EscapeEntry::ClearFilter) => {
+            escape_clear_filter(state);
+            Vec::new()
+        }
+        Some(EscapeEntry::ClearSelection) => {
+            escape_clear_selection(state);
+            Vec::new()
+        }
+        None => Vec::new(),
+    }
+}
+
+fn escape_clear_filter(state: &mut AppState) {
+    if state.browser.filter.is_some() {
+        state.browser.set_filter(None);
+        state.message = Some(StatusMessage::info("filter cleared"));
+    }
+    state.mode = Mode::Browser;
+}
+
+fn escape_clear_selection(state: &mut AppState) {
+    if !state.browser.selection.is_empty() || state.browser.visual {
+        state.browser.clear_selection();
+        state.message = Some(StatusMessage::info("selection cleared"));
+    }
+    state.mode = Mode::Browser;
+}
+
+/// Leaves the command center, restoring the pre-open theme when the user
+/// only browsed.
+pub fn escape_close(state: &mut AppState) {
+    let original = match &state.mode {
+        Mode::Escape(menu) => menu.original,
+        _ => return,
+    };
+    set_theme(state, original);
+    state.mode = Mode::Browser;
 }
 
 fn refresh_bookmark_matches(state: &mut AppState) {
@@ -1329,6 +1665,10 @@ fn confirm(state: &mut AppState) -> Vec<Effect> {
     };
     match confirm_state.action {
         ConfirmAction::Delete { plan } => start_operation(state, *plan),
+        ConfirmAction::Encrypt { target } => {
+            prompt_password(state, PasswordPurpose::Encrypt, target);
+            Vec::new()
+        }
     }
 }
 
@@ -1401,11 +1741,69 @@ fn context_apply(state: &mut AppState, item: ContextItem) -> Vec<Effect> {
             Vec::new()
         }
         ContextItem::Paste => paste_from_clipboard(state),
+        ContextItem::Bookmark => {
+            // Only directories reach this item (see ContextItem::menu_for).
+            match menu.target.paths().into_iter().next() {
+                Some(path) => vec![Effect::ToggleBookmark(path)],
+                None => Vec::new(),
+            }
+        }
+        ContextItem::Encrypt => {
+            let targets = menu.target.paths();
+            match targets.into_iter().next() {
+                Some(path) => {
+                    confirm_encrypt(state, path);
+                    Vec::new()
+                }
+                None => Vec::new(),
+            }
+        }
+        ContextItem::Decrypt => {
+            let targets = menu.target.paths();
+            match targets.into_iter().next() {
+                Some(path) => {
+                    prompt_password(state, PasswordPurpose::Decrypt, path);
+                    Vec::new()
+                }
+                None => Vec::new(),
+            }
+        }
         ContextItem::Delete => delete_confirm_targets(state, menu.target.paths()),
         ContextItem::Tags => match menu.target {
             ContextTarget::Single { path } => open_picker_with(state, vec![path]),
             _ => Vec::new(),
         },
+    }
+}
+
+/// Facts captured with the menu so its item set is stable while open and
+/// right-clicking never has to consult (or mutate) the selection set.
+fn menu_facts(state: &AppState, target: &ContextTarget) -> MenuFacts {
+    let first = target.paths().into_iter().next();
+    let entry = first.as_ref().and_then(|path| {
+        state
+            .browser
+            .entries
+            .iter()
+            .find(|view| view.entry.path == *path)
+    });
+    let is_dir = entry.map(|view| view.entry.kind.is_dir()).unwrap_or(false);
+    let is_encrypted = first
+        .as_ref()
+        .map(|path| {
+            path.file_name()
+                .map(|n| crate::crypto::is_encrypted_name(&n.to_string_lossy()))
+                .unwrap_or(false)
+        })
+        .unwrap_or(false);
+    let is_bookmarked = first
+        .as_ref()
+        .is_some_and(|path| state.bookmarks.contains(path));
+    MenuFacts {
+        clipboard_has_items: !state.clipboard.is_empty(),
+        is_dir,
+        is_encrypted,
+        is_bookmarked,
     }
 }
 
@@ -1512,6 +1910,27 @@ fn cancel(state: &mut AppState) -> Vec<Effect> {
     cancel_drag(state);
     match &state.mode {
         Mode::Media(_) => return close_media(state, AfterStop::Close),
+        // The command center restores the theme it previewed, so Esc is
+        // always a safe undo.
+        Mode::Escape(_) => {
+            escape_close(state);
+            return Vec::new();
+        }
+        // Inside the bookmark navigator Esc is layered: leave the search
+        // editor first, then clear the query, then close.
+        Mode::Bookmarks(nav) if nav.searching => {
+            if let Mode::Bookmarks(nav) = &mut state.mode {
+                nav.searching = false;
+            }
+            return Vec::new();
+        }
+        Mode::Bookmarks(nav) if !nav.query.is_empty() => {
+            if let Mode::Bookmarks(nav) = &mut state.mode {
+                nav.query.clear();
+            }
+            refresh_bookmark_matches(state);
+            return Vec::new();
+        }
         Mode::Command
         | Mode::Confirm(_)
         | Mode::Conflict(_)
@@ -1727,6 +2146,40 @@ fn mouse(state: &mut AppState, kind: MouseKind, x: u16, y: u16, ctrl: bool) -> V
         update_hover(state, target, x);
     }
     match target {
+        HitTarget::EscapeItem(idx) => match kind {
+            MouseKind::Left => {
+                if let Mode::Escape(menu) = &mut state.mode {
+                    menu.selected = idx;
+                }
+                reduce(state, Action::EscapeApply)
+            }
+            MouseKind::Moved => {
+                if let Mode::Escape(menu) = &mut state.mode {
+                    menu.selected = idx;
+                }
+                reduce(state, Action::EscapePreview)
+            }
+            _ => Vec::new(),
+        },
+        HitTarget::BookmarkRow(idx) => match kind {
+            MouseKind::Left => {
+                if let Mode::Bookmarks(nav) = &mut state.mode
+                    && idx < nav.matches.len()
+                {
+                    nav.selected = idx;
+                }
+                reduce(state, Action::BookmarkSubmit)
+            }
+            MouseKind::Moved => {
+                if let Mode::Bookmarks(nav) = &mut state.mode
+                    && idx < nav.matches.len()
+                {
+                    nav.selected = idx;
+                }
+                Vec::new()
+            }
+            _ => Vec::new(),
+        },
         HitTarget::GridBackground => match kind {
             MouseKind::Left => {
                 // Only browser mode arms gestures; overlays register their
@@ -1746,8 +2199,9 @@ fn mouse(state: &mut AppState, kind: MouseKind, x: u16, y: u16, ctrl: bool) -> V
                 // selection is left untouched.
                 if matches!(state.mode, Mode::Browser) {
                     let target = ContextTarget::Background;
+                    let facts = menu_facts(state, &target);
                     state.mode = Mode::ContextMenu(Box::new(ContextMenuState {
-                        items: ContextItem::menu_for(&target, !state.clipboard.is_empty()),
+                        items: ContextItem::menu_for(&target, facts),
                         target,
                         selected: 0,
                         x,
@@ -1774,6 +2228,10 @@ fn mouse(state: &mut AppState, kind: MouseKind, x: u16, y: u16, ctrl: bool) -> V
                     sources: drag_sources(state),
                     cursor: (x, y),
                 });
+                // A fresh drag starts where the pointer is, with no carry
+                // over from a previous gesture.
+                state.anim.snap_ghost(x as f32, y as f32);
+                state.anim.drop_target.snap(0.0);
                 // Double-click requires the same entry, left button, within
                 // the configured threshold; it is consumed once so one
                 // double click can never trigger duplicate opens.
@@ -1814,8 +2272,9 @@ fn mouse(state: &mut AppState, kind: MouseKind, x: u16, y: u16, ctrl: bool) -> V
                         } else {
                             ContextTarget::Single { path }
                         };
+                        let facts = menu_facts(state, &target);
                         state.mode = Mode::ContextMenu(Box::new(ContextMenuState {
-                            items: ContextItem::menu_for(&target, !state.clipboard.is_empty()),
+                            items: ContextItem::menu_for(&target, facts),
                             target,
                             selected: 0,
                             x,
@@ -2023,6 +2482,16 @@ fn control_target(target: HitTarget) -> bool {
 /// everything.
 fn update_hover(state: &mut AppState, target: HitTarget, x: u16) {
     let rail_rect = state.hit_map.rect_for(HitTarget::MediaSeekRail);
+    // Retargeting the hover transition is presentation only: it can never
+    // change which entry is focused or which mutation would run.
+    state.anim.hover.set(match target {
+        HitTarget::Row(_) | HitTarget::Sidebar(_) | HitTarget::ContextItem(_) => 1.0,
+        _ => 0.0,
+    });
+    state.anim.menu.set(match target {
+        HitTarget::ContextItem(_) | HitTarget::EscapeItem(_) => 1.0,
+        _ => 0.0,
+    });
     match target {
         HitTarget::MediaSeekRail => {
             if let Mode::Media(media) = &mut state.mode {
@@ -2305,6 +2774,7 @@ fn legend_action(state: &mut AppState, action: LegendAction) -> Vec<Effect> {
         LegendAction::Sidebar => reduce(state, Action::ToggleSidebar),
         LegendAction::Preview => reduce(state, Action::TogglePreview),
         LegendAction::Bookmarks => reduce(state, Action::OpenBookmarks),
+        LegendAction::Themes => reduce(state, Action::OpenEscape),
     }
 }
 

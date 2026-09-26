@@ -81,6 +81,43 @@ fn preview_fixture(tag: &str, target_name: &str, bytes: &[u8]) -> PathBuf {
     dir
 }
 
+/// Blocks until `needle` appears in the pty log or `budget_ms` elapses.
+/// Used instead of fixed sleeps so a loaded machine slows the test rather
+/// than tearing the captured frame.
+fn wait_for(log: &Path, needle: &[u8], budget_ms: u64) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(budget_ms);
+    while std::time::Instant::now() < deadline {
+        let seen = std::fs::read(log)
+            .ok()
+            .is_some_and(|raw| raw.windows(needle.len()).any(|w| w == needle));
+        if seen {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+}
+
+/// Blocks until the pty log has stopped growing for `quiet_ms`, or the
+/// budget expires. A pty log that is still growing means a frame is still
+/// being written, so reading it then would capture a torn screen.
+fn wait_until_quiet(log: &Path, quiet_ms: u64, budget_ms: u64) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(budget_ms);
+    let mut last = log.metadata().map(|m| m.len()).unwrap_or(0);
+    let mut stable_since = std::time::Instant::now();
+    while std::time::Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(25));
+        let now = log.metadata().map(|m| m.len()).unwrap_or(0);
+        if now != last {
+            last = now;
+            stable_since = std::time::Instant::now();
+            continue;
+        }
+        if stable_since.elapsed() >= std::time::Duration::from_millis(quiet_ms) {
+            return;
+        }
+    }
+}
+
 /// Run the real binary in a pty of `cols`x`rows`, send `keys` after warm-up,
 /// and return the final screen contents as seen by a vt100 terminal.
 fn run_in_pty(cols: u16, rows: u16, dir: &Path, keys: &[&str], settle_ms: u64) -> String {
@@ -144,18 +181,29 @@ fn run_in_pty(cols: u16, rows: u16, dir: &Path, keys: &[&str], settle_ms: u64) -
         .write_all(b"\x1b[0n")
         .expect("terminal query response");
     stdin.flush().expect("flush terminal query response");
-    std::thread::sleep(std::time::Duration::from_millis(1200));
+    // Deterministic readiness: wait until the first frame is on the log
+    // rather than sleeping a fixed amount, so parallel tests cannot starve
+    // each other into a torn capture.
+    // Landmark drawn only by the application's first frame; the pty log's
+    // own `script` header also contains the binary path, so it cannot be used.
+    wait_for(&log, b"Press ? for help", 20_000);
+    // A keystroke is only meaningful once the app has drawn its shell, so
+    // wait for the ready landmark rather than for raw escape bytes.
     for key in keys {
         stdin.write_all(key.as_bytes()).expect("write key");
         stdin.flush().expect("flush key");
-        std::thread::sleep(std::time::Duration::from_millis(350));
+        // Each key must be fully processed before the next one lands, so the
+        // redraw it caused has to settle first.
+        wait_until_quiet(&log, 120, 15_000);
     }
-    std::thread::sleep(std::time::Duration::from_millis(settle_ms));
-    // Request one final full redraw and give the pty logger time to flush
-    // before teardown so the captured frame is complete.
+    wait_until_quiet(&log, settle_ms.min(400) as u64, 15_000);
+    // One final full repaint makes the captured frame complete rather than
+    // whatever partial region the last interaction happened to touch.
     stdin.write_all(b"\x0c").ok(); // Ctrl-L
     stdin.flush().ok();
-    std::thread::sleep(std::time::Duration::from_millis(400));
+    // Ctrl-L repaints everything, but the preview worker may still deliver;
+    // wait for the log to stop changing before reading it.
+    wait_until_quiet(&log, 250, 15_000);
     drop(stdin);
     let _ = child.kill();
     let _ = child.wait();
@@ -202,11 +250,13 @@ fn headless_keyboard_navigation_and_open() {
     let dir = fixture("nav");
     // The first entry (docs) is focused; `e` enters it within the app.
     let screen = run_in_pty(120, 36, &dir, &["e"], 500);
-    let path_line = screen.lines().find(|l| l.contains("Path:")).unwrap_or("");
-    assert!(
-        path_line.contains("docs"),
-        "e entered docs, path bar: {path_line}\n{screen}"
-    );
+    // Any path row may be the live one when the frame scrolled, so every
+    // row carrying a path bar is considered.
+    let entered = screen
+        .lines()
+        .filter(|line| line.contains("Path:"))
+        .any(|line| line.contains("docs"));
+    assert!(entered, "e did not enter docs:\n{screen}");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -302,14 +352,9 @@ fn headless_password_dialog_masks_input() {
     let dir = fixture("pw");
     // Select first file entry (notes.txt is not first; use X on whatever is
     // focused after navigating into files) and type a password.
-    let mut keys = vec!["G"]; // last entry (unicode file)
-    keys.push("X");
-    keys.push("s");
-    keys.push("e");
-    keys.push("c");
-    keys.push("r");
-    keys.push("e");
-    keys.push("t");
+    // `X` now opens the destructive confirmation first, so the password
+    // dialog is only reachable after explicitly accepting the warning.
+    let keys = vec!["G", "X", "y", "s", "e", "c", "r", "e", "t"];
     let screen = run_in_pty(120, 36, &dir, &keys, 400);
     assert!(screen.contains("ENCRYPT"), "encrypt dialog:\n{screen}");
     assert!(screen.contains("new password:"), "prompt:\n{screen}");

@@ -64,9 +64,41 @@ pub enum Action {
     BookmarkBackspace,
     BookmarkMove(isize),
     BookmarkSubmit,
+    /// `j`/`k` style movement clamped inside the bookmark list.
+    BookmarkVim(isize),
+    /// `gg`: jump to the first bookmark.
+    BookmarkFirst,
+    /// `G`: jump to the last bookmark.
+    BookmarkLast,
+    /// `Ctrl-d`/`Ctrl-u`: half-page movement in the bookmark list.
+    BookmarkHalfPage(isize),
+    /// `/`: start editing the fuzzy query.
+    BookmarkSearchStart,
+    /// Esc inside the bookmark overlay: leave the query editor first.
+    BookmarkSearchStop,
     /// `X`: start encryption, or decryption when the focused entry is a
     /// recognized encrypted output (`*.age` / `*.tar.age`).
     EncryptToggle,
+    /// Escape command center: theme grid plus contextual quick actions.
+    OpenEscape,
+    /// Move the command center cursor by this many grid cells.
+    EscapeMove(isize),
+    /// First `g` of `gg` inside the command center.
+    EscapeKeyG,
+    /// Jump to the first command center entry.
+    EscapeFirst,
+    /// Jump to the last command center entry.
+    EscapeLast,
+    /// Half-page movement inside the command center.
+    EscapeHalfPage(isize),
+    /// Preview the highlighted theme without committing it.
+    EscapePreview,
+    /// Commit the highlighted theme and close the command center.
+    EscapeApply,
+    /// Clear the active directory filter from the command center.
+    EscapeClearFilter,
+    /// Clear the current selection from the command center.
+    EscapeClearSelection,
     PasswordChar(char),
     PasswordBackspace,
     PasswordSubmit,
@@ -74,6 +106,8 @@ pub enum Action {
         done: Vec<CryptoOutcome>,
         failed: Vec<(PathBuf, String)>,
     },
+    /// The persisted theme index loaded at startup.
+    ThemeLoaded(usize),
     PreviewLoaded {
         key: (PathBuf, i64, u64),
         result: PreviewLoaded,
@@ -165,6 +199,8 @@ pub enum Action {
         width: u16,
         height: u16,
     },
+    /// Animation frame; drives deterministic visual transitions only.
+    Tick,
     DirectoryLoaded {
         result: Result<DirectorySnapshot, String>,
     },

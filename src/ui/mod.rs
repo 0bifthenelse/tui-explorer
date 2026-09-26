@@ -1,6 +1,7 @@
 pub mod format;
 pub mod hit;
 pub mod palette;
+pub mod theme;
 pub mod widgets;
 
 use std::path::Path;
@@ -23,17 +24,17 @@ const ASCII_BORDERS: border::Set = border::Set {
     horizontal_bottom: "-",
 };
 
-use crate::app::reduce::{breadcrumb_segments, footer_focus_text};
-use crate::app::state::{AppState, BookmarkNavState, Mode, PasswordPurpose, PreviewContent};
+use crate::app::reduce::{
+    ESCAPE_COLS, breadcrumb_segments, escape_entries, escape_entry_label, footer_focus_text,
+};
+use crate::app::state::{
+    AppState, BookmarkNavState, EscapeEntry, EscapeState, Mode, PasswordPurpose, PreviewContent,
+};
 use crate::icons::{IconResolver, IconVariant, TILE_ART_HEIGHT, TILE_ART_WIDTH, tile_art};
 use crate::sidebar::{self, SidebarItem};
 use crate::ui::format::{format_mode, format_size, format_time, kind_label, pad_right, truncate};
 use crate::ui::hit::{HitMap, HitTarget, LegendAction};
-use crate::ui::palette::{
-    ACCENT, ACCENT_HOVER, ACCENT_SOFT, BORDER_STRONG, BORDER_SUBTLE, DANGER, FOCUS_BG, ROOT_INK,
-    SELECTED_BG, SURFACE_0, SURFACE_1, SURFACE_2, SURFACE_3, TEXT_MUTED, TEXT_PRIMARY,
-    TEXT_SECONDARY,
-};
+use crate::ui::theme::current as theme;
 use crate::ui::widgets::{Button, ButtonState, button_row, draw_button, rail_geometry};
 
 /// Tile geometry for the icon grid.
@@ -90,33 +91,35 @@ pub fn preview_visible(width: u16, height: u16, override_: Option<bool>) -> bool
 
 /// Body text on a surface: the default readable tone for most labels.
 fn base_style() -> Style {
-    Style::default().fg(TEXT_SECONDARY)
+    Style::default().fg(theme().text_secondary)
 }
 
 /// Directory names and headline text: bold primary text, per the palette
 /// contract (no separate directory hue).
 fn dir_style() -> Style {
     Style::default()
-        .fg(TEXT_PRIMARY)
+        .fg(theme().text_primary)
         .add_modifier(Modifier::BOLD)
 }
 
 /// Focused-but-not-selected tile: warm focus fill plus primary text.
 fn focused_style() -> Style {
-    Style::default().bg(FOCUS_BG).fg(TEXT_PRIMARY)
+    Style::default()
+        .bg(theme().focus_bg)
+        .fg(theme().text_primary)
 }
 
 /// Cursor-only grid tile (spec section 8): bright primary text with no
 /// selection fill, so a bare navigation cursor never renders orange.
 fn cursor_style() -> Style {
-    Style::default().fg(TEXT_PRIMARY)
+    Style::default().fg(theme().text_primary)
 }
 
 /// Selected tile fill.
 fn selected_style() -> Style {
     Style::default()
-        .bg(SELECTED_BG)
-        .fg(TEXT_PRIMARY)
+        .bg(theme().selected_bg)
+        .fg(theme().text_primary)
         .add_modifier(Modifier::BOLD)
 }
 
@@ -125,8 +128,8 @@ fn selected_style() -> Style {
 /// `render_grid`.
 fn focused_selected_style() -> Style {
     Style::default()
-        .bg(SELECTED_BG)
-        .fg(ACCENT)
+        .bg(theme().selected_bg)
+        .fg(theme().accent)
         .add_modifier(Modifier::BOLD)
 }
 
@@ -134,45 +137,49 @@ fn focused_selected_style() -> Style {
 /// segment, mode chip, active media control (media reserved for a later
 /// phase).
 fn accent_border_style() -> Style {
-    Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)
+    Style::default()
+        .fg(theme().accent)
+        .add_modifier(Modifier::BOLD)
 }
 
 fn tag_style() -> Style {
-    Style::default().fg(ACCENT_SOFT)
+    Style::default().fg(theme().accent_soft)
 }
 
-/// Errors are never color-only: pair `DANGER` with bold and a literal
+/// Errors are never color-only: pair `theme().danger` with bold and a literal
 /// `[!]` prefix wherever this style renders a message.
 fn error_style() -> Style {
-    Style::default().fg(DANGER).add_modifier(Modifier::BOLD)
+    Style::default()
+        .fg(theme().danger)
+        .add_modifier(Modifier::BOLD)
 }
 
 fn muted_style() -> Style {
-    Style::default().fg(TEXT_MUTED)
+    Style::default().fg(theme().text_muted)
 }
 
 /// Legend keys and other hover-adjacent hints.
 fn key_style() -> Style {
     Style::default()
-        .fg(ACCENT_HOVER)
+        .fg(theme().accent_hover)
         .add_modifier(Modifier::BOLD)
 }
 
 /// Sidebar/section headings.
 fn heading_style() -> Style {
-    Style::default().fg(TEXT_MUTED)
+    Style::default().fg(theme().text_muted)
 }
 
 /// Preview metadata labels (type, size, modified, perms).
 fn preview_meta_style() -> Style {
-    Style::default().fg(TEXT_SECONDARY)
+    Style::default().fg(theme().text_secondary)
 }
 
 /// The mode chip in the status bar: accent text on root ink, always solid.
 fn mode_chip_style() -> Style {
     Style::default()
-        .fg(ACCENT)
-        .bg(ROOT_INK)
+        .fg(theme().accent)
+        .bg(theme().surface_0)
         .add_modifier(Modifier::BOLD)
 }
 
@@ -180,12 +187,12 @@ fn mode_chip_style() -> Style {
 /// accent rail.
 fn breadcrumb_current_style() -> Style {
     Style::default()
-        .fg(ACCENT_HOVER)
+        .fg(theme().accent_hover)
         .add_modifier(Modifier::BOLD)
 }
 
 fn breadcrumb_style() -> Style {
-    Style::default().fg(TEXT_SECONDARY)
+    Style::default().fg(theme().text_secondary)
 }
 
 /// Fills `area` with a flat surface color. Later widgets patch their own
@@ -196,13 +203,13 @@ fn surface_fill(frame: &mut Frame, area: Rect, color: Color) {
 }
 
 /// Frame/background/title treatment shared by every modal overlay:
-/// `SURFACE_3` fill, `BORDER_STRONG` frame, caller-chosen title accent.
+/// `theme().surface_3` fill, `theme().border_strong` frame, caller-chosen title accent.
 fn overlay_block(title: &str, accent: Style) -> Block<'static> {
     Block::default()
         .borders(Borders::ALL)
         .border_set(ASCII_BORDERS)
-        .border_style(Style::default().fg(BORDER_STRONG))
-        .style(Style::default().bg(SURFACE_3))
+        .border_style(Style::default().fg(theme().border_strong))
+        .style(Style::default().bg(theme().surface_3))
         .title(Span::styled(format!(" {title} "), accent))
 }
 
@@ -211,7 +218,7 @@ pub fn render(frame: &mut Frame, state: &mut AppState) {
     state.width = area.width;
     state.height = area.height;
     state.hit_map.clear();
-    surface_fill(frame, area, SURFACE_0);
+    surface_fill(frame, area, theme().surface_0);
     let tier = tier_for(area.width, area.height);
     match tier {
         Tier::TooSmall => {
@@ -281,6 +288,10 @@ pub fn render(frame: &mut Frame, state: &mut AppState) {
             render_bookmarks(frame, area, &nav, &home, &mut state.hit_map);
         }
         Mode::Help => render_help(frame, area, &mut state.hit_map),
+        Mode::Escape(menu) => {
+            let menu = menu.clone();
+            render_escape(frame, area, state, &menu);
+        }
         Mode::Media(media) => {
             let media = media.clone();
             render_media_modal(frame, area, state, &media);
@@ -300,7 +311,11 @@ pub fn render(frame: &mut Frame, state: &mut AppState) {
     if let Some(marquee) = &state.marquee
         && marquee.phase == crate::app::state::MarqueePhase::Selecting
     {
-        outline_rect(frame, marquee.rect(), Style::default().fg(ACCENT_SOFT));
+        outline_rect(
+            frame,
+            marquee.rect(),
+            Style::default().fg(theme().accent_soft),
+        );
     }
 }
 /// Ghost, target border, and status text for an in-flight drag. Renders
@@ -317,9 +332,13 @@ fn render_drag_feedback(frame: &mut Frame, area: Rect, state: &mut AppState) {
     // Valid-target highlight: accent border around a real directory.
     let valid_target = crate::app::reduce::drag_drop_target_for_ui(state, cx, cy);
     let target_style = if valid_target.is_some() {
-        Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)
+        Style::default()
+            .fg(theme().accent)
+            .add_modifier(Modifier::BOLD)
     } else {
-        Style::default().fg(DANGER).add_modifier(Modifier::BOLD)
+        Style::default()
+            .fg(theme().danger)
+            .add_modifier(Modifier::BOLD)
     };
     if valid_target.is_some() || state.hit_map.hit(cx, cy).is_some() {
         if let Some(rect) = hovered_row_rect(state, cx, cy) {
@@ -339,8 +358,8 @@ fn render_drag_feedback(frame: &mut Frame, area: Rect, state: &mut AppState) {
         &ghost,
         ghost_width as usize,
         Style::default()
-            .bg(FOCUS_BG)
-            .fg(ACCENT_SOFT)
+            .bg(theme().focus_bg)
+            .fg(theme().accent_soft)
             .add_modifier(Modifier::BOLD),
     );
 
@@ -352,7 +371,7 @@ fn render_drag_feedback(frame: &mut Frame, area: Rect, state: &mut AppState) {
         status_y,
         hint,
         (area.width as usize).saturating_sub(2),
-        Style::default().fg(TEXT_SECONDARY),
+        Style::default().fg(theme().text_secondary),
     );
 }
 
@@ -417,7 +436,7 @@ fn render_narrow_shell(frame: &mut Frame, area: Rect, state: &mut AppState) {
 /// title and the current directory condensed onto one line, since a
 /// clickable breadcrumb and a full-width title do not both fit.
 fn render_header_path_narrow(frame: &mut Frame, area: Rect, state: &AppState) {
-    surface_fill(frame, area, SURFACE_2);
+    surface_fill(frame, area, theme().surface_2);
     let cwd = state.browser.cwd.display().to_string();
     let hidden = if state.browser.show_hidden {
         " [.+]"
@@ -509,7 +528,7 @@ fn render_chrome_shell(frame: &mut Frame, area: Rect, state: &mut AppState, show
 }
 
 fn render_too_small(frame: &mut Frame, area: Rect) {
-    surface_fill(frame, area, SURFACE_0);
+    surface_fill(frame, area, theme().surface_0);
     let lines = vec![
         Line::from(Span::styled("resize terminal", error_style())),
         Line::from(Span::styled("24x6 minimum", muted_style())),
@@ -524,7 +543,7 @@ fn render_too_small(frame: &mut Frame, area: Rect) {
 }
 
 fn render_header(frame: &mut Frame, area: Rect, state: &AppState) {
-    surface_fill(frame, area, SURFACE_2);
+    surface_fill(frame, area, theme().surface_2);
     let title = format!("tui-explorer {}", env!("CARGO_PKG_VERSION"));
     let help_hint = "Press ? for help";
     let mut spans = vec![Span::styled(format!(" {title}"), dir_style())];
@@ -551,7 +570,7 @@ fn render_header(frame: &mut Frame, area: Rect, state: &AppState) {
 }
 
 fn render_path_bar(frame: &mut Frame, area: Rect, state: &mut AppState) {
-    surface_fill(frame, area, SURFACE_1);
+    surface_fill(frame, area, theme().surface_1);
     let segments = breadcrumb_segments(&state.browser.cwd);
     let mut spans: Vec<Span> = vec![Span::styled(" Path: ", base_style())];
     let mut x = area.x + 7;
@@ -613,11 +632,11 @@ fn render_path_bar(frame: &mut Frame, area: Rect, state: &mut AppState) {
 }
 
 fn render_sidebar(frame: &mut Frame, area: Rect, state: &mut AppState) {
-    surface_fill(frame, area, SURFACE_2);
+    surface_fill(frame, area, theme().surface_2);
     let block = Block::default()
         .borders(Borders::RIGHT)
         .border_set(ASCII_BORDERS)
-        .border_style(Style::default().fg(BORDER_SUBTLE));
+        .border_style(Style::default().fg(theme().border_subtle));
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
@@ -687,7 +706,7 @@ fn render_sidebar(frame: &mut Frame, area: Rect, state: &mut AppState) {
                     Span::styled(format!(" [{token}]"), muted_style()),
                 ],
                 SidebarItem::Bookmark { path } => vec![
-                    Span::styled(" * ", Style::default().fg(ACCENT)),
+                    Span::styled(" * ", Style::default().fg(theme().accent)),
                     Span::styled(
                         truncate(
                             &path
@@ -755,7 +774,7 @@ fn render_narrow_grid(frame: &mut Frame, area: Rect, state: &mut AppState) {
         state.list_viewport = 1;
         return;
     }
-    surface_fill(frame, area, SURFACE_1);
+    surface_fill(frame, area, theme().surface_1);
     let total = state.browser.visible_len();
     let header = format!(
         "{total} items  Sort: {} ({})",
@@ -789,7 +808,7 @@ fn render_narrow_grid(frame: &mut Frame, area: Rect, state: &mut AppState) {
             && matches!(state.mode, Mode::Browser | Mode::Command);
         let selected = selected_paths.contains(&view.entry.path);
         // Spec section 8: four-way (selected, focused) split. The bare
-        // cursor gets `cursor_style` + a BORDER_STRONG rule, never the
+        // cursor gets `cursor_style` + a theme().border_strong rule, never the
         // orange selection family; hover layers UNDERLINED onto whichever
         // base was picked (`Style::patch` unions modifiers, so it survives
         // every patch below).
@@ -808,9 +827,9 @@ fn render_narrow_grid(frame: &mut Frame, area: Rect, state: &mut AppState) {
         let border = if selected && focused {
             style.patch(accent_border_style())
         } else if focused {
-            style.patch(Style::default().fg(BORDER_STRONG))
+            style.patch(Style::default().fg(theme().border_strong))
         } else {
-            style.patch(Style::default().fg(BORDER_SUBTLE))
+            style.patch(Style::default().fg(theme().border_subtle))
         };
         let y = area.y + 1 + row as u16;
         let row_area = Rect::new(area.x, y, area.width, 1);
@@ -887,7 +906,7 @@ fn render_grid(frame: &mut Frame, area: Rect, state: &mut AppState) {
         area.width,
         area.height.saturating_sub(1),
     );
-    surface_fill(frame, grid, SURFACE_1);
+    surface_fill(frame, grid, theme().surface_1);
 
     // Blank grid space is a semantic target: a left press here arms a
     // marquee. Registered before the tiles are pushed so reverse-order hit
@@ -928,7 +947,7 @@ fn render_grid(frame: &mut Frame, area: Rect, state: &mut AppState) {
             .selected_paths_set()
             .contains(&view.entry.path);
         // Spec section 8: four-way (selected, focused) split. The bare
-        // cursor gets `cursor_style` + a BORDER_STRONG border, never the
+        // cursor gets `cursor_style` + a theme().border_strong border, never the
         // orange selection family; hover layers UNDERLINED onto whichever
         // base was picked (`Style::patch` unions modifiers, so the
         // underline survives every patch below).
@@ -944,14 +963,14 @@ fn render_grid(frame: &mut Frame, area: Rect, state: &mut AppState) {
         if state.hover.row == Some(pos) {
             base = base.add_modifier(Modifier::UNDERLINED);
         }
-        // Tile border: subtle rule by default, BORDER_STRONG for the bare
+        // Tile border: subtle rule by default, theme().border_strong for the bare
         // cursor, accent only when the tile is both selected and focused.
         let border_style = if selected && focused {
             base.patch(accent_border_style())
         } else if focused {
-            base.patch(Style::default().fg(BORDER_STRONG))
+            base.patch(Style::default().fg(theme().border_strong))
         } else {
-            base.patch(Style::default().fg(BORDER_SUBTLE))
+            base.patch(Style::default().fg(theme().border_subtle))
         };
         for dy in 0..TILE_H {
             buf.set_stringn(tx, ty + dy, "|", 1, border_style);
@@ -973,7 +992,7 @@ fn render_grid(frame: &mut Frame, area: Rect, state: &mut AppState) {
         let art_style = if is_dir {
             base.patch(dir_style())
         } else {
-            base.patch(Style::default().fg(TEXT_PRIMARY))
+            base.patch(Style::default().fg(theme().text_primary))
         };
         for (dy, line) in art.iter().enumerate() {
             buf.set_stringn(tx + 1, ty + dy as u16, line, TILE_ART_WIDTH, art_style);
@@ -1041,7 +1060,7 @@ fn render_preview(frame: &mut Frame, area: Rect, state: &mut AppState) {
     let block = Block::default()
         .borders(Borders::LEFT)
         .border_set(ASCII_BORDERS)
-        .border_style(Style::default().fg(BORDER_SUBTLE));
+        .border_style(Style::default().fg(theme().border_subtle));
     let inner = block.inner(area);
     frame.render_widget(block, area);
     let Some(view) = state.browser.focused() else {
@@ -1095,7 +1114,7 @@ fn render_preview(frame: &mut Frame, area: Rect, state: &mut AppState) {
     let title = format!(" Preview ({:?}) ", state.picker.protocol_type());
     let dashes = width.saturating_sub(title.len());
     lines.push(Line::from(vec![
-        Span::styled(title, Style::default().fg(TEXT_PRIMARY)),
+        Span::styled(title, Style::default().fg(theme().text_primary)),
         Span::styled("-".repeat(dashes), muted_style()),
     ]));
     let meta_height = lines.len() as u16;
@@ -1118,8 +1137,8 @@ fn render_preview(frame: &mut Frame, area: Rect, state: &mut AppState) {
     let content_frame = Block::default()
         .borders(Borders::ALL)
         .border_set(ASCII_BORDERS)
-        .border_style(Style::default().fg(BORDER_SUBTLE))
-        .style(Style::default().bg(SURFACE_1));
+        .border_style(Style::default().fg(theme().border_subtle))
+        .style(Style::default().bg(theme().surface_1));
     let content_inner = content_frame.inner(content_area);
     frame.render_widget(content_frame, content_area);
     let content_width = content_inner.width as usize;
@@ -1132,7 +1151,7 @@ fn render_preview(frame: &mut Frame, area: Rect, state: &mut AppState) {
                 .map(|line| {
                     Line::from(Span::styled(
                         truncate(line, content_width),
-                        Style::default().fg(TEXT_SECONDARY),
+                        Style::default().fg(theme().text_secondary),
                     ))
                 })
                 .collect();
@@ -1227,9 +1246,9 @@ fn media_button_state(
 }
 
 /// Draws the seek rail inside `rect` (spec section 1 row 2 draw order):
-/// played track ACCENT+BOLD `━`, remainder BORDER_SUBTLE `─`, hover tick
-/// `│` in ACCENT_HOVER plus an optional floating timestamp beside the
-/// tick, then the ACCENT_HOVER `●` thumb drawn last so it wins where the
+/// played track theme().accent+BOLD `━`, remainder theme().border_subtle `─`, hover tick
+/// `│` in theme().accent_hover plus an optional floating timestamp beside the
+/// tick, then the theme().accent_hover `●` thumb drawn last so it wins where the
 /// tick and thumb coincide. Registers `HitTarget::MediaSeekRail`
 /// unconditionally — including unknown duration; the reducer gates
 /// unknown-duration gestures, not the renderer.
@@ -1259,7 +1278,9 @@ fn draw_seek_rail(
             rect.y,
             "\u{2501}".repeat(played),
             played,
-            Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(theme().accent)
+                .add_modifier(Modifier::BOLD),
         );
     }
     let rest = width.saturating_sub(played);
@@ -1269,7 +1290,7 @@ fn draw_seek_rail(
             rect.y,
             "\u{2500}".repeat(rest),
             rest,
-            Style::default().fg(BORDER_SUBTLE),
+            Style::default().fg(theme().border_subtle),
         );
     }
     if let Some(hover_x) = geom.hover_x
@@ -1281,7 +1302,7 @@ fn draw_seek_rail(
             rect.y,
             "\u{2502}",
             1,
-            Style::default().fg(ACCENT_HOVER),
+            Style::default().fg(theme().accent_hover),
         );
         if floating_label && let Some(hover_secs) = media.slider_hover {
             // Spec section 1: label at hover_x+2 when six columns fit to
@@ -1303,7 +1324,7 @@ fn draw_seek_rail(
                     rect.y,
                     &stamp,
                     6,
-                    Style::default().fg(ACCENT_HOVER),
+                    Style::default().fg(theme().accent_hover),
                 );
             }
         }
@@ -1315,7 +1336,7 @@ fn draw_seek_rail(
             rect.y,
             "\u{25CF}",
             1,
-            Style::default().fg(ACCENT_HOVER),
+            Style::default().fg(theme().accent_hover),
         );
     }
     hits.push(rect, HitTarget::MediaSeekRail);
@@ -1385,11 +1406,11 @@ fn render_media_modal(
     let chip_width = (chip.chars().count() as u16).min(inner.width);
     let chip_style = if media.error.is_some() {
         Style::default()
-            .fg(DANGER)
-            .bg(ROOT_INK)
+            .fg(theme().danger)
+            .bg(theme().surface_0)
             .add_modifier(Modifier::BOLD)
     } else {
-        Style::default().fg(ACCENT).bg(ROOT_INK)
+        Style::default().fg(theme().accent).bg(theme().surface_0)
     };
     frame.buffer_mut().set_stringn(
         inner.x + inner.width - chip_width,
@@ -1574,7 +1595,7 @@ fn render_media_modal(
                     let height = (level.clamp(0.0, 1.0) * bars_height as f32).round() as u16;
                     for offset in 0..height {
                         let y = surface_rect.y + bars_height - 1 - offset;
-                        buffer.set_stringn(x, y, "#", 1, Style::default().fg(ACCENT_SOFT));
+                        buffer.set_stringn(x, y, "#", 1, Style::default().fg(theme().accent_soft));
                     }
                 }
             } else if media.error.is_none() {
@@ -1643,7 +1664,11 @@ fn render_media_fullscreen(
         return;
     }
     let strip_y = area.y + area.height - 2;
-    surface_fill(frame, Rect::new(area.x, strip_y, area.width, 2), SURFACE_2);
+    surface_fill(
+        frame,
+        Rect::new(area.x, strip_y, area.width, 2),
+        theme().surface_2,
+    );
 
     // Strip row 1: elapsed | rail | -remaining, seven columns reserved at
     // each end; on error the whole row becomes the error text.
@@ -1662,7 +1687,7 @@ fn render_media_fullscreen(
         frame.render_widget(
             Paragraph::new(Line::from(Span::styled(
                 elapsed_text,
-                Style::default().fg(TEXT_PRIMARY),
+                Style::default().fg(theme().text_primary),
             ))),
             Rect::new(area.x, strip_y, 6.min(area.width), 1),
         );
@@ -1679,7 +1704,7 @@ fn render_media_fullscreen(
         frame.render_widget(
             Paragraph::new(Line::from(Span::styled(
                 remaining_text,
-                Style::default().fg(TEXT_PRIMARY),
+                Style::default().fg(theme().text_primary),
             ))),
             Rect::new(
                 area.x + area.width - remaining_width,
@@ -1736,7 +1761,7 @@ fn render_media_fullscreen(
             break;
         }
         let style = if state.hover.control == Some(target) {
-            Style::default().fg(ACCENT_HOVER)
+            Style::default().fg(theme().accent_hover)
         } else if target == HitTarget::MediaFullscreen {
             // This branch IS the fullscreen-on state indicator.
             accent_border_style()
@@ -1745,7 +1770,7 @@ fn render_media_fullscreen(
         {
             accent_border_style()
         } else {
-            Style::default().fg(TEXT_SECONDARY)
+            Style::default().fg(theme().text_secondary)
         };
         frame
             .buffer_mut()
@@ -1763,10 +1788,10 @@ fn format_time_duration(duration: std::time::Duration) -> String {
 }
 
 fn render_status(frame: &mut Frame, area: Rect, state: &AppState) {
-    surface_fill(frame, area, SURFACE_2);
+    surface_fill(frame, area, theme().surface_2);
     if matches!(state.mode, Mode::Command) {
         let line = Line::from(vec![
-            Span::styled(":", Style::default().fg(ACCENT)),
+            Span::styled(":", Style::default().fg(theme().accent)),
             Span::styled(state.command_input.clone(), base_style()),
         ]);
         frame.render_widget(Paragraph::new(line), area);
@@ -1788,7 +1813,7 @@ fn render_status(frame: &mut Frame, area: Rect, state: &AppState) {
                 op.total,
                 truncate(&op.current.display().to_string(), 24)
             ),
-            Style::default().fg(ACCENT_HOVER),
+            Style::default().fg(theme().accent_hover),
         ));
     } else if let Some(message) = &state.message {
         let text = if message.is_error {
@@ -1833,7 +1858,7 @@ fn render_status(frame: &mut Frame, area: Rect, state: &AppState) {
         .unwrap_or_default();
     let metrics = format!("{size_label}  {pct}  {pos_label}");
     // Clipboard chip (spec section 6): its own span ahead of the metrics
-    // cluster, shaded per mode — ACCENT for Copy, ACCENT_HOVER for Cut.
+    // cluster, shaded per mode — theme().accent for Copy, theme().accent_hover for Cut.
     let chip = state.clipboard.chip();
     let chip_len = chip.as_ref().map(|c| c.chars().count() + 2).unwrap_or(0);
     let used: usize = spans.iter().map(|s| s.content.chars().count()).sum();
@@ -1841,10 +1866,10 @@ fn render_status(frame: &mut Frame, area: Rect, state: &AppState) {
     spans.push(Span::raw(" ".repeat(pad)));
     if let Some(chip_text) = &chip {
         let chip_style = match state.clipboard.mode {
-            Some(crate::app::state::ClipMode::Cut) => {
-                Style::default().fg(ACCENT_HOVER).bg(ROOT_INK)
-            }
-            _ => Style::default().fg(ACCENT).bg(ROOT_INK),
+            Some(crate::app::state::ClipMode::Cut) => Style::default()
+                .fg(theme().accent_hover)
+                .bg(theme().surface_0),
+            _ => Style::default().fg(theme().accent).bg(theme().surface_0),
         };
         spans.push(Span::styled(chip_text.clone(), chip_style));
         spans.push(Span::raw("  "));
@@ -1891,6 +1916,10 @@ fn legend_items(
             ("Esc", "close", Some(LegendAction::Cancel)),
         ],
         Mode::Help => vec![("Esc", "close", Some(LegendAction::Cancel))],
+        Mode::Escape(_) => vec![
+            ("Enter", "apply", None),
+            ("Esc", "revert", Some(LegendAction::Cancel)),
+        ],
         Mode::Browser => {
             let mut items = vec![
                 ("e/Enter", "Open", Some(LegendAction::Open)),
@@ -1906,6 +1935,7 @@ fn legend_items(
                 items.push(("b", "Sidebar", Some(LegendAction::Sidebar)));
                 items.push(("p", "Preview", Some(LegendAction::Preview)));
             }
+            items.push(("Esc", "Menu", Some(LegendAction::Themes)));
             if tier == Tier::Wide {
                 items.push(("B", "Bookmarks", Some(LegendAction::Bookmarks)));
                 items.push(("q", "Quit", Some(LegendAction::Quit)));
@@ -1931,7 +1961,9 @@ fn render_legend(frame: &mut Frame, area: Rect, state: &mut AppState) {
         spans.push(Span::styled(format!(" {key} "), key_style()));
         spans.push(Span::styled(
             format!("{label} "),
-            Style::default().fg(TEXT_PRIMARY).bg(SURFACE_3),
+            Style::default()
+                .fg(theme().text_primary)
+                .bg(theme().surface_3),
         ));
         if let Some(action) = action {
             state.hit_map.push(
@@ -2199,7 +2231,7 @@ fn render_picker(
         frame.render_widget(Paragraph::new(lines), inner);
     } else {
         // Keyboard n/d/Esc still work; buttons carry the same Picker*
-        // targets as before (plan item f). Delete keeps DANGER per spec
+        // targets as before (plan item f). Delete keeps theme().danger per spec
         // section 7 (word plus confirm flow carry the meaning).
         let list_height = inner.height.saturating_sub(3);
         frame.render_widget(
@@ -2235,7 +2267,7 @@ fn render_context_menu(
     hits: &mut HitMap,
 ) {
     push_blocker(area, hits);
-    // Chrome matches every other overlay: SURFACE_3 fill, BORDER_STRONG
+    // Chrome matches every other overlay: theme().surface_3 fill, theme().border_strong
     // frame, accent-styled title in the top border (spec section 5).
     let title = truncate(
         &context_menu_title(&menu.target, cwd),
@@ -2256,8 +2288,8 @@ fn render_context_menu(
     let inner = block.inner(rect);
     frame.render_widget(block, rect);
     // Flat rows reuse the button state-color vocabulary, not the widget.
-    // Precedence per spec section 5: disabled (TEXT_MUTED) beats the
-    // Delete DANGER rule beats selected (ACCENT_HOVER + bold) beats plain.
+    // Precedence per spec section 5: disabled (theme().text_muted) beats the
+    // Delete theme().danger rule beats selected (theme().accent_hover + bold) beats plain.
     // The background never varies per row: it inherits the menu fill.
     for (idx, item) in menu.items.iter().enumerate() {
         let selected = idx == menu.selected;
@@ -2266,13 +2298,15 @@ fn render_context_menu(
             muted_style()
         } else if item.action == crate::app::state::ContextItem::Delete {
             if selected {
-                Style::default().fg(DANGER).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(theme().danger)
+                    .add_modifier(Modifier::BOLD)
             } else {
-                Style::default().fg(DANGER)
+                Style::default().fg(theme().danger)
             }
         } else if selected {
             Style::default()
-                .fg(ACCENT_HOVER)
+                .fg(theme().accent_hover)
                 .add_modifier(Modifier::BOLD)
         } else {
             base_style()
@@ -2340,7 +2374,7 @@ fn render_password(
         Line::from(""),
         Line::from(vec![
             Span::styled(format!("{prompt} "), base_style()),
-            Span::styled(masked, Style::default().fg(TEXT_PRIMARY)),
+            Span::styled(masked, Style::default().fg(theme().text_primary)),
             Span::styled("_", muted_style()),
         ]),
         Line::from(""),
@@ -2384,7 +2418,7 @@ fn render_open_with(
         Line::from(""),
         Line::from(vec![
             Span::styled("command: ", base_style()),
-            Span::styled(input.to_string(), Style::default().fg(TEXT_PRIMARY)),
+            Span::styled(input.to_string(), Style::default().fg(theme().text_primary)),
             Span::styled("_", muted_style()),
         ]),
         Line::from(""),
@@ -2405,6 +2439,118 @@ fn render_open_with(
     );
 }
 
+/// Escape command center: a two-column grid of themes followed by the
+/// contextual quick actions, with the highlighted theme already applied so
+/// the choice is previewed live.
+fn render_escape(frame: &mut Frame, area: Rect, state: &mut AppState, menu: &EscapeState) {
+    push_blocker(area, &mut state.hit_map);
+    let entries = escape_entries(state);
+    let themes = crate::ui::theme::count();
+    let rows = themes.div_ceil(ESCAPE_COLS).max(1);
+    let action_rows = entries.len().saturating_sub(themes).div_ceil(ESCAPE_COLS);
+    let height = (rows + action_rows) as u16 + 6;
+    let rect = centered_rect(area, 62.min(area.width), height.min(area.height));
+    frame.render_widget(Clear, rect);
+    let title = format!("ESCAPE  {}/{}", menu.selected + 1, entries.len());
+    let block = overlay_block(&title, accent_border_style());
+    let inner = block.inner(rect);
+    frame.render_widget(block, rect);
+
+    let cell_w = (inner.width as usize / ESCAPE_COLS).max(1);
+    let visible = inner.height.saturating_sub(3) as usize;
+    // Scrolls only when the terminal cannot show every entry at once.
+    let first = if menu.selected < visible {
+        0
+    } else {
+        menu.selected + 1 - visible
+    };
+
+    let mut lines: Vec<Line> = Vec::new();
+    let mut hits: Vec<(usize, Rect)> = Vec::new();
+    for (idx, entry) in entries.iter().enumerate() {
+        let row = idx / ESCAPE_COLS;
+        if row < first || row >= first + visible {
+            continue;
+        }
+        if lines.len() <= row - first {
+            lines.push(Line::from(""));
+        }
+        let col = idx % ESCAPE_COLS;
+        let selected = idx == menu.selected;
+        let style = if selected {
+            Style::default()
+                .fg(theme().text_primary)
+                .bg(theme().selected_bg)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            match entry {
+                EscapeEntry::Theme(theme_index) => theme_row_style(*theme_index, state.theme_index),
+                _ => base_style(),
+            }
+        };
+        let label = match entry {
+            EscapeEntry::Theme(theme_index) => format!(
+                "{} {}",
+                if *theme_index == state.theme_index {
+                    "*"
+                } else {
+                    " "
+                },
+                crate::ui::theme::THEMES[*theme_index].name
+            ),
+            other => escape_entry_label(*other).0.to_string(),
+        };
+        let marker = if selected { ">" } else { " " };
+        let text = Span::styled(pad_right(&format!("{marker} {label}"), cell_w), style);
+        let slot = row - first;
+        let line = &mut lines[slot];
+        if col == 0 {
+            *line = Line::from(vec![text]);
+        } else {
+            let mut spans = line.spans.clone();
+            spans.push(text);
+            *line = Line::from(spans);
+        }
+        hits.push((
+            idx,
+            Rect::new(
+                inner.x + (col * cell_w) as u16,
+                inner.y + slot as u16,
+                cell_w as u16,
+                1,
+            ),
+        ));
+    }
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![
+        Span::styled(" j/k h/l move ", accent_border_style()),
+        Span::styled("gg/G ends ", base_style()),
+        Span::styled("Enter apply ", accent_border_style()),
+        Span::styled("Esc revert ", base_style()),
+        Span::styled("f filter ", muted_style()),
+        Span::styled("v selection ", muted_style()),
+    ]));
+    frame.render_widget(Paragraph::new(lines), inner);
+    for (idx, rect) in hits {
+        if rect.width > 0 {
+            state.hit_map.push(rect, HitTarget::EscapeItem(idx));
+        }
+    }
+}
+
+/// Unselected theme rows preview their own accent, so the grid reads as a
+/// palette rather than a flat list of names.
+fn theme_row_style(theme_index: usize, active: usize) -> Style {
+    let colors = crate::ui::theme::THEMES[theme_index].colors;
+    if theme_index == active {
+        Style::default()
+            .fg(colors.accent)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(colors.accent_hover)
+    }
+}
+
 fn render_bookmarks(
     frame: &mut Frame,
     area: Rect,
@@ -2413,87 +2559,91 @@ fn render_bookmarks(
     hits: &mut HitMap,
 ) {
     push_blocker(area, hits);
-    let rect = centered_rect(
-        area,
-        64.min(area.width),
-        (nav.matches.len() as u16 + 6).clamp(9, area.height.max(9)),
-    );
+    let height = (nav.matches.len() as u16 + 7).clamp(10, area.height.max(10));
+    let rect = centered_rect(area, 64.min(area.width), height);
     frame.render_widget(Clear, rect);
-    let block = overlay_block("BOOKMARKS", accent_border_style());
+    // The title carries the live result count so the list never looks
+    // truncated without saying so.
+    let title = if nav.matches.is_empty() {
+        "BOOKMARKS".to_string()
+    } else {
+        format!("BOOKMARKS  {}/{}", nav.selected + 1, nav.matches.len())
+    };
+    let block = overlay_block(&title, accent_border_style());
     let inner = block.inner(rect);
     frame.render_widget(block, rect);
+
     let width = inner.width as usize;
+    let rows = inner.height.saturating_sub(3) as usize;
     let mut lines: Vec<Line> = Vec::new();
+
+    // Query row: a caret marks the editor only while it is active, so the
+    // vim navigation keys are obviously not being typed into the query.
+    let caret = if nav.searching { "_" } else { " " };
+    let query_style = if nav.searching {
+        Style::default().fg(theme().text_primary)
+    } else {
+        muted_style()
+    };
     lines.push(Line::from(vec![
-        Span::styled("search: ", base_style()),
-        Span::styled(nav.query.clone(), Style::default().fg(TEXT_PRIMARY)),
-        Span::styled("_", muted_style()),
+        Span::styled(" / ", accent_border_style()),
+        Span::styled(truncate(&nav.query, width.saturating_sub(4)), query_style),
+        Span::styled(caret.to_string(), muted_style()),
     ]));
     lines.push(Line::from(""));
+
     if nav.matches.is_empty() {
         let text = if nav.query.is_empty() {
-            "no bookmarks yet, press Ctrl-b to bookmark the current directory"
+            "no bookmarks yet: press Ctrl-b to bookmark the current directory"
         } else {
-            "no bookmarks match this search"
+            "no bookmark matches this query: Esc clears it"
         };
         lines.push(Line::from(Span::styled(
             truncate(text, width),
             muted_style(),
         )));
+    } else {
+        let first = nav.scroll.min(nav.matches.len().saturating_sub(1));
+        for (idx, path) in nav.matches.iter().enumerate().skip(first).take(rows) {
+            let focused = idx == nav.selected;
+            let cursor = if focused { ">" } else { " " };
+            let base = if focused {
+                focused_style()
+            } else {
+                base_style()
+            };
+            let basename = path
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| path.display().to_string());
+            let shown = path
+                .strip_prefix(home)
+                .map(|rest| format!("~/{rest}", rest = rest.display()))
+                .unwrap_or_else(|_| path.display().to_string());
+            // Name first, shortened path second: the eye lands on the name
+            // and the path stays readable instead of being cut off.
+            let text = truncate(
+                &format!("{cursor} {basename}  {shown}"),
+                width.saturating_sub(2),
+            );
+            lines.push(Line::from(vec![
+                Span::styled(format!("{cursor} "), base),
+                Span::styled(text.chars().skip(2).collect::<String>(), base),
+            ]));
+            hits.push(
+                Rect::new(inner.x, inner.y + 2 + (idx - first) as u16, inner.width, 1),
+                HitTarget::BookmarkRow(idx),
+            );
+        }
     }
-    for (idx, path) in nav.matches.iter().enumerate() {
-        if lines.len() as u16 >= inner.height - 2 {
-            break;
-        }
-        let focused = idx == nav.selected;
-        let cursor = if focused { ">" } else { " " };
-        let cursor_style = if focused {
-            focused_style()
-        } else {
-            base_style()
-        };
-        let basename = path
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_else(|| path.display().to_string());
-        let shown = path
-            .strip_prefix(home)
-            .map(|rest| format!("~/{rest}", rest = rest.display()))
-            .unwrap_or_else(|_| path.display().to_string());
-        let text = truncate(
-            &format!("{cursor}{} {shown}", pad_right(&basename, 20)),
-            width,
-        );
-        let chars: Vec<char> = text.chars().collect();
-        let mut spans: Vec<Span> = Vec::new();
-        if let Some(&c) = chars.first() {
-            spans.push(Span::styled(c.to_string(), cursor_style));
-        }
-        let base_end = chars.len().min(1 + 20);
-        if base_end > 1 {
-            spans.push(Span::styled(
-                chars[1..base_end].iter().collect::<String>(),
-                if focused {
-                    focused_style()
-                } else {
-                    base_style()
-                },
-            ));
-        }
-        if chars.len() > base_end {
-            spans.push(Span::styled(
-                chars[base_end..].iter().collect::<String>(),
-                muted_style(),
-            ));
-        }
-        lines.push(Line::from(spans));
-    }
+
+    let hint = if nav.searching {
+        " type to filter  Enter go  Esc stop searching "
+    } else {
+        " j/k move  gg/G ends  / search  Enter go  Esc close "
+    };
     lines.push(Line::from(""));
-    lines.push(Line::from(vec![
-        Span::styled(" [Enter] go ", accent_border_style()),
-        Span::raw(" "),
-        Span::styled(" [Esc] close ", base_style()),
-    ]));
+    lines.push(Line::from(Span::styled(hint, accent_border_style())));
     frame.render_widget(Paragraph::new(lines), inner);
 }
 

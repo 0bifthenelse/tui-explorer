@@ -1,6 +1,7 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
 use crate::app::action::{Action, ConflictDecision};
+use crate::app::reduce::ESCAPE_COLS;
 use crate::app::state::AppState;
 use crate::app::state::Mode;
 
@@ -70,23 +71,55 @@ pub fn map_key(key: KeyEvent, state: &AppState) -> Option<Action> {
             KeyCode::Char(c) => Some(Action::OpenWithChar(c)),
             _ => None,
         },
-        Mode::Bookmarks(_) => match key.code {
-            KeyCode::Esc => Some(Action::Cancel),
-            KeyCode::Enter => Some(Action::BookmarkSubmit),
-            KeyCode::Backspace => Some(Action::BookmarkBackspace),
-            KeyCode::Down => Some(Action::BookmarkMove(1)),
-            KeyCode::Up => Some(Action::BookmarkMove(-1)),
-            KeyCode::Char('n') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                Some(Action::BookmarkMove(1))
+        Mode::Bookmarks(nav) => {
+            let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+            let searching = nav.searching;
+            let query_empty = nav.query.is_empty();
+            match key.code {
+                KeyCode::Esc => Some(Action::Cancel),
+                KeyCode::Enter => Some(Action::BookmarkSubmit),
+                // Movement works in both modes, so `j`/`k` never become
+                // query text and results can be walked without leaving search.
+                KeyCode::Char('j') | KeyCode::Down => Some(Action::BookmarkVim(1)),
+                KeyCode::Char('k') | KeyCode::Up => Some(Action::BookmarkVim(-1)),
+                KeyCode::Char('n') if ctrl => Some(Action::BookmarkVim(1)),
+                KeyCode::Char('p') if ctrl => Some(Action::BookmarkVim(-1)),
+                KeyCode::Char('d') if ctrl => Some(Action::BookmarkHalfPage(1)),
+                KeyCode::Char('u') if ctrl => Some(Action::BookmarkHalfPage(-1)),
+                KeyCode::Char('G') => Some(Action::BookmarkLast),
+                KeyCode::Char('g') => Some(Action::BookmarkFirst),
+                KeyCode::Char('/') if !searching => Some(Action::BookmarkSearchStart),
+                KeyCode::Backspace if searching && !query_empty => Some(Action::BookmarkBackspace),
+                // Typing while browsing opens the editor and seeds it: the
+                // reducer turns on search on the first character.
+                KeyCode::Char(c) if !ctrl => Some(Action::BookmarkChar(c)),
+                _ => None,
             }
-            KeyCode::Char('p') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                Some(Action::BookmarkMove(-1))
+        }
+        Mode::Escape(_) => {
+            let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+            match key.code {
+                KeyCode::Esc | KeyCode::Char('q') => Some(Action::Cancel),
+                KeyCode::Enter => Some(Action::EscapeApply),
+                KeyCode::Char('j') | KeyCode::Down => {
+                    Some(Action::EscapeMove(ESCAPE_COLS as isize))
+                }
+                KeyCode::Char('k') | KeyCode::Up => {
+                    Some(Action::EscapeMove(-(ESCAPE_COLS as isize)))
+                }
+                KeyCode::Char('h') | KeyCode::Left => Some(Action::EscapeMove(-1)),
+                KeyCode::Char('l') | KeyCode::Right => Some(Action::EscapeMove(1)),
+                KeyCode::Char('d') if ctrl => Some(Action::EscapeHalfPage(1)),
+                KeyCode::Char('u') if ctrl => Some(Action::EscapeHalfPage(-1)),
+                KeyCode::Char('G') => Some(Action::EscapeLast),
+                KeyCode::Char('g') => Some(Action::EscapeKeyG),
+                KeyCode::Home => Some(Action::EscapeFirst),
+                KeyCode::End => Some(Action::EscapeLast),
+                KeyCode::Char('f') => Some(Action::EscapeClearFilter),
+                KeyCode::Char('v') => Some(Action::EscapeClearSelection),
+                _ => None,
             }
-            KeyCode::Char(c) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
-                Some(Action::BookmarkChar(c))
-            }
-            _ => None,
-        },
+        }
         Mode::Media(_) => match key.code {
             KeyCode::Enter | KeyCode::Char(' ') => Some(Action::MediaTogglePause),
             KeyCode::Left | KeyCode::Char('h') => Some(Action::MediaSeek(-15)),

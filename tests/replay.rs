@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use tui_explorer::app::action::{Action, ConflictDecision};
 use tui_explorer::app::state::{AppState, Mode};
 use tui_explorer::filesystem::RecordedMutation;
+use tui_explorer::filesystem::sandbox;
 use tui_explorer::testing::builders::{demo_fs, demo_state};
 use tui_explorer::testing::{SyncHandler, drive};
 
@@ -875,18 +876,10 @@ fn error_epoch_bumps_only_on_errors() {
     assert!(state.message.as_ref().is_some_and(|m| m.is_error));
 }
 
-// ---- Encryption flow through the UI (real temp fixture) ----
+// ---- Encryption flow through the UI (sandbox fixture) ----
 
-fn crypto_fixture() -> (PathBuf, PathBuf) {
-    let dir = std::env::temp_dir().join(format!(
-        "tui-explorer-replay-crypto-{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0)
-    ));
-    std::fs::create_dir_all(&dir).unwrap();
+fn crypto_fixture(tag: &str) -> (PathBuf, PathBuf) {
+    let dir = sandbox::fixture(tag);
     let file = dir.join("secret.txt");
     std::fs::write(&file, b"top secret bytes\n").unwrap();
     (dir, file)
@@ -938,7 +931,7 @@ fn type_password(state: &mut AppState, handler: &mut SyncHandler, pass: &str) {
 
 #[test]
 fn encrypt_decrypt_roundtrip_through_ui() {
-    let (dir, file) = crypto_fixture();
+    let (dir, file) = crypto_fixture("replay-crypto-encrypt");
     let original = std::fs::read(&file).unwrap();
     let (mut state, mut handler) = crypto_state(&dir, &["secret.txt"]);
     drive(
@@ -946,9 +939,30 @@ fn encrypt_decrypt_roundtrip_through_ui() {
         &mut handler,
         [Action::GotoFirst, Action::EncryptToggle],
     );
+    // The destructive warning is now the first step, before any password.
+    let Mode::Confirm(confirm) = &state.mode else {
+        panic!("X must require an explicit confirmation before encrypting");
+    };
+    assert_eq!(confirm.title, "Are you sure?");
+    assert!(
+        confirm.detail.contains("deleted"),
+        "warning must state the original is deleted: {}",
+        confirm.detail
+    );
+    // Cancelling the warning performs no crypto and no filesystem change.
+    drive(&mut state, &mut handler, [Action::Reject]);
+    assert!(matches!(state.mode, Mode::Browser));
+    assert!(!dir.join("secret.txt.age").exists());
+    assert_eq!(std::fs::read(&file).unwrap(), original, "cancel is inert");
+
+    drive(
+        &mut state,
+        &mut handler,
+        [Action::GotoFirst, Action::EncryptToggle, Action::Confirm],
+    );
     assert!(
         matches!(state.mode, Mode::Password(_)),
-        "X opens the password dialog"
+        "accepting the warning opens the password dialog"
     );
     type_password(&mut state, &mut handler, "pw");
     assert!(
@@ -959,13 +973,13 @@ fn encrypt_decrypt_roundtrip_through_ui() {
     assert!(matches!(state.mode, Mode::Browser));
     let enc = dir.join("secret.txt.age");
     assert!(enc.exists(), "encrypted output written");
-    assert_eq!(
-        std::fs::read(&file).unwrap(),
-        original,
-        "source never deleted or modified"
+    assert!(
+        !file.exists(),
+        "the plaintext is removed only after the encrypted output is finalized"
     );
-    // Wrong password fails recoverably without touching data.
-    std::fs::remove_file(&file).unwrap();
+    // Wrong password fails recoverably without touching data. The plaintext
+    // is already gone, so decryption starts from the encrypted file alone.
+    assert!(!file.exists());
     let (mut state, mut handler) = crypto_state(&dir, &["secret.txt.age"]);
     drive(
         &mut state,
@@ -994,12 +1008,12 @@ fn encrypt_decrypt_roundtrip_through_ui() {
 
 #[test]
 fn mismatched_confirmation_blocks_encryption() {
-    let (dir, file) = crypto_fixture();
+    let (dir, file) = crypto_fixture("replay-crypto-mismatch");
     let (mut state, mut handler) = crypto_state(&dir, &["secret.txt"]);
     drive(
         &mut state,
         &mut handler,
-        [Action::GotoFirst, Action::EncryptToggle],
+        [Action::GotoFirst, Action::EncryptToggle, Action::Confirm],
     );
     type_password(&mut state, &mut handler, "one");
     type_password(&mut state, &mut handler, "two");
@@ -1024,14 +1038,7 @@ fn mismatched_confirmation_blocks_encryption() {
 
 #[test]
 fn directory_encrypts_and_decrypts_through_ui() {
-    let dir = std::env::temp_dir().join(format!(
-        "tui-explorer-replay-dircrypto-{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0)
-    ));
+    let dir = sandbox::fixture("replay-dircrypto");
     let tree = dir.join("proj");
     std::fs::create_dir_all(tree.join("sub/empty")).unwrap();
     std::fs::write(tree.join("sub/data.bin"), vec![9u8; 2048]).unwrap();
@@ -1039,13 +1046,16 @@ fn directory_encrypts_and_decrypts_through_ui() {
     drive(
         &mut state,
         &mut handler,
-        [Action::GotoFirst, Action::EncryptToggle],
+        [Action::GotoFirst, Action::EncryptToggle, Action::Confirm],
     );
     type_password(&mut state, &mut handler, "pw");
     type_password(&mut state, &mut handler, "pw");
     let enc = dir.join("proj.tar.age");
     assert!(enc.exists(), "folder archive uses the .tar.age convention");
-    std::fs::remove_dir_all(&tree).unwrap();
+    assert!(
+        !tree.exists(),
+        "the source folder is removed after its archive is finalized"
+    );
     let (mut state, mut handler) = crypto_state(&dir, &["proj.tar.age"]);
     drive(
         &mut state,
@@ -1833,8 +1843,14 @@ fn context_menu_hover_selects_without_executing() {
         unreachable!()
     };
     assert_eq!(menu.selected, 4);
-    // Left click on a hovered row executes exactly that row.
-    let delete_item = context_item_rect(&state, 5);
+    // Left click on a hovered row executes exactly that row. The delete row
+    // index is derived from the live menu so the test survives menu growth.
+    let delete_index = menu
+        .items
+        .iter()
+        .position(|item| item.action == tui_explorer::app::state::ContextItem::Delete)
+        .expect("delete entry present");
+    let delete_item = context_item_rect(&state, delete_index);
     drive(
         &mut state,
         &mut handler,
@@ -1853,7 +1869,8 @@ fn context_menu_hover_selects_without_executing() {
             },
         ],
     );
-    // Item 5 is Delete: it opens the confirm dialog instead of deleting.
+    // Delete is the last item: it opens the confirm dialog instead of
+    // deleting, and it still sits where `context_item_rect` finds it.
     assert!(matches!(state.mode, Mode::Confirm(_)));
     assert!(handler.mutations.recorded().is_empty());
 }

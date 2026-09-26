@@ -15,7 +15,7 @@ use ratatui::layout::Rect;
 use ratatui::{Terminal, backend::TestBackend};
 use tui_explorer::app::action::{Action, ConflictDecision, MouseKind};
 use tui_explorer::app::state::{
-    AppState, ClipMode, ContextItem, ContextMenuState, ContextTarget, Mode,
+    AppState, ClipMode, ContextItem, ContextMenuState, ContextTarget, MenuFacts, Mode,
 };
 use tui_explorer::filesystem::RecordedMutation;
 use tui_explorer::operations::{OpEntryResult, OpOutcome, OperationReport};
@@ -24,6 +24,20 @@ use tui_explorer::testing::{SyncHandler, drive};
 use tui_explorer::ui;
 
 const ROOT: &str = "/home/demo";
+
+/// The menu a single non-encrypted file target must produce, in order.
+fn expected_single_file_menu() -> Vec<ContextItem> {
+    vec![
+        ContextItem::Open,
+        ContextItem::OpenWith,
+        ContextItem::Rename,
+        ContextItem::Cut,
+        ContextItem::ClipboardCopy,
+        ContextItem::Tags,
+        ContextItem::Encrypt,
+        ContextItem::Delete,
+    ]
+}
 
 // ---------------------------------------------------------------------------
 // Helpers (mirroring tests/replay.rs conventions)
@@ -331,8 +345,9 @@ fn clipboard_capture_stores_all_paths_and_never_touches_filesystem() {
             ContextItem::Rename,
             ContextItem::Cut,
             ContextItem::ClipboardCopy,
-            ContextItem::Delete,
             ContextItem::Tags,
+            ContextItem::Encrypt,
+            ContextItem::Delete,
         ]
     );
     drive(
@@ -433,7 +448,13 @@ fn right_click_unselected_row_targets_single_and_keeps_multi_selection() {
     );
     assert_eq!(state.browser.selection, selection, "selection untouched");
     assert!(!state.browser.selection.contains(&clicked));
-    assert_eq!(menu_actions(&state).len(), 7, "full single-item menu");
+    // The single-item menu grew with Encrypt; assert it covers every entry
+    // the app actually offers for a single non-encrypted file target.
+    assert_eq!(
+        menu_actions(&state),
+        expected_single_file_menu(),
+        "full single-item menu"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -806,9 +827,14 @@ fn menu_opened_near_bottom_row_clamps_inside_the_terminal() {
     open_menu_on_row(&mut state, &mut handler, bottom);
 
     let hits = context_item_hits(&state);
+    // Every enabled item must be clickable, at any menu length.
+    let Mode::ContextMenu(menu) = &state.mode else {
+        panic!("context menu expected");
+    };
+    let enabled = menu.items.iter().filter(|item| item.enabled).count();
     assert_eq!(
         hits.len(),
-        7,
+        enabled,
         "every enabled single-menu entry is clickable"
     );
     for (rect, idx) in hits {
@@ -827,7 +853,10 @@ fn menu_anchored_beyond_edges_is_clamped_fully_visible() {
             &ContextTarget::Single {
                 path: PathBuf::from(format!("{ROOT}/Cargo.toml")),
             },
-            false,
+            MenuFacts {
+                clipboard_has_items: false,
+                ..MenuFacts::default()
+            },
         ),
         target: ContextTarget::Single {
             path: PathBuf::from(format!("{ROOT}/Cargo.toml")),
@@ -839,7 +868,14 @@ fn menu_anchored_beyond_edges_is_clamped_fully_visible() {
     rerender(&mut state);
 
     let hits = context_item_hits(&state);
-    assert_eq!(hits.len(), 7, "whole menu stays reachable near the corner");
+    let Mode::ContextMenu(menu) = &state.mode else {
+        panic!("context menu expected");
+    };
+    assert_eq!(
+        hits.len(),
+        menu.items.len(),
+        "whole menu stays reachable near the corner"
+    );
     for (rect, idx) in hits {
         assert_rect_inside(rect, width, height, &format!("clamped item {idx}"));
     }

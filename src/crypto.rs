@@ -12,7 +12,9 @@
 //!   the age stream is finalized, the writer flushed, and only then the
 //!   temporary file is atomically renamed into place
 //! * existing destinations are never overwritten (creation is exclusive)
-//! * sources are never deleted automatically
+//! * under `SourceDisposition::Keep` sources are never removed; under
+//!   `RemoveAfterSuccess` a source is deleted only after its finalized
+//!   destination is re-verified, and any failure leaves both copies intact
 //! * temporary files are removed after cancellation or failure
 //! * folders are archived with relative paths only; on extraction, entries
 //!   with absolute paths, `..` components, or any path escaping the
@@ -482,39 +484,92 @@ fn extract_safely<R: Read>(
     Ok(())
 }
 
-/// Run one job (encrypt or decrypt) over every source.
+/// Whether a successful operation removes the source it consumed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SourceDisposition {
+    /// Leave the source in place (non-destructive mode).
+    Keep,
+    /// Remove the source only after the produced output is finalized.
+    RemoveAfterSuccess,
+}
+
+/// Re-check a produced output, then delete the source it consumed.
+/// Nothing is deleted before the destination is confirmed final.
+fn remove_consumed_source(
+    source: &Path,
+    destination: &Path,
+    restores_tree: bool,
+    was_dir: bool,
+) -> Result<(), CryptoError> {
+    let finalized = match std::fs::metadata(destination) {
+        Ok(meta) if restores_tree => meta.is_dir(),
+        Ok(meta) => meta.is_file() && meta.len() > 0,
+        Err(_) => false,
+    };
+    if !finalized {
+        return Err(CryptoError::Io(io::Error::other(format!(
+            "output {} is missing or empty, source kept",
+            destination.display()
+        ))));
+    }
+    let removal = if was_dir {
+        std::fs::remove_dir_all(source)
+    } else {
+        std::fs::remove_file(source)
+    };
+    removal.map_err(|e| {
+        CryptoError::Io(io::Error::new(
+            e.kind(),
+            format!("cannot remove source {}: {e}", source.display()),
+        ))
+    })
+}
+
+/// Runs one job (encrypt or decrypt) over every source.
 pub fn run_job(
     kind: CryptoKind,
     sources: &[PathBuf],
     password: &SecretString,
     cancel: &Arc<AtomicBool>,
+    disposition: SourceDisposition,
     progress: &mut Progress<'_>,
 ) -> (Vec<CryptoOutcome>, Vec<(PathBuf, CryptoError)>) {
     let mut done = Vec::new();
     let mut failed = Vec::new();
     for (idx, source) in sources.iter().enumerate() {
         progress(source, idx, sources.len());
-        let result = match (kind, source.is_dir()) {
+        let name = source
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let was_dir = source.is_dir();
+        // Only a `.tar.age` decrypt restores a tree; every other job writes a file.
+        let restores_tree = kind == CryptoKind::Decrypt && is_encrypted_archive(&name);
+        let result = match (kind, was_dir) {
             (CryptoKind::Encrypt, true) => encrypt_directory(source, password, cancel),
             (CryptoKind::Encrypt, false) => encrypt_file(source, password, cancel),
-            (CryptoKind::Decrypt, _) => {
-                let name = source
-                    .file_name()
-                    .map(|n| n.to_string_lossy().into_owned())
-                    .unwrap_or_default();
-                if is_encrypted_archive(&name) {
-                    decrypt_directory(source, password, cancel)
-                } else {
-                    decrypt_file(source, password, cancel)
-                }
+            (CryptoKind::Decrypt, _) if is_encrypted_archive(&name) => {
+                decrypt_directory(source, password, cancel)
             }
+            (CryptoKind::Decrypt, _) => decrypt_file(source, password, cancel),
         };
         match result {
-            Ok(destination) => done.push(CryptoOutcome {
-                source: source.clone(),
-                destination,
-                kind,
-            }),
+            Ok(destination) => {
+                let removal = match disposition {
+                    SourceDisposition::Keep => Ok(()),
+                    SourceDisposition::RemoveAfterSuccess => {
+                        remove_consumed_source(source, &destination, restores_tree, was_dir)
+                    }
+                };
+                match removal {
+                    Ok(()) => done.push(CryptoOutcome {
+                        source: source.clone(),
+                        destination,
+                        kind,
+                    }),
+                    Err(e) => failed.push((source.clone(), e)),
+                }
+            }
             Err(e) => {
                 failed.push((source.clone(), e));
                 if matches!(failed.last().map(|(_, e)| e), Some(CryptoError::Cancelled)) {
@@ -535,20 +590,39 @@ mod tests {
     }
 
     fn fixture() -> PathBuf {
-        let dir = std::env::temp_dir().join(format!(
-            "tui-explorer-crypto-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_nanos())
-                .unwrap_or(0)
-        ));
-        std::fs::create_dir_all(&dir).unwrap();
-        dir
+        crate::filesystem::sandbox::fixture("crypto")
     }
 
     fn no_cancel() -> Arc<AtomicBool> {
         Arc::new(AtomicBool::new(false))
+    }
+
+    fn run(
+        kind: CryptoKind,
+        sources: &[PathBuf],
+        password: &SecretString,
+        cancel: &Arc<AtomicBool>,
+        disposition: SourceDisposition,
+    ) -> (Vec<CryptoOutcome>, Vec<(PathBuf, CryptoError)>) {
+        run_job(
+            kind,
+            sources,
+            password,
+            cancel,
+            disposition,
+            &mut |_, _, _| {},
+        )
+    }
+
+    fn part_leftovers(dir: &Path) -> Vec<String> {
+        let mut names: Vec<String> = std::fs::read_dir(dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|n| n.contains(".part-"))
+            .collect();
+        names.sort();
+        names
     }
 
     #[test]
@@ -688,6 +762,332 @@ mod tests {
             .filter(|e| e.file_name().to_string_lossy().contains(".part-"))
             .count();
         assert_eq!(leftovers, 0);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn keep_disposition_never_removes_sources() {
+        let dir = fixture();
+        let keep = dir.join("keep.txt");
+        std::fs::write(&keep, b"kept bytes\n").unwrap();
+        let drop = dir.join("drop.txt");
+        std::fs::write(&drop, b"removed bytes\n").unwrap();
+        let password = secret("pw");
+        let cancel = no_cancel();
+        let sources = vec![keep.clone(), drop.clone()];
+        let (done, failed) = run(
+            CryptoKind::Encrypt,
+            &sources,
+            &password,
+            &cancel,
+            SourceDisposition::Keep,
+        );
+        assert!(failed.is_empty());
+        assert_eq!(done.len(), 2);
+        assert!(keep.exists());
+        assert!(drop.exists());
+        assert!(std::fs::metadata(dir.join("keep.txt.age")).unwrap().len() > 0);
+        assert!(std::fs::metadata(dir.join("drop.txt.age")).unwrap().len() > 0);
+        assert!(part_leftovers(&dir).is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn encrypt_then_remove_deletes_source_only_after_output() {
+        let dir = fixture();
+        let src = dir.join("notes.txt");
+        let plaintext = b"hello secret world\n".repeat(200);
+        std::fs::write(&src, &plaintext).unwrap();
+        let password = secret("pw");
+        let cancel = no_cancel();
+        let (done, failed) = run(
+            CryptoKind::Encrypt,
+            std::slice::from_ref(&src),
+            &password,
+            &cancel,
+            SourceDisposition::RemoveAfterSuccess,
+        );
+        assert!(failed.is_empty());
+        assert_eq!(done.len(), 1);
+        assert_eq!(done[0].source, src);
+        let enc = dir.join("notes.txt.age");
+        assert_eq!(done[0].destination, enc);
+        assert!(std::fs::metadata(&enc).unwrap().len() > 0);
+        assert!(!src.exists());
+        assert!(part_leftovers(&dir).is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn directory_disposition_removes_tree_after_archive() {
+        let dir = fixture();
+        let tree = dir.join("proj");
+        std::fs::create_dir_all(tree.join("src/nested")).unwrap();
+        std::fs::create_dir_all(tree.join("empty-dir")).unwrap();
+        std::fs::write(tree.join("src/main.rs"), b"fn main() {}\n").unwrap();
+        let deep = vec![9u8; 2048];
+        std::fs::write(tree.join("src/nested/deep.bin"), &deep).unwrap();
+        let password = secret("pw");
+        let cancel = no_cancel();
+        let (done, failed) = run(
+            CryptoKind::Encrypt,
+            std::slice::from_ref(&tree),
+            &password,
+            &cancel,
+            SourceDisposition::RemoveAfterSuccess,
+        );
+        assert!(failed.is_empty());
+        assert_eq!(done.len(), 1);
+        let archive = dir.join("proj.tar.age");
+        assert_eq!(done[0].destination, archive);
+        assert!(std::fs::metadata(&archive).unwrap().len() > 0);
+        assert!(!tree.exists());
+        assert!(part_leftovers(&dir).is_empty());
+
+        let (restored, failed) = run(
+            CryptoKind::Decrypt,
+            std::slice::from_ref(&archive),
+            &password,
+            &cancel,
+            SourceDisposition::Keep,
+        );
+        assert!(failed.is_empty());
+        assert_eq!(restored[0].destination, tree);
+        assert_eq!(
+            std::fs::read(tree.join("src/main.rs")).unwrap(),
+            b"fn main() {}\n"
+        );
+        assert_eq!(
+            std::fs::read(tree.join("src/nested/deep.bin")).unwrap(),
+            deep
+        );
+        assert!(tree.join("empty-dir").is_dir());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn failed_encryption_keeps_plaintext() {
+        let dir = fixture();
+        let src = dir.join("a.txt");
+        let plaintext = b"one\n".repeat(64);
+        std::fs::write(&src, &plaintext).unwrap();
+        let enc = dir.join("a.txt.age");
+        let pre_existing = b"tampered".repeat(8);
+        std::fs::write(&enc, &pre_existing).unwrap();
+        let password = secret("pw");
+        let cancel = no_cancel();
+        let (done, failed) = run(
+            CryptoKind::Encrypt,
+            std::slice::from_ref(&src),
+            &password,
+            &cancel,
+            SourceDisposition::RemoveAfterSuccess,
+        );
+        assert!(done.is_empty());
+        assert_eq!(failed.len(), 1);
+        assert_eq!(failed[0].0, src);
+        assert!(matches!(failed[0].1, CryptoError::DestinationExists(_)));
+        assert_eq!(std::fs::read(&src).unwrap(), plaintext);
+        assert_eq!(std::fs::read(&enc).unwrap(), pre_existing);
+        assert!(part_leftovers(&dir).is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn wrong_password_keeps_encrypted_source() {
+        let dir = fixture();
+        let src = dir.join("data.bin");
+        let plaintext: Vec<u8> = (0..10_000u32).map(|i| (i % 251) as u8).collect();
+        std::fs::write(&src, &plaintext).unwrap();
+        let enc = encrypt_file(&src, &secret("right"), &no_cancel()).unwrap();
+        let ciphertext = std::fs::read(&enc).unwrap();
+        std::fs::remove_file(&src).unwrap();
+        let wrong = secret("wrong");
+        let cancel = no_cancel();
+        let (done, failed) = run(
+            CryptoKind::Decrypt,
+            std::slice::from_ref(&enc),
+            &wrong,
+            &cancel,
+            SourceDisposition::RemoveAfterSuccess,
+        );
+        assert!(done.is_empty());
+        assert_eq!(failed.len(), 1);
+        assert!(matches!(failed[0].1, CryptoError::DecryptionFailed));
+        assert!(enc.exists());
+        assert_eq!(std::fs::read(&enc).unwrap(), ciphertext);
+        assert!(!dir.join("data.bin").exists());
+        assert!(part_leftovers(&dir).is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn cancellation_keeps_source_under_remove_disposition() {
+        let dir = fixture();
+        let src = dir.join("big.bin");
+        let payload = vec![3u8; 5 * 1024 * 1024];
+        std::fs::write(&src, &payload).unwrap();
+        let cancel = Arc::new(AtomicBool::new(true));
+        let password = secret("pw");
+        let (done, failed) = run(
+            CryptoKind::Encrypt,
+            std::slice::from_ref(&src),
+            &password,
+            &cancel,
+            SourceDisposition::RemoveAfterSuccess,
+        );
+        assert!(done.is_empty());
+        assert_eq!(failed.len(), 1);
+        assert!(matches!(failed[0].1, CryptoError::Cancelled));
+        assert_eq!(std::fs::read(&src).unwrap(), payload);
+        assert!(!dir.join("big.bin.age").exists());
+        assert!(part_leftovers(&dir).is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn decrypt_removes_encrypted_source_after_restore() {
+        let dir = fixture();
+        let src = dir.join("report.txt");
+        let plaintext = b"quarterly numbers\n".repeat(300);
+        std::fs::write(&src, &plaintext).unwrap();
+        let password = secret("pw");
+        let cancel = no_cancel();
+        let (done, failed) = run(
+            CryptoKind::Encrypt,
+            std::slice::from_ref(&src),
+            &password,
+            &cancel,
+            SourceDisposition::RemoveAfterSuccess,
+        );
+        assert!(failed.is_empty());
+        let enc = done[0].destination.clone();
+        assert!(!src.exists());
+
+        let (restored, failed) = run(
+            CryptoKind::Decrypt,
+            std::slice::from_ref(&enc),
+            &password,
+            &cancel,
+            SourceDisposition::RemoveAfterSuccess,
+        );
+        assert!(failed.is_empty());
+        assert_eq!(restored.len(), 1);
+        assert_eq!(restored[0].source, enc);
+        assert_eq!(restored[0].destination, src);
+        assert_eq!(std::fs::read(&src).unwrap(), plaintext);
+        assert!(!enc.exists());
+        assert!(part_leftovers(&dir).is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn decrypt_archive_removes_archive_after_tree_restore() {
+        let dir = fixture();
+        let tree = dir.join("bundle");
+        std::fs::create_dir_all(tree.join("keep")).unwrap();
+        std::fs::write(tree.join("keep/data.bin"), vec![5u8; 1024]).unwrap();
+        let password = secret("pw");
+        let cancel = no_cancel();
+        let (done, failed) = run(
+            CryptoKind::Encrypt,
+            std::slice::from_ref(&tree),
+            &password,
+            &cancel,
+            SourceDisposition::RemoveAfterSuccess,
+        );
+        assert!(failed.is_empty());
+        let archive = done[0].destination.clone();
+        assert!(!tree.exists());
+
+        let (restored, failed) = run(
+            CryptoKind::Decrypt,
+            std::slice::from_ref(&archive),
+            &password,
+            &cancel,
+            SourceDisposition::RemoveAfterSuccess,
+        );
+        assert!(failed.is_empty());
+        assert_eq!(restored[0].destination, tree);
+        assert!(tree.is_dir());
+        assert_eq!(
+            std::fs::read(tree.join("keep/data.bin")).unwrap(),
+            vec![5u8; 1024]
+        );
+        assert!(!archive.exists());
+        assert!(part_leftovers(&dir).is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn decrypt_archive_keeps_archive_on_cancellation() {
+        let dir = fixture();
+        let tree = dir.join("bundle");
+        std::fs::create_dir_all(&tree).unwrap();
+        std::fs::write(tree.join("keep.bin"), vec![6u8; 4096]).unwrap();
+        let password = secret("pw");
+        let cancel = no_cancel();
+        let archive = encrypt_directory(&tree, &password, &cancel).unwrap();
+        let ciphertext = std::fs::read(&archive).unwrap();
+        // The extraction target must be free, otherwise the destination
+        // check fires before cancellation is ever observed.
+        std::fs::remove_dir_all(&tree).unwrap();
+
+        let stopped = Arc::new(AtomicBool::new(true));
+        let (done, failed) = run(
+            CryptoKind::Decrypt,
+            std::slice::from_ref(&archive),
+            &password,
+            &stopped,
+            SourceDisposition::RemoveAfterSuccess,
+        );
+        assert!(done.is_empty(), "cancelled decrypt must not report success");
+        assert!(
+            matches!(failed[0].1, CryptoError::Cancelled),
+            "actual error: {:?}",
+            failed[0].1
+        );
+        // The encrypted archive is the only remaining copy and must survive.
+        assert!(archive.exists());
+        assert_eq!(std::fs::read(&archive).unwrap(), ciphertext);
+        assert!(!tree.exists());
+        assert!(part_leftovers(&dir).is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn password_never_in_debug_or_error() {
+        let dir = fixture();
+        let src = dir.join("secret.txt");
+        std::fs::write(&src, b"classified\n".repeat(50)).unwrap();
+        let password_text = "correct horse battery staple 42";
+        let password = secret(password_text);
+        let cancel = no_cancel();
+        let enc = encrypt_file(&src, &password, &cancel).unwrap();
+        std::fs::remove_file(&src).unwrap();
+
+        let err = decrypt_file(&enc, &secret("bad guess"), &cancel).unwrap_err();
+        let rendered = format!("{err} {err:?}");
+        assert!(!rendered.contains(password_text));
+        assert!(rendered.contains("wrong password or corrupted data"));
+
+        let (done, failed) = run(
+            CryptoKind::Decrypt,
+            std::slice::from_ref(&enc),
+            &password,
+            &cancel,
+            SourceDisposition::RemoveAfterSuccess,
+        );
+        assert_eq!(done.len(), 1);
+        let state = format!(
+            "{:?} {:?} {:?} {:?} {:?}",
+            SourceDisposition::Keep,
+            SourceDisposition::RemoveAfterSuccess,
+            done[0],
+            failed,
+            secret(password_text)
+        );
+        assert!(!state.contains(password_text));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

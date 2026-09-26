@@ -1,24 +1,34 @@
+//! Frozen color constants bound to the default theme.
+//!
+//! New rendering code should read [`crate::ui::theme::current`] instead, so it
+//! follows the user's theme choice rather than always using theme 0.
+
 use ratatui::style::Color;
 
-pub const ROOT_ORANGE: Color = Color::Rgb(0xff, 0x7d, 0x27);
-pub const ROOT_INK: Color = Color::Rgb(0x1c, 0x1f, 0x26);
-pub const ROOT_PAPER: Color = Color::Rgb(0xee, 0xf1, 0xf6);
+use crate::ui::theme::THEMES;
 
-pub const SURFACE_0: Color = Color::Rgb(0x1c, 0x1f, 0x26);
-pub const SURFACE_1: Color = Color::Rgb(0x22, 0x25, 0x2c);
-pub const SURFACE_2: Color = Color::Rgb(0x29, 0x2c, 0x32);
-pub const SURFACE_3: Color = Color::Rgb(0x31, 0x34, 0x3b);
+/// Default theme: orange on dark ink.
+const DEFAULT: Color = THEMES[0].colors.accent;
 
-pub const BORDER_SUBTLE: Color = Color::Rgb(0x3e, 0x41, 0x47);
-pub const BORDER_STRONG: Color = Color::Rgb(0x57, 0x5a, 0x60);
+pub const ROOT_ORANGE: Color = DEFAULT;
+pub const ROOT_INK: Color = THEMES[0].colors.surface_0;
+pub const ROOT_PAPER: Color = THEMES[0].colors.text_primary;
 
-pub const TEXT_PRIMARY: Color = Color::Rgb(0xee, 0xf1, 0xf6);
-pub const TEXT_SECONDARY: Color = Color::Rgb(0xaf, 0xb2, 0xb8);
-pub const TEXT_MUTED: Color = Color::Rgb(0x7b, 0x7e, 0x84);
+pub const SURFACE_0: Color = THEMES[0].colors.surface_0;
+pub const SURFACE_1: Color = THEMES[0].colors.surface_1;
+pub const SURFACE_2: Color = THEMES[0].colors.surface_2;
+pub const SURFACE_3: Color = THEMES[0].colors.surface_3;
 
-pub const ACCENT: Color = Color::Rgb(0xff, 0x7d, 0x27);
-pub const ACCENT_HOVER: Color = Color::Rgb(0xff, 0x9d, 0x5c);
-pub const ACCENT_SOFT: Color = Color::Rgb(0xff, 0xc2, 0x99);
-pub const DANGER: Color = Color::Rgb(0xeb, 0x5e, 0x00);
-pub const SELECTED_BG: Color = Color::Rgb(0x4a, 0x35, 0x2b);
-pub const FOCUS_BG: Color = Color::Rgb(0x64, 0x3f, 0x2b);
+pub const BORDER_SUBTLE: Color = THEMES[0].colors.border_subtle;
+pub const BORDER_STRONG: Color = THEMES[0].colors.border_strong;
+
+pub const TEXT_PRIMARY: Color = THEMES[0].colors.text_primary;
+pub const TEXT_SECONDARY: Color = THEMES[0].colors.text_secondary;
+pub const TEXT_MUTED: Color = THEMES[0].colors.text_muted;
+
+pub const ACCENT: Color = DEFAULT;
+pub const ACCENT_HOVER: Color = THEMES[0].colors.accent_hover;
+pub const ACCENT_SOFT: Color = THEMES[0].colors.accent_soft;
+pub const DANGER: Color = THEMES[0].colors.danger;
+pub const SELECTED_BG: Color = THEMES[0].colors.selected_bg;
+pub const FOCUS_BG: Color = THEMES[0].colors.focus_bg;
