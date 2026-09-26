@@ -3,6 +3,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 pub mod real;
+pub mod sandbox;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EntryKind {

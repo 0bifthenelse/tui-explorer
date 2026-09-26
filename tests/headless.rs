@@ -10,6 +10,8 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+use tui_explorer::filesystem::sandbox;
+
 fn binary() -> PathBuf {
     // Cargo builds the binary before integration tests run.
     let mut path = std::env::current_exe().expect("test exe path");
@@ -21,11 +23,8 @@ fn binary() -> PathBuf {
 }
 
 fn fixture(tag: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!(
-        "tui-explorer-headless-{}-{tag}",
-        std::process::id()
-    ));
-    let _ = std::fs::remove_dir_all(&dir);
+    // `sandbox::fixture` removes any stale directory and recreates it.
+    let dir = sandbox::fixture(&format!("headless-{tag}"));
     std::fs::create_dir_all(dir.join("src/nested")).unwrap();
     std::fs::create_dir_all(dir.join("empty-dir")).unwrap();
     std::fs::create_dir_all(dir.join("docs")).unwrap();
@@ -71,11 +70,7 @@ fn fixture(tag: &str) -> PathBuf {
 }
 
 fn preview_fixture(tag: &str, target_name: &str, bytes: &[u8]) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!(
-        "tui-explorer-headless-{}-preview-{tag}",
-        std::process::id()
-    ));
-    let _ = std::fs::remove_dir_all(&dir);
+    let dir = sandbox::fixture(&format!("headless-preview-{tag}"));
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(
         dir.join("00-start.txt"),
@@ -89,14 +84,28 @@ fn preview_fixture(tag: &str, target_name: &str, bytes: &[u8]) -> PathBuf {
 /// Run the real binary in a pty of `cols`x`rows`, send `keys` after warm-up,
 /// and return the final screen contents as seen by a vt100 terminal.
 fn run_in_pty(cols: u16, rows: u16, dir: &Path, keys: &[&str], settle_ms: u64) -> String {
-    let log = std::env::temp_dir().join(format!(
-        "tui-explorer-pty-{}-{cols}x{rows}-{}.log",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0)
-    ));
+    let root = sandbox::default_root();
+    sandbox::ensure(&root).expect("sandbox root");
+    sandbox::ensure(&root.join("xdg/logs")).expect("sandbox log dir");
+    // Concurrency-safe name: two tests can use the same geometry at the same
+    // time, so the log is keyed by the (unique) fixture tag.
+    let tag = dir
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| format!("{cols}x{rows}"));
+    let log = root.join(format!("xdg/logs/pty-{tag}.log"));
+    // Every XDG base is redirected into the sandbox so the pty run cannot
+    // read or write the real user directories. Each run gets its own XDG
+    // subtree: tests run in parallel and must not contend on one SQLite tag
+    // database.
+    let (data, config, cache) = (
+        root.join("xdg/data").join(&tag),
+        root.join("xdg/config").join(&tag),
+        root.join("xdg/cache").join(&tag),
+    );
+    for slot in [&data, &config, &cache] {
+        sandbox::ensure(slot).expect("sandbox xdg dir");
+    }
     let mut child = Command::new("script")
         .args([
             "-qfec",
@@ -108,7 +117,10 @@ fn run_in_pty(cols: u16, rows: u16, dir: &Path, keys: &[&str], settle_ms: u64) -
             log.to_str().expect("log path utf8"),
         ])
         .env("TERM", "xterm-256color") // no graphics: exercises the fallback
-        .env("XDG_DATA_HOME", dir.join(".xdg")) // isolate the tag database
+        .env("XDG_DATA_HOME", &data)
+        .env("XDG_CONFIG_HOME", &config)
+        .env("XDG_CACHE_HOME", &cache)
+        .env(sandbox::OVERRIDE_ENV, &root) // confine destructive operations
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
