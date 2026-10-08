@@ -2,8 +2,6 @@
 
 A fast, good-looking terminal file explorer for Linux. Ranger-style keyboard power, desktop-style mouse support, three live layouts, a built-in music and video player with subtitles, web links, tabs and undo, all in a dark graphite UI with a signal-orange accent and smooth, animated feedback.
 
-![tui-explorer: list layout with sidebar, preview panel, header layout switcher and contextual key legend](docs/screenshots/png/overview-main.png)
-
 ## What it is
 
 tui-explorer turns your terminal into a focused file manager that is pleasant to use with either hand on the keyboard or the mouse. Rows glide under an orange cursor rail, hovered entries tint toward the accent, selected entries fill solid `#ff7d27`, modals ease in over a soft scrim, and folder listings cascade in. With reduced motion (`:set animations off`, `za`, or `TUI_EXPLORER_REDUCED_MOTION=1`) everything snaps instantly.
@@ -30,7 +28,9 @@ Everything Ranger users expect is here: chords (`gg`, `yy`, `dd`, `pp`, `cw`, `g
 
 ## Screenshots
 
-Layouts: List (above), Grid and Miller Columns (`zl`, `zg`, `zc`):
+Layouts: List, Grid and Miller Columns (`zl`, `zg`, `zc`):
+
+![list layout with sidebar, columns and preview pane](docs/screenshots/png/layout-list.png)
 
 ![grid layout with large tiles](docs/screenshots/png/layout-grid.png)
 
@@ -57,10 +57,6 @@ Which-key after pressing `g`, and `:grep` results:
 Address bar with path completion (`Ctrl-L`):
 
 ![address bar editing the path with a completion dropdown](docs/screenshots/png/address-bar.png)
-
-Help (`?`) is generated from the key table and is searchable as you type:
-
-![searchable help overlay](docs/screenshots/png/help-overlay.png)
 
 ## Keys
 

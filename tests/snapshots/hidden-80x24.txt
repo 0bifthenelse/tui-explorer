@@ -1,4 +1,4 @@
- ◢◤ tui·explorer 0.1.0                     ≡ List  ⊞ Grid  ▥ Columns    ? help
+ ◢◤ tui·explorer 0.9.0                     ≡ List  ⊞ Grid  ▥ Columns    ? help
   /  ›  home  ›  demo              .* • 20 items • 3 dirs • 8.1M • Sort: name ▲
        Name ▲                                         Size  Modified Perms
 ▌  .dr .git/                                      0 items    14m ago drwxr-xr-x┃

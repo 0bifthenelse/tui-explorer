@@ -194,7 +194,6 @@ fn draw_row(
     ) {
         name_style = name_style.add_modifier(Modifier::ITALIC);
     }
-    // Inline rename: an edit field replaces the name cell.
     if let crate::app::state::Mode::Rename(r) = &state.mode
         && r.target == view.entry.path
     {

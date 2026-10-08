@@ -30,7 +30,6 @@ pub enum Effect {
         moves: Vec<(PathBuf, PathBuf)>,
         trash: Vec<PathBuf>,
     },
-    /// Apply permission bits.
     Chmod(Vec<(PathBuf, u32)>),
     /// Recursive search below `root`: names (`content` false, glob or
     /// substring) or file contents.

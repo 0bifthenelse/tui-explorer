@@ -30,7 +30,6 @@ pub enum AnimKey {
     Control(HitTarget),
     /// Generic keyed channel (meters, modal open, status flash, ...).
     Named(&'static str),
-    /// Generic indexed channel.
     Indexed(&'static str, u32),
 }
 

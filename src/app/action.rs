@@ -16,7 +16,6 @@ pub enum MouseKind {
     ScrollDown,
     /// Left button moved while held (drag motion).
     LeftDrag,
-    /// Left button released.
     LeftUp,
     /// Pointer motion with no button held (hover tracking).
     Moved,

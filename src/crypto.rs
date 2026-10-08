@@ -75,7 +75,6 @@ pub fn is_encrypted_archive(name: &str) -> bool {
     name.ends_with(".tar.age")
 }
 
-/// Destination path for encrypting `source`.
 pub fn encrypted_destination(source: &Path, is_dir: bool) -> PathBuf {
     let name = source
         .file_name()
@@ -214,7 +213,6 @@ fn encrypt_stream(
         }
         return Err(error);
     }
-    // Finalize the age stream, then recover the underlying writer.
     out.writer = Some(age_writer.finish()?);
     out.finalize()
 }

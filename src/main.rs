@@ -28,7 +28,10 @@ use tui_explorer::ui;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-const HELP: &str = "tui-explorer 0.1.0
+const HELP: &str = concat!(
+    "tui-explorer ",
+    env!("CARGO_PKG_VERSION"),
+    "
 fast terminal file explorer for Linux
 
 USAGE:
@@ -66,7 +69,8 @@ PLAYER:
 
 DATA ($XDG_DATA_HOME/tui-explorer, default ~/.local/share/tui-explorer):
     session.json (preferences), bookmarks.txt, links.tsv, tags.sqlite3
-";
+"
+);
 
 struct ProdHandler {
     settings_store: tui_explorer::settings::SettingsStore,
@@ -250,7 +254,6 @@ fn handle_media_request(
             resume_paused,
             backend,
         } => {
-            // Replacing any previous backend drops it first.
             stop_active(active);
             if kind != tui_explorer::media::MediaKind::Video {
                 // Codec routing: extensions without an in-process symphonia
@@ -806,7 +809,6 @@ fn apply_audio_command(
     match command {
         MediaCommand::Load | MediaCommand::Quit => {}
         MediaCommand::TogglePause => {
-            // A real toggle against the sink's own pause state.
             if sink.is_paused() {
                 sink.play();
             } else {

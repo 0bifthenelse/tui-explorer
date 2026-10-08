@@ -24,7 +24,6 @@ enum SampleFormat {
     Float32Be,
 }
 
-/// Parsed COMM chunk payload.
 struct CommChunk {
     channels: u16,
     frames: u32,

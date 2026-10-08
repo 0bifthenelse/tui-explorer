@@ -167,7 +167,6 @@ pub(crate) fn put(buf: &mut Buffer, x: u16, y: u16, text: &str, max: u16, style:
 /// Standard raised-surface frame used by every overlay: rounded border,
 /// `SURFACE_3` interior, and a title chip.
 pub(crate) fn overlay_block(title: &str, accent: Style) -> Block<'static> {
-    // The title renders as a solid chip in the accent's tone.
     let tone = accent.fg.unwrap_or(ACCENT);
     Block::default()
         .borders(Borders::ALL)

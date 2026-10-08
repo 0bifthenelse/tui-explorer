@@ -273,7 +273,6 @@ pub(crate) fn render_hub(
         Style::default().fg(TEXT_MUTED).bg(SURFACE_3),
     );
 
-    // Section tabs.
     let tabs_y = inner.y + 1;
     if let Some(links) = &nav.picker {
         put(
@@ -1159,7 +1158,6 @@ pub(crate) fn render_open_with(
         x += w + 1;
     }
 
-    // Remember toggle.
     let ext = crate::settings::association_key(&dialog.target);
     let toggle_y = inner.y + 6;
     let target = HitTarget::OpenWithRemember;

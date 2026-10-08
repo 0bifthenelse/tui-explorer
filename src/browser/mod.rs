@@ -9,7 +9,6 @@ pub struct EntryView {
     pub tags: Vec<String>,
 }
 
-/// What entries are ordered by.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum SortKey {
     /// Natural, case-insensitive name order (`file2` before `file10`).

@@ -98,7 +98,6 @@ pub fn launch(path: &Path, assoc: &Association) -> Option<Effect> {
     })
 }
 
-/// Opens a file entry (not a folder) following the resolution order.
 pub fn open_file(state: &mut AppState, path: PathBuf) -> Vec<Effect> {
     if let Some(effect) = association_effect(state, &path) {
         return vec![effect];

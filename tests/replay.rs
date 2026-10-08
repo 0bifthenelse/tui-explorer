@@ -735,7 +735,6 @@ fn double_click_different_entries_does_not_open() {
 
 #[test]
 fn e_and_enter_both_open_focused() {
-    // `e`
     let (mut state, mut handler) = loaded(120, 36);
     drive(&mut state, &mut handler, [Action::GotoFirst]);
     let key_e = crossterm::event::KeyEvent::new(
@@ -746,7 +745,6 @@ fn e_and_enter_both_open_focused() {
     assert!(matches!(action, Some(Action::OpenFocused)));
     drive(&mut state, &mut handler, [action.unwrap()]);
     assert_eq!(state.browser.cwd, PathBuf::from("/home/demo/docs"));
-    // Enter
     let (mut state, mut handler) = loaded(120, 36);
     drive(&mut state, &mut handler, [Action::GotoFirst]);
     let key_enter = crossterm::event::KeyEvent::new(

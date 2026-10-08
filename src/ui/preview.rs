@@ -52,7 +52,6 @@ pub fn render_panel(frame: &mut Frame, area: Rect, state: &mut AppState) {
     let width = inner.width;
     let mut y = inner.y;
 
-    // Identity: badge + bold name.
     let (badge, hue) = entry::badge(entry, false);
     let buf = frame.buffer_mut();
     put(

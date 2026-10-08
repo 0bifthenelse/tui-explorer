@@ -489,7 +489,6 @@ impl Repeat {
     }
 }
 
-/// One choice in the subtitle picker.
 #[derive(Clone, Debug, PartialEq)]
 pub enum SubChoice {
     Off,
@@ -1008,7 +1007,6 @@ impl AppState {
         }
     }
 
-    /// The active layout.
     pub fn view(&self) -> crate::settings::ViewMode {
         self.settings.view
     }

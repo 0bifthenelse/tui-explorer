@@ -598,7 +598,6 @@ pub fn search_step(state: &mut AppState, forward: bool) -> Vec<Effect> {
     Vec::new()
 }
 
-/// Applies an edit to the active inline prompt.
 pub fn line_edit(state: &mut AppState, edit: Edit) -> Vec<Effect> {
     match &mut state.mode {
         Mode::Rename(r) => {

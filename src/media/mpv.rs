@@ -343,7 +343,6 @@ fn kitty_video_args(
     ]
 }
 
-/// Output flags per backend.
 pub fn video_args(
     backend: super::VideoBackend,
     geometry_cells: (u16, u16),
@@ -403,7 +402,6 @@ fn finish_spawn(mut command: Command, socket_path: PathBuf) -> Result<MpvProcess
         buffer
     });
 
-    // Wait briefly for the socket, then connect.
     let mut connected = None;
     for _ in 0..100 {
         if let Ok(stream) = UnixStream::connect(&socket_path) {

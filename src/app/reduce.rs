@@ -113,7 +113,6 @@ pub(crate) fn reduce_inner(state: &mut AppState, action: Action) -> Vec<Effect> 
             Vec::new()
         }
         Action::SideListingLoaded { path, entries } => {
-            // Keep only the listing the parent pane needs right now.
             let wanted = state.browser.cwd.parent().map(Path::to_path_buf);
             state
                 .side_listings
@@ -1092,7 +1091,6 @@ pub(crate) fn grid_dims(state: &AppState) -> (usize, usize) {
     (cols, rows)
 }
 
-/// Requests the Miller parent listing when the columns layout needs it.
 fn side_listing_effect(state: &AppState) -> Option<Effect> {
     if state.view() != ViewMode::Columns {
         return None;

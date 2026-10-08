@@ -14,12 +14,9 @@ use crate::ui::palette::{
 };
 use crate::ui::theme::mix;
 
-/// Visual state of a [`Button`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ButtonState {
-    /// Resting appearance.
     Idle,
-    /// Pointer rests on the button.
     Hovered,
     /// Pressed / toggled-on appearance (e.g. PAUSE while held).
     Active,

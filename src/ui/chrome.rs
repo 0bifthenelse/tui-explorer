@@ -150,7 +150,6 @@ pub fn render_narrow_shell(frame: &mut Frame, area: Rect, state: &mut AppState) 
 
 fn render_header(frame: &mut Frame, area: Rect, state: &mut AppState) {
     fill(frame.buffer_mut(), area, SURFACE_2);
-    // Brand: accent glyph, gradient "tui", primary "explorer".
     let buf = frame.buffer_mut();
     let mut x = area.x + 1;
     let mark = if charset() == Charset::Ascii {
@@ -329,7 +328,6 @@ fn render_tabs(frame: &mut Frame, area: Rect, state: &mut AppState, left: u16, r
 
 // --- Path bar ------------------------------------------------------------
 
-/// The path bar turned into an editable location field.
 fn render_address_bar(frame: &mut Frame, area: Rect, state: &mut AppState) {
     let buf = frame.buffer_mut();
     let used = pill(
@@ -434,7 +432,6 @@ fn render_path_bar(frame: &mut Frame, area: Rect, state: &mut AppState) {
         }
     }
 
-    // Right side: live stats, filter/search chips, sort.
     let buf = frame.buffer_mut();
     let ix = area.right().saturating_sub(info_w + 1);
     if ix > x {
@@ -446,7 +443,6 @@ fn render_path_bar(frame: &mut Frame, area: Rect, state: &mut AppState) {
             info_w,
             Style::default().fg(TEXT_MUTED).bg(SURFACE_1),
         );
-        // Re-tint chips inside the info string.
         for chip in info_chips(state) {
             if let Some(off) = info.find(&chip) {
                 let cx = ix + display_width(&info[..off]) as u16;
@@ -649,7 +645,6 @@ pub fn render_status(frame: &mut Frame, area: Rect, state: &mut AppState) {
         }
     }
 
-    // Left dynamic segment: operation > message > focus text.
     let budget = right.saturating_sub(x + 1);
     if let Some(op) = state.operation.clone() {
         let label = format!("{:?} {}/{} ", op.kind, op.done, op.total);
@@ -736,7 +731,6 @@ pub fn render_status(frame: &mut Frame, area: Rect, state: &mut AppState) {
         let shown = truncate(&text, budget as usize);
         put(frame.buffer_mut(), x, y, &shown, budget, style);
         if !message.is_error {
-            // Tint the info glyph with the accent.
             put(
                 frame.buffer_mut(),
                 x,
@@ -779,7 +773,6 @@ fn render_command_line(frame: &mut Frame, area: Rect, state: &mut AppState) {
         budget,
         Style::default().fg(TEXT_PRIMARY).bg(SURFACE_2),
     );
-    // Block cursor.
     let cx = x + shown_w;
     if cx < area.right() {
         put(buf, cx, area.y, " ", 1, Style::default().bg(ACCENT_HOVER));

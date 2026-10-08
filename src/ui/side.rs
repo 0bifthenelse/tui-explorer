@@ -52,7 +52,6 @@ fn place_glyph(label: &str) -> &'static str {
 
 pub fn render(frame: &mut Frame, area: Rect, state: &mut AppState) {
     fill(frame.buffer_mut(), area, SURFACE_2);
-    // Hairline separator on the right edge.
     for y in area.top()..area.bottom() {
         put(
             frame.buffer_mut(),
@@ -85,11 +84,9 @@ pub fn render(frame: &mut Frame, area: Rect, state: &mut AppState) {
         if y >= bottom {
             break;
         }
-        // Sections without an empty-state hint only show when populated.
         if items.is_empty() && empty.is_empty() {
             continue;
         }
-        // Section heading with a count.
         let buf = frame.buffer_mut();
         put(
             buf,

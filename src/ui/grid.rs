@@ -61,7 +61,6 @@ pub fn render(frame: &mut Frame, area: Rect, state: &mut AppState) {
     );
     let cols = (inner.width / tile_w).max(1) as usize;
     let rows = (inner.height / tile_h).max(1) as usize;
-    // Spread the leftover columns evenly between tiles.
     let leftover = inner.width.saturating_sub(cols as u16 * tile_w);
     let gap_extra = if cols > 1 { leftover / cols as u16 } else { 0 };
     state.grid_cols = cols;

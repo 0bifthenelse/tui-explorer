@@ -6,7 +6,7 @@
 //! fields and recorded effects/mutations.
 //!
 //! Note on filesystem fidelity: `RecordingMutations` records mutation intent
-//! (copy/move/delete) but never rewrites `MemoryFileSystem.dirs`, so
+//! (copy/move/delete) but never rewrites `MemoryFileSystem.dirs`.
 use std::collections::BTreeSet;
 use std::ffi::OsString;
 use std::path::PathBuf;

@@ -35,7 +35,6 @@ pub enum HitTarget {
     ViewSwitch(crate::settings::ViewMode),
     /// Empty part of the path bar: opens the address bar.
     PathBar,
-    /// Header help chip.
     HelpChip,
     /// Blank grid space between/around tiles; a left press here arms a
     /// marquee selection instead of touching any entry.

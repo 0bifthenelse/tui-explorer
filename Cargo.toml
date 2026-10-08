@@ -1,6 +1,6 @@
 [package]
 name = "tui-explorer"
-version = "0.1.0"
+version = "0.9.0"
 edition = "2024"
 rust-version = "1.87"
 description = "Fast terminal file explorer for Linux with mouse support, Vim-style controls, ASCII icons, and persistent tags"
