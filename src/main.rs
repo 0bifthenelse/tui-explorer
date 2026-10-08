@@ -41,49 +41,36 @@ OPTIONS:
     -h, --help       show this help
     -V, --version    show version
 
-KEYS:
-    j/k or arrows    move selection
-    h/l              move between tiles
-    Backspace        parent directory
-    e, Enter         enter folder, or open a file (audio and video play in
-                     the built-in media modal; other files ask for a command)
-    r                open with: prompt for a command to run on the focused entry
-    X                encrypt / decrypt focused entry
-    b, p             toggle sidebar / preview panel
-    B                search bookmarks (fuzzy navigator)
-    Ctrl-b           bookmark / unbookmark current directory
-    g g, G           first / last entry
-    Ctrl-u/Ctrl-d    half page up/down
-    Space, v         select, visual mode
-    .                toggle hidden files
-    t, T             quick tag / tag picker
-    :                command mode (:copy :move :rename :delete :tag :untag :tags :open
-                     :open-with :mkdir :touch :selectall :invert :deselect :filter :sort :refresh :cd :quit :help)
-    /, Ctrl-f        quick current-directory filename filter
-    ?                help overlay
+KEYS (press ? inside the app for the complete, searchable list):
+    j/k, h/l         move / parent folder / open (ranger style; counts work: 5j)
+    Enter, e         open: folders, media, quick look, or the remembered program
+    gg G, H L ''     first / last, history back / forward, previous folder
+    gh gr gD ...     go to home, /, ~/Downloads ...
+    gn gt gc uq      tabs: new, next, close, restore
+    yy dd pp         copy, cut, paste      yp yn  yank path / name
+    cw + dT dD uu    rename, create, trash, delete, undo
+    / n N  f  C-f    search, find as you type, filter
+    m<k> '<k>  B     marks, bookmarks hub    C-l  address bar
+    zl zg zc         list, grid and columns layouts
+    i r E  ! S       quick look, open with, $EDITOR, shell command, shell here
+    :                command line (Tab completes; :find :grep :bulkrename :chmod ...)
     q                quit
 
-MOUSE:
-    click selects, double click (or e/Enter) opens, right click menu, wheel scrolls,
-    breadcrumb and sidebar navigate
+PLAYER:
+    Space play/pause, arrows seek 15 s and volume, 0-9 jump, m mute,
+    n/p next/prev, x shuffle, r repeat, [ ] speed, c subtitles, f fullscreen,
+    Esc keeps music playing in the mini player (M brings it back), q stops.
+    Audio: wav flac ogg oga mp3 m4a aiff natively, opus wma via mpv.
+    Video: mpv, inside the terminal (kitty, sixel, text) or in a window
+    (:set video auto|kitty|sixel|window|tct).
 
-MEDIA (audio):
-    Space or Enter   play / pause
-    Left, h          seek back 5 seconds
-    Right, l         seek forward 5 seconds
-    Up, Down         volume up / down (5% steps)
-    s                stop and restart from the beginning
-    Esc, q           close the media modal
-    Supported audio: wav flac ogg oga mp3 m4a (Symphonia decoders; rodio
-    playback with a real FFT spectrum). Video requires mpv and a Kitty
-    graphics terminal.
-
-DATA:
-    tags database: $XDG_DATA_HOME/tui-explorer/tags.sqlite3
-    fallback:      $HOME/.local/share/tui-explorer/tags.sqlite3
+DATA ($XDG_DATA_HOME/tui-explorer, default ~/.local/share/tui-explorer):
+    session.json (preferences), bookmarks.txt, links.tsv, tags.sqlite3
 ";
 
 struct ProdHandler {
+    settings_store: tui_explorer::settings::SettingsStore,
+    link_store: tui_explorer::urls::LinkStore,
     fs: RealFileSystem,
     mutations: RealMutations,
     tags: Option<TagStore>,
@@ -108,6 +95,7 @@ enum MediaRequest {
         surface: tui_explorer::app::state::MediaSurface,
         resume_position: Option<f64>,
         resume_paused: Option<bool>,
+        backend: tui_explorer::media::VideoBackend,
     },
     Command {
         session: u64,
@@ -145,25 +133,6 @@ impl MediaSupervisor {
                 message: "audio backend stopped".to_string(),
             });
         }
-    }
-
-    fn start(
-        &self,
-        session: u64,
-        path: PathBuf,
-        kind: tui_explorer::media::MediaKind,
-        surface: tui_explorer::app::state::MediaSurface,
-        resume_position: Option<f64>,
-        resume_paused: Option<bool>,
-    ) {
-        self.send(MediaRequest::Start {
-            session,
-            path,
-            kind,
-            resume_position,
-            surface,
-            resume_paused,
-        });
     }
 
     fn command(&self, session: u64, command: tui_explorer::media::MediaCommand) {
@@ -279,6 +248,7 @@ fn handle_media_request(
             surface,
             resume_position,
             resume_paused,
+            backend,
         } => {
             // Replacing any previous backend drops it first.
             stop_active(active);
@@ -355,11 +325,23 @@ fn handle_media_request(
                 }
                 return true;
             }
-            // Video requires a Kitty-protocol picker.
-            if picker_protocol != ratatui_image::picker::ProtocolType::Kitty {
+            // In-terminal graphics need a terminal that speaks them.
+            let unsupported = match backend {
+                tui_explorer::media::VideoBackend::Kitty => {
+                    picker_protocol != ratatui_image::picker::ProtocolType::Kitty
+                }
+                tui_explorer::media::VideoBackend::Sixel => {
+                    picker_protocol != ratatui_image::picker::ProtocolType::Sixel
+                }
+                _ => false,
+            };
+            if unsupported {
                 let _ = sender.send(Action::MediaFailed {
                     session,
-                    message: "video playback requires a Kitty-compatible terminal".to_string(),
+                    message: format!(
+                        "this terminal has no {} graphics · try :set video window or :set video tct",
+                        backend.label()
+                    ),
                 });
                 return true;
             }
@@ -371,6 +353,7 @@ fn handle_media_request(
                 surface.cell_pixels,
                 session,
                 resume,
+                backend,
             ) {
                 Ok(process) => {
                     let mut playback = VideoPlayback {
@@ -593,13 +576,11 @@ fn apply_property(playback: &mut VideoPlayback, change: PropertyChange) {
         "volume" => {
             if let Some(value) = change.value.as_f64() {
                 // mpv reports percent; values above 100 exist via volume-max.
-                playback.volume = value.round().clamp(0.0, 100.0) as u8;
+                playback.volume = value.round().clamp(0.0, 130.0) as u8;
             }
         }
-        "eof-reached" => {
-            if change.value.as_bool() == Some(true) {
-                playback.finished = true;
-            }
+        "eof-reached" if change.value.as_bool() == Some(true) => {
+            playback.finished = true;
         }
         _ => {}
     }
@@ -673,7 +654,83 @@ fn apply_video_command(
                 Some(serde_json::json!({ "osd_message": "restart" })),
             )
             .map(|_| ()),
+        MediaCommand::AddSub(path) => process
+            .send_command(
+                &[
+                    serde_json::Value::from("sub-add"),
+                    serde_json::Value::from(path.to_string_lossy().into_owned()),
+                    serde_json::Value::from("select"),
+                ],
+                Some(serde_json::json!({ "osd_message": "subtitles loaded" })),
+            )
+            .map(|_| ()),
+        MediaCommand::SetSubtitles(on) => mpv_send(
+            process,
+            &[
+                "set_property".into(),
+                "sid".into(),
+                if on { "auto".into() } else { "no".into() },
+            ],
+        ),
+        MediaCommand::CycleSub => mpv_send(process, &["cycle".into(), "sub".into()]),
+        MediaCommand::CycleAudio => mpv_send(process, &["cycle".into(), "audio".into()]),
+        MediaCommand::AddSubDelay(seconds) => mpv_send(
+            process,
+            &[
+                "add".into(),
+                "sub-delay".into(),
+                serde_json::Value::from(seconds),
+            ],
+        ),
+        MediaCommand::SetSpeed(speed) => mpv_send(
+            process,
+            &[
+                "set_property".into(),
+                "speed".into(),
+                serde_json::Value::from(speed),
+            ],
+        ),
+        MediaCommand::SeekPercent(percent) => mpv_send(
+            process,
+            &[
+                "seek".into(),
+                serde_json::Value::from(percent.clamp(0.0, 100.0)),
+                "absolute-percent".into(),
+            ],
+        ),
+        MediaCommand::SetMute(muted) => mpv_send(
+            process,
+            &[
+                "set_property".into(),
+                "mute".into(),
+                serde_json::Value::from(muted),
+            ],
+        ),
+        MediaCommand::Redraw => mpv_send(
+            process,
+            &[
+                "seek".into(),
+                serde_json::Value::from(0),
+                "relative+exact".into(),
+            ],
+        ),
+        MediaCommand::SetFullscreen(on) => mpv_send(
+            process,
+            &[
+                "set_property".into(),
+                "fullscreen".into(),
+                serde_json::Value::from(on),
+            ],
+        ),
     }
+}
+
+/// One fire-and-forget mpv IPC command.
+fn mpv_send(
+    process: &mut tui_explorer::media::mpv::MpvProcess,
+    command: &[serde_json::Value],
+) -> Result<(), String> {
+    process.send_command(command, None).map(|_| ())
 }
 fn start_audio(
     sender: &SyncSender<Action>,
@@ -777,6 +834,32 @@ fn apply_audio_command(
             sink.play();
             report_status(sender, session, sink, duration);
         }
+        MediaCommand::SetSpeed(speed) => {
+            sink.set_speed(speed.clamp(0.25, 4.0) as f32);
+            report_status(sender, session, sink, duration);
+        }
+        MediaCommand::SeekPercent(percent) => {
+            if let Some(total) = duration {
+                let target =
+                    clamp_seek_seconds(total * percent.clamp(0.0, 100.0) / 100.0, duration);
+                let _ = sink.try_seek(Duration::from_secs_f64(target));
+            }
+            report_status(sender, session, sink, duration);
+        }
+        // Unmuting is followed by a SetVolume carrying the kept level.
+        MediaCommand::SetMute(true) => {
+            sink.set_volume(0.0);
+            report_status(sender, session, sink, duration);
+        }
+        MediaCommand::SetMute(false) => {}
+        // Subtitles, tracks and windows only apply to video.
+        MediaCommand::SetFullscreen(_)
+        | MediaCommand::Redraw
+        | MediaCommand::AddSub(_)
+        | MediaCommand::SetSubtitles(_)
+        | MediaCommand::CycleSub
+        | MediaCommand::CycleAudio
+        | MediaCommand::AddSubDelay(_) => {}
     }
 }
 
@@ -817,7 +900,7 @@ fn report_status(
 }
 
 fn volume_percent(volume: f32) -> u8 {
-    (volume * 100.0).round().clamp(0.0, 100.0) as u8
+    (volume * 100.0).round().clamp(0.0, 130.0) as u8
 }
 
 impl ProdHandler {
@@ -868,6 +951,28 @@ impl EffectHandler for ProdHandler {
             Effect::LoadDirectory(path) => vec![Action::DirectoryLoaded {
                 result: self.snapshot(&path),
             }],
+            Effect::LoadSideListing(path) => {
+                let sender = self.sender.clone();
+                std::thread::spawn(move || {
+                    if let Ok(raw) = RealFileSystem::new().read_dir(&path) {
+                        let entries = raw
+                            .into_iter()
+                            .map(|entry| EntryView {
+                                entry,
+                                tags: Vec::new(),
+                            })
+                            .collect();
+                        let _ = sender.send(Action::SideListingLoaded { path, entries });
+                    }
+                });
+                Vec::new()
+            }
+            Effect::SaveSettings(settings) => match self.settings_store.save(&settings) {
+                Ok(()) => Vec::new(),
+                Err(e) => vec![Action::ErrorMessage(format!(
+                    "could not save settings: {e}"
+                ))],
+            },
             Effect::RunOperation(plan) => {
                 let exists = |p: &Path| self.mutations.exists(p);
                 let conflicts = find_conflicts(&plan, &exists);
@@ -898,6 +1003,7 @@ impl EffectHandler for ProdHandler {
                                 outcome: tui_explorer::operations::OpOutcome::Done,
                             }],
                             moves: vec![(from, to)],
+                            ..Default::default()
                         };
                         let _ = sender.send(Action::OperationFinished { report });
                     }
@@ -967,10 +1073,13 @@ impl EffectHandler for ProdHandler {
                 };
                 match result {
                     Ok(()) => {
-                        let parent = path.parent().map(Path::to_path_buf).unwrap_or(path);
-                        vec![Action::DirectoryLoaded {
-                            result: self.snapshot(&parent),
-                        }]
+                        let parent = path.parent().map(Path::to_path_buf).unwrap_or(path.clone());
+                        vec![
+                            Action::EntryCreated(path),
+                            Action::DirectoryLoaded {
+                                result: self.snapshot(&parent),
+                            },
+                        ]
                     }
                     Err(e) => vec![Action::ErrorMessage(format!(
                         "could not create {}: {e}",
@@ -1064,9 +1173,17 @@ impl EffectHandler for ProdHandler {
                 surface,
                 resume_position,
                 resume_paused,
+                backend,
             } => {
-                self.media
-                    .start(session, path, kind, surface, resume_position, resume_paused);
+                self.media.send(MediaRequest::Start {
+                    session,
+                    path,
+                    kind,
+                    surface,
+                    resume_position,
+                    resume_paused,
+                    backend,
+                });
                 Vec::new()
             }
             Effect::MediaCommand { session, command } => {
@@ -1078,7 +1195,179 @@ impl EffectHandler for ProdHandler {
                 Vec::new()
             }
             Effect::Quit => Vec::new(),
+            Effect::CopyText(text) => match tui_explorer::system::copy_to_clipboard(&text) {
+                Ok(()) => Vec::new(),
+                Err(e) => vec![Action::ErrorMessage(format!("copy failed: {e}"))],
+            },
+            // Both need the terminal released; the event loop runs them.
+            Effect::RunShell { .. } | Effect::BulkRename(_) => Vec::new(),
+            Effect::DiskUsage(paths) => {
+                let sender = self.sender.clone();
+                std::thread::spawn(move || {
+                    let fs = RealFileSystem::new();
+                    let sizes = paths
+                        .into_iter()
+                        .map(|p| {
+                            let size = tui_explorer::search::disk_usage(&fs, &p, &|| false);
+                            (p, size)
+                        })
+                        .collect();
+                    let _ = sender.send(Action::DiskUsageReady(sizes));
+                });
+                Vec::new()
+            }
+            Effect::CountChildren(paths) => {
+                let sender = self.sender.clone();
+                std::thread::spawn(move || {
+                    let counts = paths
+                        .into_iter()
+                        .filter_map(|p| {
+                            let n = std::fs::read_dir(&p).ok()?.count() as u32;
+                            Some((p, n))
+                        })
+                        .collect();
+                    let _ = sender.send(Action::ChildCountsReady(counts));
+                });
+                Vec::new()
+            }
+            Effect::RunUndo { moves, trash } => {
+                let sender = self.sender.clone();
+                std::thread::spawn(move || {
+                    let report =
+                        tui_explorer::operations::run_undo(&moves, &trash, &RealMutations::new());
+                    // Restored-from-trash entries leave their .trashinfo behind.
+                    for (current, _) in &report.moves {
+                        forget_trash_info(current);
+                    }
+                    let _ = sender.send(Action::UndoFinished { report });
+                });
+                Vec::new()
+            }
+            Effect::MovePairs(pairs) => {
+                let sender = self.sender.clone();
+                std::thread::spawn(move || {
+                    let report = tui_explorer::operations::run_moves(
+                        &pairs,
+                        &RealMutations::new(),
+                        tui_explorer::operations::OperationKind::Move,
+                    );
+                    let _ = sender.send(Action::OperationFinished { report });
+                });
+                Vec::new()
+            }
+            Effect::Chmod(changes) => {
+                for (path, mode) in changes {
+                    if let Err(e) = self.mutations.set_permissions(&path, mode) {
+                        return vec![Action::ErrorMessage(format!(
+                            "chmod {}: {e}",
+                            path.display()
+                        ))];
+                    }
+                }
+                Vec::new()
+            }
+            Effect::SaveLinks(links) => match self.link_store.save(&links) {
+                Ok(()) => Vec::new(),
+                Err(e) => vec![Action::ErrorMessage(format!("could not save links: {e}"))],
+            },
+            Effect::OpenUrl { url, program, args } => {
+                let program = program.unwrap_or_else(|| {
+                    if cfg!(target_os = "macos") {
+                        "open".to_string()
+                    } else {
+                        "xdg-open".to_string()
+                    }
+                });
+                let mut args = args;
+                args.push(url);
+                match tui_explorer::system::spawn_detached(&program, &args, None) {
+                    Ok(()) => Vec::new(),
+                    Err(e) => vec![Action::ErrorMessage(e)],
+                }
+            }
+            Effect::SpawnDetached {
+                path,
+                program,
+                args,
+            } => {
+                let mut args = args;
+                args.push(path.to_string_lossy().into_owned());
+                match tui_explorer::system::spawn_detached(&program, &args, path.parent()) {
+                    Ok(()) => Vec::new(),
+                    Err(e) => vec![Action::OpenFailed(e)],
+                }
+            }
+            Effect::LoadTrackInfo { session, path } => {
+                let sender = self.sender.clone();
+                std::thread::spawn(move || {
+                    let info = tui_explorer::media::tags::read(&path);
+                    let _ = sender.send(Action::TrackInfoLoaded { session, info });
+                });
+                Vec::new()
+            }
+            Effect::ClearGraphics => {
+                use std::io::Write;
+                let _ = std::io::stdout()
+                    .write_all(b"\x1b_Ga=d,q=1\x1b\\")
+                    .and_then(|_| std::io::stdout().flush());
+                Vec::new()
+            }
+            Effect::FindSubtitles { session, video } => {
+                let sender = self.sender.clone();
+                let home = std::env::var("HOME")
+                    .map(PathBuf::from)
+                    .unwrap_or_else(|_| PathBuf::from("/"));
+                std::thread::spawn(move || {
+                    let files =
+                        tui_explorer::media::subs::discover(&RealFileSystem::new(), &video, &home);
+                    let _ = sender.send(Action::SubsFound { session, files });
+                });
+                Vec::new()
+            }
+            Effect::FindFiles {
+                root,
+                query,
+                content,
+            } => {
+                let sender = self.sender.clone();
+                std::thread::spawn(move || {
+                    let fs = RealFileSystem::new();
+                    let hits = tui_explorer::search::find(
+                        &fs,
+                        &root,
+                        &query,
+                        content,
+                        &tui_explorer::search::read_text,
+                        &|| false,
+                    );
+                    let title = if content {
+                        format!("grep {query}")
+                    } else {
+                        format!("find {query}")
+                    };
+                    let _ = sender.send(Action::FindResults { title, root, hits });
+                });
+                Vec::new()
+            }
         }
+    }
+}
+
+/// Removes the `.trashinfo` record of an entry that just left the trash.
+fn forget_trash_info(path: &Path) {
+    let Some(files_dir) = path.parent() else {
+        return;
+    };
+    if files_dir.file_name().is_none_or(|n| n != "files") {
+        return;
+    }
+    let Some(trash) = files_dir.parent() else {
+        return;
+    };
+    if let Some(name) = path.file_name() {
+        let mut info = name.to_os_string();
+        info.push(".trashinfo");
+        let _ = std::fs::remove_file(trash.join("info").join(info));
     }
 }
 
@@ -1114,10 +1403,25 @@ where
 
 fn detect_picker() -> ratatui_image::picker::Picker {
     let override_ = std::env::var("TUI_EXPLORER_IMAGE_PROTOCOL").ok();
-    detect_picker_with(
-        override_.as_deref(),
-        ratatui_image::picker::Picker::from_query_stdio,
-    )
+    // `Picker::from_query_stdio` leaves its reader thread blocked on stdin
+    // when the terminal is slow to answer, and that thread then swallows
+    // keystrokes. The in-thread probe has a hard deadline instead.
+    detect_picker_with(override_.as_deref(), || {
+        use ratatui_image::picker::{Picker, ProtocolType};
+        let probe = terminal::probe::run(Duration::from_millis(400));
+        let Some(cell) = probe.cell else {
+            return Err("terminal did not report its cell size");
+        };
+        let mut picker = Picker::from_fontsize(cell);
+        picker.set_protocol_type(if probe.kitty {
+            ProtocolType::Kitty
+        } else if probe.sixel {
+            ProtocolType::Sixel
+        } else {
+            ProtocolType::Halfblocks
+        });
+        Ok(picker)
+    })
 }
 
 /// Runs the user-supplied program from the interactive "open with" prompt
@@ -1149,6 +1453,23 @@ fn open_external_with(
             "could not restore terminal: {e}"
         ))),
         (Ok(_), Ok(())) => None,
+    }
+}
+
+/// Releases the terminal around `f` (shell, editor) and takes it back.
+fn with_terminal_released<T>(
+    session: &mut TerminalSession<CrosstermTty>,
+    f: impl FnOnce() -> Result<T, String>,
+) -> Result<T, String> {
+    session
+        .suspend()
+        .map_err(|e| format!("could not release the terminal: {e}"))?;
+    let result = f();
+    let resumed = session.resume();
+    match (result, resumed) {
+        (Ok(value), Ok(())) => Ok(value),
+        (Err(e), _) => Err(e),
+        (Ok(_), Err(e)) => Err(format!("could not restore terminal: {e}")),
     }
 }
 
@@ -1186,6 +1507,7 @@ fn parse_args() -> Result<Option<Args>, ExitCode> {
         match arg.as_str() {
             "-h" | "--help" => {
                 print!("{HELP}");
+                return Err(ExitCode::SUCCESS);
             }
             "-V" | "--version" => {
                 println!("tui-explorer {VERSION}");
@@ -1236,6 +1558,73 @@ fn init_logging(dirs: &config::XdgDirs) {
         .ok();
 }
 
+fn unix_now() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
+}
+
+/// How long the loop may block waiting for input: ~60 fps while anything
+/// animates, a brisk cadence while background work reports in, and a
+/// relaxed idle tick otherwise.
+fn frame_budget(state: &AppState) -> Duration {
+    if state.anim.active() {
+        return Duration::from_millis(16);
+    }
+    let busy = state.operation.is_some()
+        || matches!(state.mode, Mode::Media(_))
+        || state.mini.is_some()
+        || (state.preview.content.is_none()
+            && state.preview.key.is_none()
+            && tui_explorer::ui::preview_needed(state)
+            && state.browser.focused().is_some());
+    if busy {
+        Duration::from_millis(40)
+    } else {
+        Duration::from_millis(250)
+    }
+}
+
+/// Applies persisted preferences plus environment overrides at startup.
+fn apply_settings(state: &mut AppState, settings: tui_explorer::settings::Settings) {
+    use tui_explorer::ui::glyphs::{self, Charset, IconStyle};
+    let env = |key: &str| std::env::var(key).ok();
+    let reduced_motion = env("TUI_EXPLORER_REDUCED_MOTION").is_some_and(|v| v != "0");
+    state
+        .anim
+        .set_enabled(settings.animations && !reduced_motion);
+    let ascii = settings.ascii || env("TUI_EXPLORER_ASCII").is_some_and(|v| v != "0");
+    glyphs::set_charset(if ascii {
+        Charset::Ascii
+    } else {
+        Charset::Unicode
+    });
+    glyphs::set_icon_style(if settings.nerd_icons {
+        IconStyle::Nerd
+    } else {
+        IconStyle::Badges
+    });
+    state.truecolor = tui_explorer::ui::theme::truecolor_supported(&env);
+    if let Some(mode) = tui_explorer::browser::SortMode::parse(&settings.sort) {
+        state.browser.sort_mode = mode;
+    }
+    state.browser.show_hidden = settings.show_hidden;
+    state.show_sidebar = settings.show_sidebar;
+    state.show_preview = settings.show_preview;
+    state.settings = settings;
+}
+
+/// Current runtime preferences folded back into the persisted settings.
+fn snapshot_settings(state: &AppState) -> tui_explorer::settings::Settings {
+    let mut settings = state.settings.clone();
+    settings.sort = state.browser.sort_mode.token();
+    settings.show_hidden = state.browser.show_hidden;
+    settings.show_sidebar = state.show_sidebar;
+    settings.show_preview = state.show_preview;
+    settings
+}
+
 fn drain_channel(rx: &Receiver<Action>, pending: &mut VecDeque<Action>) {
     while let Ok(action) = rx.try_recv() {
         pending.push_back(action);
@@ -1272,7 +1661,13 @@ fn run(start: PathBuf) -> std::io::Result<()> {
     let (sender, receiver) = sync_channel::<Action>(64);
     let bookmark_store = tui_explorer::sidebar::BookmarkStore::new(config::bookmarks_path(&dirs));
     let bookmarks = bookmark_store.load();
+    let settings_store = tui_explorer::settings::SettingsStore::new(config::settings_path(&dirs));
+    let settings = settings_store.load();
+    let link_store = tui_explorer::urls::LinkStore::new(config::links_path(&dirs));
+    let links = link_store.load();
     let mut handler = ProdHandler {
+        settings_store,
+        link_store,
         fs: RealFileSystem::new(),
         mutations: RealMutations::new(),
         tags,
@@ -1281,8 +1676,13 @@ fn run(start: PathBuf) -> std::io::Result<()> {
         sender,
     };
     let mut state = AppState::new(start, home);
+    apply_settings(&mut state, settings);
     state.picker = picker;
     state.bookmarks = bookmarks;
+    state.links = links;
+    state.has_display = std::env::var_os("DISPLAY").is_some_and(|v| !v.is_empty())
+        || std::env::var_os("WAYLAND_DISPLAY").is_some_and(|v| !v.is_empty());
+    state.mpv_available = tui_explorer::app::open::on_path("mpv");
     state.mounts = tui_explorer::sidebar::read_mounts();
     if let Some(ms) = std::env::var("TUI_EXPLORER_DOUBLE_CLICK_MS")
         .ok()
@@ -1297,16 +1697,28 @@ fn run(start: PathBuf) -> std::io::Result<()> {
     pending.push_back(Action::LoadInitial);
     let mut redraw = terminal::RedrawGate::new();
     let mut had_media = false;
+    let mut text_video_was_live = false;
+    let mut last_save = std::time::Instant::now();
     loop {
+        state.now = std::time::Instant::now();
+        state.wall_clock = unix_now();
         // Video no longer freezes the TUI: Ratatui keeps drawing modal chrome
         // while mpv paints frames into the reserved rectangle. Diffing leaves
         // stable surface cells untouched, so video survives every redraw; a
         // full clear only happens when ownership changes (see handback below).
         let video_owns = state.media_owns_terminal();
-        if redraw.take_full() {
-            term.clear()?;
+        let text_video = state.text_video_live();
+        if text_video_was_live && !text_video {
+            // mpv painted over everything: repaint the whole TUI.
+            redraw.request_full();
         }
-        term.draw(|frame| ui::render(frame, &mut state))?;
+        text_video_was_live = text_video;
+        if !text_video {
+            if redraw.take_full() {
+                term.clear()?;
+            }
+            term.draw(|frame| ui::render(frame, &mut state))?;
+        }
         if let Mode::Media(media) = &state.mode
             && media.awaiting_surface_ready
             && let Some(surface) = media.surface
@@ -1318,13 +1730,15 @@ fn run(start: PathBuf) -> std::io::Result<()> {
         }
         drain_channel(&receiver, &mut pending);
         if pending.is_empty() {
-            if event::poll(Duration::from_millis(100))? {
+            if event::poll(frame_budget(&state))? {
                 match event::read()? {
                     Event::Key(key) => {
-                        if key.code == KeyCode::Char('l')
+                        if key.code == KeyCode::Char('r')
                             && key.modifiers.contains(KeyModifiers::CONTROL)
                         {
+                            // Ctrl-R: full repaint plus a fresh listing.
                             redraw.request_full();
+                            pending.push_back(Action::Refresh);
                         } else if let Some(action) = map_key(key, &state) {
                             pending.push_back(action);
                         }
@@ -1337,6 +1751,7 @@ fn run(start: PathBuf) -> std::io::Result<()> {
                     Event::Resize(width, height) => {
                         pending.push_back(Action::Resize { width, height });
                     }
+                    Event::Paste(text) => pending.push_back(Action::Paste(text)),
                     _ => {}
                 }
             }
@@ -1344,8 +1759,20 @@ fn run(start: PathBuf) -> std::io::Result<()> {
         }
         let epoch_before = state.error_epoch;
         while let Some(action) = pending.pop_front() {
+            state.now = std::time::Instant::now();
+            // Image previews draw through terminal graphics, which only a
+            // full repaint reliably clears; text previews diff cleanly.
+            let had_image = matches!(
+                state.preview.content,
+                Some(tui_explorer::app::state::PreviewContent::Image(_))
+            );
             let preview_loaded = matches!(&action, Action::PreviewLoaded { .. });
             let effects = reduce(&mut state, action);
+            let has_image = matches!(
+                state.preview.content,
+                Some(tui_explorer::app::state::PreviewContent::Image(_))
+            );
+            let preview_loaded = preview_loaded && (had_image || has_image);
             for effect in effects {
                 match effect {
                     Effect::Quit => {
@@ -1363,6 +1790,36 @@ fn run(start: PathBuf) -> std::io::Result<()> {
                         if let Some(action) = follow {
                             pending.push_back(action);
                         }
+                    }
+                    Effect::RunShell { command, cwd } => {
+                        let result = with_terminal_released(&mut session, || {
+                            tui_explorer::system::run_shell(command.as_deref(), &cwd)
+                        });
+                        redraw.request_full();
+                        if let Err(e) = result {
+                            pending.push_back(Action::ErrorMessage(e));
+                        }
+                    }
+                    Effect::BulkRename(paths) => {
+                        let names: Vec<String> = paths
+                            .iter()
+                            .map(|p| {
+                                p.file_name()
+                                    .map(|n| n.to_string_lossy().into_owned())
+                                    .unwrap_or_default()
+                            })
+                            .collect();
+                        let edited = with_terminal_released(&mut session, || {
+                            tui_explorer::system::edit_lines(&names)
+                        });
+                        redraw.request_full();
+                        let follow = edited.and_then(|lines| {
+                            tui_explorer::app::commands::bulk_rename_pairs(&paths, &lines)
+                        });
+                        pending.push_back(match follow {
+                            Ok(pairs) => Action::BulkRenamePlan(pairs),
+                            Err(e) => Action::ErrorMessage(e),
+                        });
                     }
                     other => {
                         for follow in handler.handle(other) {
@@ -1393,7 +1850,18 @@ fn run(start: PathBuf) -> std::io::Result<()> {
             redraw.request_full();
         }
         had_media = media_open_now;
+        if state.settings_dirty
+            && (state.should_quit || last_save.elapsed() >= Duration::from_millis(1500))
+        {
+            state.settings_dirty = false;
+            last_save = std::time::Instant::now();
+            for follow in handler.handle(Effect::SaveSettings(Box::new(snapshot_settings(&state))))
+            {
+                pending.push_back(follow);
+            }
+        }
         if state.should_quit {
+            let _ = handler.settings_store.save(&snapshot_settings(&state));
             break;
         }
     }

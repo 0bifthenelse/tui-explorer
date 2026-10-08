@@ -35,6 +35,12 @@ pub enum IconKind {
     Toml,
     Yaml,
     Markdown,
+    /// Plain text and logs.
+    Text,
+    /// Internet shortcut (`.url`, `.webloc`).
+    WebLink,
+    /// Subtitle track (`.srt`, `.ass`, `.vtt`, ...).
+    Subtitle,
     Image,
     Audio,
     Video,
@@ -96,6 +102,9 @@ const ART_JSON: &str = "+--------+\n| {\"k\":  |\n|  JSON  |\n|   1}   |\n+-----
 const ART_TOML: &str = "+--------+\n| [toml] |\n|  k =   |\n|  \"v\"   |\n+--------+";
 const ART_YAML: &str = "+--------+\n| - yaml |\n|  k:    |\n|   v    |\n+--------+";
 const ART_MD: &str = "+--------+\n|  # md  |\n|  TEXT  |\n|  * *   |\n+--------+";
+const ART_TEXT: &str = "+--------+\n| ====   |\n|  TEXT  |\n| ===    |\n+--------+";
+const ART_WEBLINK: &str = "+--------+\n|  ://   |\n|  LINK  |\n|  www   |\n+--------+";
+const ART_SUBTITLE: &str = "+--------+\n|  [cc]  |\n|  SUBS  |\n|  ...   |\n+--------+";
 const ART_IMAGE: &str = "+--------+\n| .-^^-. |\n| IMAGE  |\n| pixels |\n+--------+";
 const ART_AUDIO: &str = "+--------+\n|  ~~    |\n| AUDIO  |\n|  ~~    |\n+--------+";
 const ART_VIDEO: &str = "+--------+\n| |>     |\n| VIDEO  |\n|  play  |\n+--------+";
@@ -135,6 +144,9 @@ static DEFINITIONS: &[IconDefinition] = &[
     def(IconKind::Toml, "T", "tml", ART_TOML),
     def(IconKind::Yaml, "y", "yml", ART_YAML),
     def(IconKind::Markdown, "m", "md", ART_MD),
+    def(IconKind::Text, "x", "txt", ART_TEXT),
+    def(IconKind::WebLink, "u", "url", ART_WEBLINK),
+    def(IconKind::Subtitle, "c", "sub", ART_SUBTITLE),
     def(IconKind::Image, "i", "img", ART_IMAGE),
     def(IconKind::Audio, "a", "aud", ART_AUDIO),
     def(IconKind::Video, "v", "vid", ART_VIDEO),
@@ -245,7 +257,16 @@ const EXTENSIONS: &[(&str, IconKind)] = &[
     ("yml", IconKind::Yaml),
     ("md", IconKind::Markdown),
     ("markdown", IconKind::Markdown),
-    ("txt", IconKind::Markdown),
+    ("txt", IconKind::Text),
+    ("text", IconKind::Text),
+    ("log", IconKind::Text),
+    ("url", IconKind::WebLink),
+    ("webloc", IconKind::WebLink),
+    ("srt", IconKind::Subtitle),
+    ("ass", IconKind::Subtitle),
+    ("ssa", IconKind::Subtitle),
+    ("vtt", IconKind::Subtitle),
+    ("sub", IconKind::Subtitle),
     ("png", IconKind::Image),
     ("jpg", IconKind::Image),
     ("jpeg", IconKind::Image),
@@ -390,6 +411,8 @@ mod tile_tests {
             hidden: name.starts_with('.'),
             device: None,
             inode: None,
+            link_target: None,
+            link_dir: false,
         }
     }
 
@@ -510,6 +533,8 @@ mod tests {
             hidden: name.starts_with('.'),
             device: None,
             inode: None,
+            link_target: None,
+            link_dir: false,
         }
     }
 
@@ -554,7 +579,9 @@ mod tests {
             ("cfg.yaml", EntryKind::File, IconKind::Yaml),
             ("cfg.yml", EntryKind::File, IconKind::Yaml),
             ("readme.md", EntryKind::File, IconKind::Markdown),
-            ("notes.txt", EntryKind::File, IconKind::Markdown),
+            ("notes.txt", EntryKind::File, IconKind::Text),
+            ("site.url", EntryKind::File, IconKind::WebLink),
+            ("movie.en.srt", EntryKind::File, IconKind::Subtitle),
             ("pic.png", EntryKind::File, IconKind::Image),
             ("song.mp3", EntryKind::File, IconKind::Audio),
             ("film.mkv", EntryKind::File, IconKind::Video),

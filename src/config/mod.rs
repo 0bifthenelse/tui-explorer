@@ -37,6 +37,14 @@ pub fn bookmarks_path(dirs: &XdgDirs) -> PathBuf {
     dirs.data.join("tui-explorer").join("bookmarks.txt")
 }
 
+pub fn settings_path(dirs: &XdgDirs) -> PathBuf {
+    dirs.data.join("tui-explorer").join("session.json")
+}
+
+pub fn links_path(dirs: &XdgDirs) -> PathBuf {
+    dirs.data.join("tui-explorer").join("links.tsv")
+}
+
 pub fn config_path(dirs: &XdgDirs) -> PathBuf {
     dirs.config.join("tui-explorer").join("config.toml")
 }

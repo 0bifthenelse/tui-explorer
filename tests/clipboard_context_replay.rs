@@ -561,7 +561,11 @@ fn paste_in_copy_mode_duplicates_files_into_destination() {
 
     let message = state.message.as_ref().expect("completion status");
     assert!(!message.is_error);
-    assert!(message.text.starts_with("2/2"), "got {:?}", message.text);
+    assert!(
+        message.text.starts_with("copied 2 items"),
+        "got {:?}",
+        message.text
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -603,7 +607,11 @@ fn paste_in_cut_mode_moves_sources_and_prunes_clipboard() {
 
     let message = state.message.as_ref().expect("completion status");
     assert!(!message.is_error);
-    assert!(message.text.starts_with("1/1"), "got {:?}", message.text);
+    assert!(
+        message.text.starts_with("moved notes.md"),
+        "got {:?}",
+        message.text
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -711,6 +719,7 @@ fn failing_sources_report_per_item_failure_without_panicking() {
                     },
                 ],
                 moves: Vec::new(),
+                ..Default::default()
             },
         }],
     );
@@ -896,18 +905,18 @@ fn drag_drop_onto_directory_still_commits_a_move() {
     drive(
         &mut state,
         &mut handler,
-        [mouse(MouseKind::Left, src.x + 1, src.y + 1)],
+        [mouse(MouseKind::Left, src.x + 1, src.y)],
     );
     drive(
         &mut state,
         &mut handler,
-        [mouse(MouseKind::LeftDrag, dst.x + 1, dst.y + 1)],
+        [mouse(MouseKind::LeftDrag, dst.x + 1, dst.y)],
     );
     assert!(state.drag.is_some(), "drag activates past threshold");
     drive(
         &mut state,
         &mut handler,
-        [mouse(MouseKind::LeftUp, dst.x + 1, dst.y + 1)],
+        [mouse(MouseKind::LeftUp, dst.x + 1, dst.y)],
     );
 
     assert!(matches!(state.mode, Mode::Browser));

@@ -93,6 +93,7 @@ struct Run {
     text: String,
     fg: Option<String>,
     bg: Option<String>,
+    modifier: ratatui::style::Modifier,
 }
 
 pub fn buffer_to_svg(buffer: &Buffer) -> String {
@@ -119,15 +120,23 @@ pub fn buffer_to_svg_styled(buffer: &Buffer, style: SvgStyle) -> String {
         let mut runs: Vec<Run> = Vec::new();
         for x in 0..area.width {
             let cell = &buffer[(x, y)];
-            let symbol = cell.symbol();
+            let symbol = if cell.symbol().is_empty() {
+                " "
+            } else {
+                cell.symbol()
+            };
             let fg = color_hex(cell.fg);
             let bg = color_hex(cell.bg);
+            let modifier = cell.modifier;
             match runs.last_mut() {
-                Some(run) if run.fg == fg && run.bg == bg => run.text.push_str(symbol),
+                Some(run) if run.fg == fg && run.bg == bg && run.modifier == modifier => {
+                    run.text.push_str(symbol)
+                }
                 _ => runs.push(Run {
                     text: symbol.to_string(),
                     fg,
                     bg,
+                    modifier,
                 }),
             }
         }
@@ -146,11 +155,21 @@ pub fn buffer_to_svg_styled(buffer: &Buffer, style: SvgStyle) -> String {
             // drift and misalign the whole row. Per-character anchoring
             // keeps the raster faithful to the terminal grid.
             let fill = run.fg.clone().unwrap_or_else(|| FG.to_string());
+            let mut attrs = String::new();
+            if run.modifier.contains(ratatui::style::Modifier::BOLD) {
+                attrs.push_str(" font-weight=\"bold\"");
+            }
+            if run.modifier.contains(ratatui::style::Modifier::ITALIC) {
+                attrs.push_str(" font-style=\"italic\"");
+            }
+            if run.modifier.contains(ratatui::style::Modifier::UNDERLINED) {
+                attrs.push_str(" text-decoration=\"underline\"");
+            }
             let mut char_x = cursor_x;
             for ch in run.text.chars() {
                 if ch != ' ' {
                     spans.push_str(&format!(
-                        "<tspan x=\"{char_x}\" fill=\"{fill}\">{}</tspan>",
+                        "<tspan x=\"{char_x}\" fill=\"{fill}\"{attrs}>{}</tspan>",
                         xml_escape(&ch.to_string())
                     ));
                 }
@@ -160,7 +179,7 @@ pub fn buffer_to_svg_styled(buffer: &Buffer, style: SvgStyle) -> String {
         }
         if !spans.is_empty() {
             texts.push_str(&format!(
-                "<text x=\"0\" y=\"{}\" font-family=\"monospace\" font-size=\"{font_size}\" xml:space=\"preserve\">{spans}</text>\n",
+                "<text x=\"0\" y=\"{}\" font-family=\"DejaVu Sans Mono, monospace\" font-size=\"{font_size}\" xml:space=\"preserve\">{spans}</text>\n",
                 u32::from(y) * cell_h + font_size - 2
             ));
         }

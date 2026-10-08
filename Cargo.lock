@@ -3020,12 +3020,14 @@ dependencies = [
  "rodio",
  "rusqlite",
  "rustfft",
+ "serde",
  "serde_json",
  "symphonia",
  "tar",
  "thiserror 2.0.19",
  "tracing",
  "tracing-subscriber",
+ "unicode-width 0.2.0",
  "vt100",
 ]
 

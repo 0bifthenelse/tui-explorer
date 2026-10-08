@@ -1,7 +1,17 @@
- tui-explorer 0.1.0         tui-explorer is awesome!           Press ? for help
- Path: [ / ]>[ home ]>[ demo ]
-0 items (0 dirs, 0 files)  Sort: name (asc)
-(empty directory)
+ ◢◤ tui·explorer 0.1.0                     ≡ List  ⊞ Grid  ▥ Columns    ? help
+  /  ›  home  ›  demo                                    0 items • Sort: name ▲
+       Name ▲                                          Size  Modified Perms
+
+
+
+
+
+
+
+                                       •
+
+                              This folder is empty
+                  + creates a file or folder · :mkdir · :touch
 
 
 
@@ -10,15 +20,5 @@
 
 
 
-
-
-
-
-
-
-
-
-
-TIP  Double-click or Enter/e to open * Right-click for menu * Mouse wheel to sc~
-| e/Enter Open | X Crypt | Bsp Up | v Visual | t Tag | : Command | ? Help
- BROWSER                                                                0%  0/0
+  Enter  open   Space  select   /  search   :  command   Bsp  up   zv  layout
+▐ BROWSER ▌                                                             0%  0/0

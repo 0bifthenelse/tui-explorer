@@ -2,11 +2,13 @@ use ratatui::layout::Rect;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use crate::browser::Browser;
+use crate::browser::{Browser, EntryView};
 use crate::media::{AfterStop, MediaKind, MediaPhase};
 use crate::operations::{OperationKind, OperationPlan};
+use crate::settings::Settings;
 use crate::sidebar::{MountInfo, SidebarItem};
 use crate::tags::TagDef;
+use crate::ui::anim::Animator;
 use crate::ui::hit::HitMap;
 
 /// Default double-click threshold in milliseconds. Can be overridden with the
@@ -60,15 +62,96 @@ impl PasswordState {
 pub struct OpenWithState {
     pub target: PathBuf,
     pub input: String,
+    /// Openers detected on PATH for this file type (Tab cycles).
+    pub suggestions: Vec<String>,
+    pub suggestion: Option<usize>,
+    /// Remember the command for this extension (Ctrl-R toggles).
+    pub remember: bool,
 }
 
-/// State for the fuzzy bookmark navigator (`B`): a query over the already
-/// loaded `AppState::bookmarks`, with the ranked result list it produced.
+/// One `:find` / `:grep` hit.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FindHit {
+    pub path: PathBuf,
+    pub is_dir: bool,
+    /// (1-based line number, line text) for content matches.
+    pub line: Option<(usize, String)>,
+}
+
+/// Results of a recursive search, browsable with a fuzzy filter.
+#[derive(Clone, Debug)]
+pub struct ResultsState {
+    pub title: String,
+    pub root: PathBuf,
+    pub hits: Vec<FindHit>,
+    pub query: String,
+    /// Indices into `hits` matching `query`.
+    pub matches: Vec<usize>,
+    pub selected: usize,
+}
+
+/// One destination in the bookmarks hub.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum HubItem {
+    /// Folder bookmark (`Ctrl-b`).
+    Folder(PathBuf),
+    /// Web link bookmark.
+    Link(crate::urls::Link),
+    /// Single-key mark (`m<key>`).
+    Mark(char, PathBuf),
+    /// Frequently / recently visited folder.
+    Recent(PathBuf),
+}
+
+impl HubItem {
+    pub fn path(&self) -> Option<&PathBuf> {
+        match self {
+            HubItem::Folder(p) | HubItem::Mark(_, p) | HubItem::Recent(p) => Some(p),
+            HubItem::Link(_) => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HubSection {
+    All,
+    Folders,
+    Links,
+    Marks,
+    Recent,
+}
+
+impl HubSection {
+    pub const ALL: [HubSection; 5] = [
+        HubSection::All,
+        HubSection::Folders,
+        HubSection::Links,
+        HubSection::Marks,
+        HubSection::Recent,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            HubSection::All => "All",
+            HubSection::Folders => "Folders",
+            HubSection::Links => "Links",
+            HubSection::Marks => "Marks",
+            HubSection::Recent => "Recent",
+        }
+    }
+}
+
+/// The bookmarks hub (`B`): folders, web links, marks and recent folders
+/// behind one fuzzy search. `picker` restricts it to a one-off list of
+/// links (URLs found in a file).
 #[derive(Clone, Debug)]
 pub struct BookmarkNavState {
     pub query: String,
-    pub matches: Vec<PathBuf>,
+    pub section: HubSection,
+    /// Ranked items matching the query in the active section.
+    pub matches: Vec<HubItem>,
     pub selected: usize,
+    pub picker: Option<Vec<crate::urls::Link>>,
 }
 
 /// Decoded preview content for the focused entry.
@@ -118,7 +201,13 @@ pub struct OperationState {
 
 #[derive(Clone, Debug)]
 pub enum ConfirmAction {
-    Delete { plan: Box<OperationPlan> },
+    Delete {
+        plan: Box<OperationPlan>,
+    },
+    /// Apply a reviewed `:bulkrename`.
+    BulkRename {
+        pairs: Vec<(PathBuf, PathBuf)>,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -337,6 +426,91 @@ pub struct MediaState {
     pub slider_drag_pos: Option<f64>,
     /// True between rail Left press and LeftUp; no seek until commit.
     pub slider_drag_active: bool,
+    /// Muted (volume is kept so unmuting restores it).
+    pub muted: bool,
+    /// Queue playback order and repetition.
+    pub shuffle: bool,
+    pub repeat: Repeat,
+    /// Playback speed (1.0 = normal).
+    pub speed: f64,
+    /// External subtitle loaded into this session (re-applied after a
+    /// fullscreen/resize restart).
+    pub sub_file: Option<PathBuf>,
+    /// Subtitles disabled for this session.
+    pub subs_off: bool,
+    /// Subtitle delay in seconds.
+    pub sub_delay: f64,
+    /// Subtitle picker overlay (`c` in the video player).
+    pub sub_picker: Option<SubPickerState>,
+    /// How video frames are painted (resolved when the session starts).
+    pub backend: crate::media::VideoBackend,
+    /// Title / artist / album from the file's tags (audio).
+    pub tags: Option<crate::media::tags::TrackTags>,
+}
+
+/// Encoded cover art for one media session.
+pub struct Cover {
+    pub session: u64,
+    pub image: Box<ratatui_image::protocol::StatefulProtocol>,
+}
+
+impl std::fmt::Debug for Cover {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Cover")
+            .field("session", &self.session)
+            .finish()
+    }
+}
+
+/// Queue repetition mode (`r` in the player cycles it).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Repeat {
+    #[default]
+    Off,
+    All,
+    One,
+}
+
+impl Repeat {
+    pub fn next(self) -> Repeat {
+        match self {
+            Repeat::Off => Repeat::All,
+            Repeat::All => Repeat::One,
+            Repeat::One => Repeat::Off,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Repeat::Off => "repeat off",
+            Repeat::All => "repeat all",
+            Repeat::One => "repeat one",
+        }
+    }
+}
+
+/// One choice in the subtitle picker.
+#[derive(Clone, Debug, PartialEq)]
+pub enum SubChoice {
+    Off,
+    /// The video's own (embedded or auto-loaded) tracks: cycle through them.
+    Embedded,
+    File(crate::media::subs::SubtitleFile),
+}
+
+/// Subtitle picker: discovered files filtered by a fuzzy query.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct SubPickerState {
+    pub query: String,
+    /// Every candidate found near the video (ranked).
+    pub found: Vec<crate::media::subs::SubtitleFile>,
+    /// Visible choices for the current query.
+    pub choices: Vec<SubChoice>,
+    pub selected: usize,
+    /// Discovery still running.
+    pub searching: bool,
+    /// Playback was paused to show the picker over the video.
+    pub resume: bool,
 }
 
 impl MediaState {
@@ -374,7 +548,41 @@ impl MediaState {
             slider_hover: None,
             slider_drag_pos: None,
             slider_drag_active: false,
+            muted: false,
+            shuffle: false,
+            repeat: Repeat::Off,
+            speed: 1.0,
+            sub_file: None,
+            subs_off: false,
+            sub_delay: 0.0,
+            sub_picker: None,
+            backend: crate::media::VideoBackend::Kitty,
+            tags: None,
         }
+    }
+
+    /// Carries the listener's preferences (volume, queue modes, speed)
+    /// over to the next track's fresh state.
+    pub fn inherit_preferences(&mut self, previous: &MediaState) {
+        self.volume = previous.volume;
+        self.muted = previous.muted;
+        self.shuffle = previous.shuffle;
+        self.repeat = previous.repeat;
+        self.speed = previous.speed;
+        self.backend = previous.backend;
+        if self.backend.fullscreen_only() {
+            self.fullscreen = true;
+        }
+    }
+
+    pub fn title(&self) -> String {
+        if let Some(title) = self.tags.as_ref().and_then(|t| t.title.clone()) {
+            return title;
+        }
+        self.path
+            .file_stem()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| self.path.display().to_string())
     }
 
     /// Clears every transient seek-rail interaction state.
@@ -417,6 +625,72 @@ impl ClipboardState {
     }
 }
 
+/// Per-tab navigation history (`H` / `L`).
+#[derive(Clone, Debug, Default)]
+pub struct History {
+    pub back: Vec<PathBuf>,
+    pub forward: Vec<PathBuf>,
+}
+
+/// A browser tab. The active tab lives in `AppState::browser` and
+/// `AppState::history`; its slot in `AppState::tabs` is a stale shell.
+#[derive(Clone, Debug)]
+pub struct Tab {
+    pub browser: Browser,
+    pub history: History,
+}
+
+/// One reversible step of an undoable job.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum UndoStep {
+    /// The entry moved `from` → `to` (move, rename, trash): undo moves it
+    /// back.
+    Move { from: PathBuf, to: PathBuf },
+    /// The job created this path (copy, symlink, mkdir, touch): undo
+    /// trashes it.
+    Created(PathBuf),
+}
+
+#[derive(Clone, Debug)]
+pub struct UndoEntry {
+    pub label: String,
+    pub steps: Vec<UndoStep>,
+}
+
+/// Inline rename field.
+#[derive(Clone, Debug)]
+pub struct RenameState {
+    pub target: PathBuf,
+    pub edit: crate::input::line::LineEdit,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SearchKind {
+    /// `/`: highlight matches and jump between them.
+    Search,
+    /// `f`: jump while typing; a unique match opens.
+    Find,
+    /// Ctrl-F / `zf`: hide non-matching names.
+    Filter,
+}
+
+/// Live prompt for search / find / filter.
+#[derive(Clone, Debug)]
+pub struct SearchState {
+    pub kind: SearchKind,
+    pub edit: crate::input::line::LineEdit,
+    /// Cursor position when the prompt opened (restored on Esc).
+    pub origin: usize,
+    /// Filter active when the prompt opened (restored on Esc).
+    pub origin_filter: Option<String>,
+}
+
+/// Fullscreen quick look.
+#[derive(Clone, Debug, Default)]
+pub struct QuickLookState {
+    pub scroll: usize,
+}
+
 #[derive(Default, Debug)]
 pub struct HoverState {
     pub row: Option<usize>,
@@ -436,6 +710,10 @@ pub enum Mode {
     Bookmarks(Box<BookmarkNavState>),
     Help,
     Media(Box<MediaState>),
+    Rename(Box<RenameState>),
+    Search(Box<SearchState>),
+    QuickLook(Box<QuickLookState>),
+    Results(Box<ResultsState>),
 }
 
 impl Clone for Mode {
@@ -458,6 +736,10 @@ impl Clone for Mode {
             Mode::Bookmarks(b) => Mode::Bookmarks(b.clone()),
             Mode::Help => Mode::Help,
             Mode::Media(media) => Mode::Media(media.clone()),
+            Mode::Rename(r) => Mode::Rename(r.clone()),
+            Mode::Search(s) => Mode::Search(s.clone()),
+            Mode::QuickLook(q) => Mode::QuickLook(q.clone()),
+            Mode::Results(r) => Mode::Results(r.clone()),
         }
     }
 }
@@ -476,11 +758,25 @@ impl Mode {
             Mode::Bookmarks(_) => "BOOKMARKS",
             Mode::Help => "HELP",
             Mode::Media(_) => "MEDIA",
+            Mode::Rename(_) => "RENAME",
+            Mode::Search(s) => match s.kind {
+                SearchKind::Search => "SEARCH",
+                SearchKind::Find => "FIND",
+                SearchKind::Filter => "FILTER",
+            },
+            Mode::QuickLook(_) => "QUICK LOOK",
+            Mode::Results(_) => "RESULTS",
         }
     }
 
+    /// Modal overlays (scrim, input captured, cursor hidden). Inline
+    /// prompts (command line, rename, search) are not overlays: the
+    /// listing stays live underneath them.
     pub fn is_overlay(&self) -> bool {
-        !matches!(self, Mode::Browser | Mode::Command)
+        !matches!(
+            self,
+            Mode::Browser | Mode::Command | Mode::Rename(_) | Mode::Search(_)
+        )
     }
 }
 
@@ -497,7 +793,51 @@ pub struct AppState {
     pub tag_defs: Vec<TagDef>,
     pub last_tag: Option<String>,
     pub should_quit: bool,
-    pub pending_g: bool,
+    /// Keys of an unfinished chord (`g`, `y`, `m`, ...).
+    pub pending_keys: Vec<String>,
+    /// Count prefix typed before a command (`5` in `5j`).
+    pub pending_count: Option<usize>,
+    /// Active tab's navigation history.
+    pub history: History,
+    /// The folder visited before the current one (`''`).
+    pub previous_dir: Option<PathBuf>,
+    /// All tabs; the active slot's contents are stale (see [`Tab`]).
+    pub tabs: Vec<Tab>,
+    pub active_tab: usize,
+    /// Recently closed tabs (`uq` restores).
+    pub closed_tabs: Vec<Tab>,
+    /// Undo journal, newest last.
+    pub undo: Vec<UndoEntry>,
+    /// Cached sizes from `du`.
+    pub dir_sizes: std::collections::HashMap<PathBuf, u64>,
+    /// Web link bookmarks (`links.tsv`).
+    pub links: Vec<crate::urls::Link>,
+    /// mpv is installed (video, streams, extra audio codecs).
+    pub mpv_available: bool,
+    /// Path candidates for the command line's current argument.
+    pub completions: Vec<String>,
+    /// Index into the candidates while Tab cycles.
+    pub completion_index: Option<usize>,
+    /// The last input change came from Tab cycling (keeps the index).
+    pub completion_cycle: bool,
+    /// Position while walking command history with Up/Down.
+    pub history_cursor: Option<usize>,
+    /// What was typed before walking history.
+    pub command_draft: String,
+    /// A GUI display is available (`$DISPLAY` / `$WAYLAND_DISPLAY`).
+    pub has_display: bool,
+    /// Cover art of the playing track, encoded for the terminal, keyed by
+    /// media session.
+    pub cover: Option<Cover>,
+    /// Background player (audio keeps playing while browsing); the
+    /// expanded player lives in `Mode::Media`.
+    pub mini: Option<Box<MediaState>>,
+    /// The command line is acting as the address bar (`Ctrl-L`, path bar
+    /// click, pasted path): it edits a `cd` target shown in the path bar.
+    pub address_bar: bool,
+    /// Help overlay: filter text and scroll offset.
+    pub help_query: String,
+    pub help_scroll: usize,
     pub width: u16,
     pub height: u16,
     /// Number of entries visible per page in the current layout.
@@ -506,6 +846,9 @@ pub struct AppState {
     pub grid_cols: usize,
     pub home: PathBuf,
     pub pending_nav: Option<PathBuf>,
+    /// Entry to focus once the pending directory listing arrives (cursor
+    /// returns to the child after going up, `:find` jumps, ...).
+    pub pending_focus: Option<PathBuf>,
     pub hit_map: HitMap,
     /// Last single click on a grid row, for same-entry double-click detection.
     pub last_click: Option<(Instant, usize)>,
@@ -520,6 +863,8 @@ pub struct AppState {
     pub show_preview: Option<bool>,
     /// Sidebar entries in render order; rebuilt every frame.
     pub sidebar_items: Vec<SidebarItem>,
+    /// Miller parent-pane rows in render order; rebuilt every frame.
+    pub parent_rows: Vec<PathBuf>,
     /// Device mounts captured once at startup (never re-read per frame).
     pub mounts: Vec<MountInfo>,
     pub bookmarks: Vec<PathBuf>,
@@ -532,6 +877,21 @@ pub struct AppState {
     /// Mode of an in-flight paste started from the context menu; consumed
     /// by operation_finished to prune moved sources out of the clipboard.
     pub pending_paste_mode: Option<ClipMode>,
+    /// Frame clock: set by the event loop before each reduce/draw pass.
+    pub now: Instant,
+    /// Wall clock in unix seconds (relative timestamps in listings).
+    pub wall_clock: i64,
+    /// Implicit-animation engine driving hover/selection/cascade motion.
+    pub anim: Animator,
+    /// Persisted preferences (layout, appearance, associations, marks).
+    pub settings: Settings,
+    /// Set when `settings` changed and should be written back.
+    pub settings_dirty: bool,
+    /// Directory listings used by the Miller-columns parent pane.
+    pub side_listings: std::collections::HashMap<PathBuf, Vec<EntryView>>,
+    /// Terminal supports 24-bit color; otherwise a final pass maps the
+    /// frame onto the 256-color palette.
+    pub truecolor: bool,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MediaSurface {
@@ -550,6 +910,7 @@ impl AppState {
             &self.mode,
             Mode::Media(media)
                 if media.kind == crate::media::MediaKind::Video
+                    && media.backend.in_terminal()
                     && matches!(
                         media.phase,
                         MediaPhase::Starting
@@ -558,6 +919,19 @@ impl AppState {
                             | MediaPhase::Stopped
                             | MediaPhase::Stopping
                     )
+        )
+    }
+
+    /// Text-mode video is painting the whole terminal right now: the TUI
+    /// must not draw until it pauses or stops.
+    pub fn text_video_live(&self) -> bool {
+        matches!(
+            &self.mode,
+            Mode::Media(media)
+                if media.kind == crate::media::MediaKind::Video
+                    && media.backend == crate::media::VideoBackend::Tct
+                    && media.phase == MediaPhase::Playing
+                    && media.sub_picker.is_none()
         )
     }
 
@@ -572,19 +946,45 @@ impl AppState {
             tag_defs: Vec::new(),
             last_tag: None,
             should_quit: false,
-            pending_g: false,
+            pending_keys: Vec::new(),
+            pending_count: None,
+            history: History::default(),
+            previous_dir: None,
+            tabs: vec![Tab {
+                browser: Browser::new(PathBuf::new()),
+                history: History::default(),
+            }],
+            active_tab: 0,
+            closed_tabs: Vec::new(),
+            undo: Vec::new(),
+            dir_sizes: std::collections::HashMap::new(),
+            links: Vec::new(),
+            mpv_available: false,
+            completions: Vec::new(),
+            completion_index: None,
+            completion_cycle: false,
+            history_cursor: None,
+            command_draft: String::new(),
+            has_display: false,
+            cover: None,
+            mini: None,
+            address_bar: false,
+            help_query: String::new(),
+            help_scroll: 0,
             width: 80,
             height: 24,
             list_viewport: 10,
             grid_cols: 1,
             home,
             pending_nav: None,
+            pending_focus: None,
             hit_map: HitMap::default(),
             last_click: None,
             double_click: Duration::from_millis(DEFAULT_DOUBLE_CLICK_MS),
             show_sidebar: None,
             show_preview: None,
             sidebar_items: Vec::new(),
+            parent_rows: Vec::new(),
             mounts: Vec::new(),
             bookmarks: Vec::new(),
             preview: PreviewState::default(),
@@ -595,7 +995,22 @@ impl AppState {
             clipboard: ClipboardState::default(),
             hover: HoverState::default(),
             pending_paste_mode: None,
+            now: Instant::now(),
+            wall_clock: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs() as i64)
+                .unwrap_or(0),
+            anim: Animator::new(false),
+            settings: Settings::default(),
+            settings_dirty: false,
+            side_listings: std::collections::HashMap::new(),
+            truecolor: true,
         }
+    }
+
+    /// The active layout.
+    pub fn view(&self) -> crate::settings::ViewMode {
+        self.settings.view
     }
 
     pub fn mode_name(&self) -> &'static str {

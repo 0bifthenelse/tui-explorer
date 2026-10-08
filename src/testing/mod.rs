@@ -70,10 +70,12 @@ impl FileSystem for MemoryFileSystem {
     }
 }
 
+/// Records every mutation and keeps a set of existing paths in step with
+/// them (moves, trash, deletes and creations), like a real filesystem.
 #[derive(Debug)]
 pub struct RecordingMutations {
     pub log: Mutex<Vec<RecordedMutation>>,
-    pub existing: BTreeSet<PathBuf>,
+    pub existing: Mutex<BTreeSet<PathBuf>>,
     pub fail_with: Option<String>,
 }
 
@@ -81,8 +83,33 @@ impl RecordingMutations {
     pub fn new(existing: BTreeSet<PathBuf>) -> Self {
         RecordingMutations {
             log: Mutex::new(Vec::new()),
-            existing,
+            existing: Mutex::new(existing),
             fail_with: None,
+        }
+    }
+
+    /// Moves `src` (and everything below it) to `dst` in the existence set.
+    fn relocate(&self, src: &Path, dst: Option<&Path>) {
+        if let Ok(mut set) = self.existing.lock() {
+            let moved: Vec<PathBuf> = set.iter().filter(|p| p.starts_with(src)).cloned().collect();
+            for p in moved {
+                set.remove(&p);
+                if let Some(dst) = dst
+                    && let Ok(rest) = p.strip_prefix(src)
+                {
+                    set.insert(if rest.as_os_str().is_empty() {
+                        dst.to_path_buf()
+                    } else {
+                        dst.join(rest)
+                    });
+                }
+            }
+        }
+    }
+
+    fn add(&self, path: &Path) {
+        if let Ok(mut set) = self.existing.lock() {
+            set.insert(path.to_path_buf());
         }
     }
 
@@ -109,6 +136,7 @@ impl MutationBackend for RecordingMutations {
         if let Some(msg) = &self.fail_with {
             return Err(io::Error::other(msg.clone()));
         }
+        self.add(dst);
         Ok(())
     }
 
@@ -123,6 +151,7 @@ impl MutationBackend for RecordingMutations {
         if let Some(msg) = &self.fail_with {
             return Err(io::Error::other(msg.clone()));
         }
+        self.relocate(src, Some(dst));
         Ok(())
     }
 
@@ -136,6 +165,7 @@ impl MutationBackend for RecordingMutations {
         if let Some(msg) = &self.fail_with {
             return Err(io::Error::other(msg.clone()));
         }
+        self.relocate(path, None);
         Ok(())
     }
 
@@ -148,6 +178,7 @@ impl MutationBackend for RecordingMutations {
         if let Some(msg) = &self.fail_with {
             return Err(io::Error::other(msg.clone()));
         }
+        self.add(path);
         Ok(())
     }
 
@@ -160,11 +191,57 @@ impl MutationBackend for RecordingMutations {
         if let Some(msg) = &self.fail_with {
             return Err(io::Error::other(msg.clone()));
         }
+        self.add(path);
         Ok(())
     }
 
     fn exists(&self, path: &Path) -> bool {
-        self.existing.contains(path)
+        self.existing.lock().is_ok_and(|set| set.contains(path))
+    }
+
+    fn trash(&self, path: &Path) -> io::Result<PathBuf> {
+        if let Ok(mut log) = self.log.lock() {
+            log.push(RecordedMutation::Trash {
+                path: path.to_path_buf(),
+            });
+        }
+        if let Some(msg) = &self.fail_with {
+            return Err(io::Error::other(msg.clone()));
+        }
+        let name = path.file_name().unwrap_or_default();
+        let dest = PathBuf::from("/trash/files").join(name);
+        self.relocate(path, Some(&dest));
+        Ok(dest)
+    }
+
+    fn symlink(&self, target: &Path, link: &Path) -> io::Result<()> {
+        if let Ok(mut log) = self.log.lock() {
+            log.push(RecordedMutation::Symlink {
+                target: target.to_path_buf(),
+                link: link.to_path_buf(),
+            });
+        }
+        if let Some(msg) = &self.fail_with {
+            return Err(io::Error::other(msg.clone()));
+        }
+        Ok(())
+    }
+
+    fn set_permissions(&self, path: &Path, mode: u32) -> io::Result<()> {
+        if let Ok(mut log) = self.log.lock() {
+            log.push(RecordedMutation::Chmod {
+                path: path.to_path_buf(),
+                mode,
+            });
+        }
+        if let Some(msg) = &self.fail_with {
+            return Err(io::Error::other(msg.clone()));
+        }
+        Ok(())
+    }
+
+    fn permissions(&self, _path: &Path) -> Option<u32> {
+        Some(0o644)
     }
 }
 
@@ -180,6 +257,23 @@ pub struct SyncHandler {
     pub now: i64,
     pub bookmarks: Vec<PathBuf>,
     pub bookmark_store: crate::sidebar::MemoryBookmarks,
+    /// Last settings persisted through `Effect::SaveSettings`.
+    pub saved_settings: Option<crate::settings::Settings>,
+    /// Text sent to the system clipboard.
+    pub copied: Vec<String>,
+    /// Shell runs: (command, cwd); `None` is an interactive shell.
+    pub shells: Vec<(Option<String>, PathBuf)>,
+    /// Programs launched detached: (path, program, args).
+    pub detached: Vec<(PathBuf, String, Vec<String>)>,
+    /// URLs handed to a browser: (url, program).
+    pub opened_urls: Vec<(String, Option<String>)>,
+    /// Last links persisted through `Effect::SaveLinks`.
+    pub saved_links: Option<Vec<crate::urls::Link>>,
+    /// File contents served to `:grep` (path → text).
+    pub contents: BTreeMap<PathBuf, String>,
+    /// Names returned by the simulated `$EDITOR` for `:bulkrename`
+    /// (`None`: the editor leaves every name unchanged).
+    pub bulk_rename_names: Option<Vec<String>>,
 }
 
 impl SyncHandler {
@@ -197,6 +291,14 @@ impl SyncHandler {
             stopped_media: Vec::new(),
             bookmarks: Vec::new(),
             bookmark_store: crate::sidebar::MemoryBookmarks::default(),
+            saved_settings: None,
+            copied: Vec::new(),
+            shells: Vec::new(),
+            detached: Vec::new(),
+            opened_urls: Vec::new(),
+            saved_links: None,
+            contents: BTreeMap::new(),
+            bulk_rename_names: None,
         }
     }
 
@@ -233,6 +335,17 @@ impl EffectHandler for SyncHandler {
             Effect::LoadDirectory(path) => vec![Action::DirectoryLoaded {
                 result: self.snapshot(&path),
             }],
+            Effect::LoadSideListing(path) => match self.snapshot(&path) {
+                Ok(snapshot) => vec![Action::SideListingLoaded {
+                    path,
+                    entries: snapshot.entries,
+                }],
+                Err(_) => Vec::new(),
+            },
+            Effect::SaveSettings(settings) => {
+                self.saved_settings = Some(*settings);
+                Vec::new()
+            }
             Effect::RunOperation(plan) => {
                 let exists = |p: &Path| self.mutations.exists(p);
                 let conflicts = find_conflicts(&plan, &exists);
@@ -250,6 +363,7 @@ impl EffectHandler for SyncHandler {
                             outcome: OpOutcome::Done,
                         }],
                         moves: vec![(from, to)],
+                        ..Default::default()
                     };
                     vec![Action::OperationFinished { report }]
                 }
@@ -335,12 +449,17 @@ impl EffectHandler for SyncHandler {
                     hidden,
                     device: None,
                     inode: None,
+                    link_target: None,
+                    link_dir: false,
                 };
-                let parent = path.parent().map(Path::to_path_buf).unwrap_or(path);
+                let parent = path.parent().map(Path::to_path_buf).unwrap_or(path.clone());
                 self.fs.add_entry(&parent, entry);
-                vec![Action::DirectoryLoaded {
-                    result: self.snapshot(&parent),
-                }]
+                vec![
+                    Action::EntryCreated(path),
+                    Action::DirectoryLoaded {
+                        result: self.snapshot(&parent),
+                    },
+                ]
             }
             Effect::TagAssign {
                 name,
@@ -407,6 +526,108 @@ impl EffectHandler for SyncHandler {
                 self.quit = true;
                 Vec::new()
             }
+            Effect::CopyText(text) => {
+                self.copied.push(text);
+                Vec::new()
+            }
+            Effect::RunShell { command, cwd } => {
+                self.shells.push((command, cwd));
+                Vec::new()
+            }
+            Effect::DiskUsage(paths) => {
+                let sizes = paths
+                    .into_iter()
+                    .map(|p| {
+                        let size = crate::search::disk_usage(&self.fs, &p, &|| false);
+                        (p, size)
+                    })
+                    .collect();
+                vec![Action::DiskUsageReady(sizes)]
+            }
+            Effect::CountChildren(paths) => {
+                let counts = paths
+                    .into_iter()
+                    .filter_map(|p| crate::search::count_children(&self.fs, &p).map(|n| (p, n)))
+                    .collect();
+                vec![Action::ChildCountsReady(counts)]
+            }
+            Effect::RunUndo { moves, trash } => {
+                let report = crate::operations::run_undo(&moves, &trash, &self.mutations);
+                vec![Action::UndoFinished { report }]
+            }
+            Effect::MovePairs(pairs) => {
+                let report = crate::operations::run_moves(
+                    &pairs,
+                    &self.mutations,
+                    crate::operations::OperationKind::Move,
+                );
+                vec![Action::OperationFinished { report }]
+            }
+            Effect::Chmod(changes) => {
+                for (path, mode) in changes {
+                    if let Err(e) = self.mutations.set_permissions(&path, mode) {
+                        return vec![Action::ErrorMessage(format!(
+                            "chmod {}: {e}",
+                            path.display()
+                        ))];
+                    }
+                }
+                Vec::new()
+            }
+            Effect::SaveLinks(links) => {
+                self.saved_links = Some(links);
+                Vec::new()
+            }
+            Effect::OpenUrl { url, program, .. } => {
+                self.opened_urls.push((url, program));
+                Vec::new()
+            }
+            Effect::SpawnDetached {
+                path,
+                program,
+                args,
+            } => {
+                self.detached.push((path, program, args));
+                Vec::new()
+            }
+            Effect::FindFiles {
+                root,
+                query,
+                content,
+            } => {
+                let contents = &self.contents;
+                let hits = crate::search::find(
+                    &self.fs,
+                    &root,
+                    &query,
+                    content,
+                    &|p, _| contents.get(p).cloned(),
+                    &|| false,
+                );
+                let title = if content {
+                    format!("grep {query}")
+                } else {
+                    format!("find {query}")
+                };
+                vec![Action::FindResults { title, root, hits }]
+            }
+            Effect::LoadTrackInfo { .. } => Vec::new(),
+            Effect::ClearGraphics => Vec::new(),
+            Effect::FindSubtitles { session, video } => {
+                let home = PathBuf::from("/home/demo");
+                let files = crate::media::subs::discover(&self.fs, &video, &home);
+                vec![Action::SubsFound { session, files }]
+            }
+            Effect::BulkRename(paths) => {
+                let pairs = match &self.bulk_rename_names {
+                    Some(names) => crate::app::commands::bulk_rename_pairs(&paths, names),
+                    None => Ok(Vec::new()),
+                };
+                match pairs {
+                    Ok(pairs) => vec![Action::BulkRenamePlan(pairs)],
+                    Err(e) => vec![Action::ErrorMessage(e)],
+                }
+            }
         }
     }
 }
@@ -462,6 +683,8 @@ pub mod builders {
             hidden: name.starts_with('.'),
             device: None,
             inode: None,
+            link_target: None,
+            link_dir: false,
         }
     }
 
@@ -562,6 +785,26 @@ pub mod builders {
                 FIXED_TIME - 50_000,
             ),
         );
+        for (name, size) in [
+            ("clip.srt", 2_048),
+            ("clip.en.srt", 2_100),
+            ("clip.fr.forced.srt", 1_200),
+            ("track01.mp3", 4_200_000),
+            ("track02.mp3", 3_900_000),
+            ("track03.flac", 21_000_000),
+        ] {
+            fs.add_entry(
+                &root,
+                entry(
+                    &root,
+                    name,
+                    EntryKind::File,
+                    size,
+                    0o644,
+                    FIXED_TIME - 40_000,
+                ),
+            );
+        }
         fs
     }
 
@@ -755,6 +998,8 @@ pub mod builders {
                 hidden: false,
                 device: None,
                 inode: None,
+                link_target: None,
+                link_dir: false,
             },
         );
         fs
@@ -765,6 +1010,9 @@ pub mod builders {
         let mut state = AppState::new(root.clone(), root);
         state.width = width;
         state.height = height;
+        state.wall_clock = FIXED_TIME + 60;
+        // Video plays through the Kitty surface cycle in tests.
+        state.settings.video_output = crate::settings::VideoOutput::Kitty;
         state
     }
 }

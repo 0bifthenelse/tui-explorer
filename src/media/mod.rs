@@ -3,6 +3,8 @@ use std::path::Path;
 pub mod aiff;
 pub mod audio;
 pub mod mpv;
+pub mod subs;
+pub mod tags;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MediaKind {
@@ -20,6 +22,82 @@ pub enum MediaCommand {
     SetVolume(u8),
     Stop,
     Quit,
+    /// Load an external subtitle file and select it.
+    AddSub(std::path::PathBuf),
+    /// Turn subtitles off (`false`) or back on to the auto track (`true`).
+    SetSubtitles(bool),
+    /// Step through the video's subtitle tracks.
+    CycleSub,
+    /// Shift subtitles by this many seconds (relative).
+    AddSubDelay(f64),
+    /// Playback speed multiplier (absolute).
+    SetSpeed(f64),
+    /// Jump to a percentage of the duration (0..=100).
+    SeekPercent(f64),
+    SetMute(bool),
+    /// Step through audio tracks (video files with several languages).
+    CycleAudio,
+    /// GUI window fullscreen (window backend only).
+    SetFullscreen(bool),
+    /// Paint the current frame again (exact zero seek) after an overlay
+    /// covered a paused video.
+    Redraw,
+}
+
+/// How a video session paints its frames.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum VideoBackend {
+    /// Kitty graphics protocol inside the player's reserved rectangle.
+    #[default]
+    Kitty,
+    /// Sixel graphics inside the reserved rectangle.
+    Sixel,
+    /// mpv's own GUI window; the TUI is the remote control.
+    Window,
+    /// mpv's truecolor text renderer, using the whole terminal.
+    Tct,
+}
+
+impl VideoBackend {
+    /// Frames are painted into the terminal (not a separate window).
+    pub fn in_terminal(self) -> bool {
+        !matches!(self, VideoBackend::Window)
+    }
+
+    /// Only the full terminal works (frames always start at the origin).
+    pub fn fullscreen_only(self) -> bool {
+        matches!(self, VideoBackend::Tct)
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            VideoBackend::Kitty => "kitty",
+            VideoBackend::Sixel => "sixel",
+            VideoBackend::Window => "window",
+            VideoBackend::Tct => "text",
+        }
+    }
+}
+
+/// Picks the video backend: an explicit setting wins; `auto` prefers
+/// in-terminal graphics, then a GUI window, then truecolor text.
+pub fn resolve_video_backend(
+    setting: crate::settings::VideoOutput,
+    graphics: Option<VideoBackend>,
+    has_display: bool,
+) -> VideoBackend {
+    use crate::settings::VideoOutput;
+    match setting {
+        VideoOutput::Kitty => VideoBackend::Kitty,
+        VideoOutput::Sixel => VideoBackend::Sixel,
+        VideoOutput::Window => VideoBackend::Window,
+        VideoOutput::Tct => VideoBackend::Tct,
+        VideoOutput::Auto => match graphics {
+            Some(backend) => backend,
+            None if has_display => VideoBackend::Window,
+            None => VideoBackend::Tct,
+        },
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -154,5 +232,35 @@ mod tests {
         );
         assert_eq!(audio_backend_for_extension("opus"), Some(AudioBackend::Mpv));
         assert_eq!(audio_backend_for_extension("txt"), None);
+    }
+}
+
+#[cfg(test)]
+mod backend_tests {
+    use super::*;
+    use crate::settings::VideoOutput;
+
+    #[test]
+    fn auto_prefers_graphics_then_window_then_text() {
+        assert_eq!(
+            resolve_video_backend(VideoOutput::Auto, Some(VideoBackend::Kitty), true),
+            VideoBackend::Kitty
+        );
+        assert_eq!(
+            resolve_video_backend(VideoOutput::Auto, Some(VideoBackend::Sixel), false),
+            VideoBackend::Sixel
+        );
+        assert_eq!(
+            resolve_video_backend(VideoOutput::Auto, None, true),
+            VideoBackend::Window
+        );
+        assert_eq!(
+            resolve_video_backend(VideoOutput::Auto, None, false),
+            VideoBackend::Tct
+        );
+        assert_eq!(
+            resolve_video_backend(VideoOutput::Window, Some(VideoBackend::Kitty), false),
+            VideoBackend::Window
+        );
     }
 }

@@ -1,24 +1,24 @@
- tui-explorer 0.1.0         tui-explorer is awesome!           Press ? for help
- Path: [ / ]>[ home ]>[ demo ]
-+ HELP ------------------------------------------------------------------------+
-|j / Down          next row of tiles    Space (media)     play or pause the f~ |
-|k / Up            previous row of til~ Left/Right (media)seek +/-15 seconds   |
-|h / Left          tile left            Up/Down (media)   volume up/down       |
-|l / Right         tile right           f (media)         toggle fullscreen v~ |
-|Backspace         parent directory     n (media)         next playlist track  |
-|F5                refresh current dir~ s (media)         restart from the be~ |
-|e / Enter         open: folder, media~ Esc/q (media)     close the media mod~ |
-|r                 open with: prompt f~ :copy <dest>      copy selection       |
-|double left click open: enter folder ~ :move <dest>      move selection       |
-|single left click select and focus (n~ :rename <name>    rename entry         |
-|g g               first entry          :delete           delete selection (c~ |
-|G                 last entry           :tag <name>       assign tag           |
-|Ctrl-u / Ctrl-d   half page up / down  :untag <name>     remove tag           |
-|PageUp / PageDown full page up / down  :tags             open tag picker      |
-|Space             toggle entry select~ :open             open entry           |
-|v                 visual multi-select~ :open-with <cmd> ~run a command on th~ |
-|.                 toggle hidden files  :cd <path>        change directory     |
-+------------------------------------------------------------------------------+
-TIP  Esc goes back
-| Esc close
- HELP                                                                  5%  1/18
+ ◢◤ tui·explorer 0.1.0                     ≡ List  ⊞ Grid  ▥ Columns    ? help
+  ╭ HELP ────────────────────────────────────────────────────────────────────╮▲
+  │  ⌕  type to search keys and commands…                                    │
+  │                                                                          │-x
+  │  Files  ──────────────────────────────────────────────────────────────── │-x
+  │  yy / Ctrl-c            copy                                             │--
+  │  dd / Ctrl-x            cut                                              │--
+  │  pp / Ctrl-v            paste                                            │--
+  │  po                     paste, overwrite                                 │-x
+  │  pl                     paste as symlinks                                │--
+  │  ud                     clear clipboard                                  │--
+  │  yp                     yank path                                        │--
+  │  yd                     yank folder path                                 │-x
+  │  yn                     yank name                                        │--
+  │  yN                     yank name w/o ext                                │--
+  │  dT / Delete            move to trash                                    │--
+  │  dD / Shift-Delete      delete forever                                   │--
+  │  du                     folder sizes                                     │--
+  │  uu / Ctrl-z            undo                                             │wx
+  │  cw                     rename (new name)                                │--
+  │  F2                     rename                                           │--
+  │  type  search   ↑↓  scroll   PgDn  page   Esc  close              0/185  │
+  ╰──────────────────────────────────────────────────────────────────────────╯
+▐ HELP ▌                                                               5%  1/18

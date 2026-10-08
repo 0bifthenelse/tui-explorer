@@ -141,7 +141,7 @@ fn run_in_pty(cols: u16, rows: u16, dir: &Path, keys: &[&str], settle_ms: u64) -
     std::thread::sleep(std::time::Duration::from_millis(settle_ms));
     // Request one final full redraw and give the pty logger time to flush
     // before teardown so the captured frame is complete.
-    stdin.write_all(b"\x0c").ok(); // Ctrl-L
+    stdin.write_all(b"\x12").ok(); // Ctrl-R: full repaint
     stdin.flush().ok();
     std::thread::sleep(std::time::Duration::from_millis(400));
     drop(stdin);
@@ -155,17 +155,11 @@ fn run_in_pty(cols: u16, rows: u16, dir: &Path, keys: &[&str], settle_ms: u64) -
 }
 
 fn assert_layout_landmarks(screen: &str, cols: u16, context: &str) {
-    assert!(screen.contains("tui-explorer"), "{context}: header missing");
-    assert!(screen.contains("Path:"), "{context}: path bar missing");
-    assert!(screen.contains("Press ? for help"), "{context}: help hint");
-    assert!(
-        screen.contains("Sort: name (asc)"),
-        "{context}: grid header"
-    );
-    assert!(screen.contains("Open"), "{context}: legend open action");
-    if cols < 100 {
-        assert!(screen.contains("TIP"), "{context}: compact tip line");
-    }
+    assert!(screen.contains("explorer"), "{context}: header missing");
+    assert!(screen.contains("? help"), "{context}: help chip");
+    assert!(screen.contains("Sort: name ▲"), "{context}: path bar stats");
+    assert!(screen.contains("open"), "{context}: legend open action");
+    assert!(screen.contains("List"), "{context}: layout switcher");
     if cols >= 100 {
         assert!(screen.contains("PLACES"), "{context}: sidebar at {cols}");
     }
@@ -190,7 +184,7 @@ fn headless_keyboard_navigation_and_open() {
     let dir = fixture("nav");
     // The first entry (docs) is focused; `e` enters it within the app.
     let screen = run_in_pty(120, 36, &dir, &["e"], 500);
-    let path_line = screen.lines().find(|l| l.contains("Path:")).unwrap_or("");
+    let path_line = screen.lines().find(|l| l.contains("Sort:")).unwrap_or("");
     assert!(
         path_line.contains("docs"),
         "e entered docs, path bar: {path_line}\n{screen}"
@@ -250,7 +244,7 @@ fn headless_problematic_file_previews_preserve_the_full_display() {
         // Move onto the target, back to text, then onto the target again. This
         // exercises stale worker-result rejection and repainting after content
         // type changes, not merely the initial selection.
-        let screen = run_in_pty(160, 48, &dir, &["l", "h", "l"], 900);
+        let screen = run_in_pty(160, 48, &dir, &["j", "k", "j"], 900);
         assert_layout_landmarks(&screen, 160, tag);
         assert!(
             screen.contains("BROWSER"),

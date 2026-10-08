@@ -92,13 +92,27 @@ pub fn load(path: &Path, is_dir: bool, name: &str) -> PreviewLoaded {
 fn load_directory(path: &Path) -> PreviewLoaded {
     match std::fs::read_dir(path) {
         Ok(entries) => {
-            let mut names: Vec<String> = entries
+            // Directories (and links to them) carry a trailing '/' so the
+            // renderer can badge them; they list first, in natural order.
+            let mut names: Vec<(bool, String)> = entries
                 .filter_map(|e| e.ok())
-                .map(|e| e.file_name().to_string_lossy().into_owned())
+                .map(|e| {
+                    let name = e.file_name().to_string_lossy().into_owned();
+                    let is_dir = std::fs::metadata(e.path()).is_ok_and(|m| m.is_dir());
+                    (is_dir, name)
+                })
                 .collect();
-            names.sort();
+            names.sort_by(|a, b| {
+                b.0.cmp(&a.0)
+                    .then_with(|| crate::browser::natural_cmp(&a.1, &b.1))
+            });
             names.truncate(MAX_DIR_ENTRIES);
-            PreviewLoaded::Directory(names)
+            PreviewLoaded::Directory(
+                names
+                    .into_iter()
+                    .map(|(is_dir, name)| if is_dir { format!("{name}/") } else { name })
+                    .collect(),
+            )
         }
         Err(e) => PreviewLoaded::Unavailable(format!("cannot read directory: {e}")),
     }
