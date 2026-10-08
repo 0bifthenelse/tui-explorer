@@ -28,6 +28,11 @@ pub enum SidebarItem {
     Bookmark {
         path: PathBuf,
     },
+    /// Web link bookmark (`:bookmark-url`); clicking opens it.
+    Link {
+        title: String,
+        url: String,
+    },
 }
 
 /// Sections in display order; each is a header plus its items.
@@ -36,6 +41,7 @@ pub struct SidebarSections {
     pub mounts: Vec<SidebarItem>,
     pub tags: Vec<SidebarItem>,
     pub bookmarks: Vec<SidebarItem>,
+    pub links: Vec<SidebarItem>,
 }
 
 fn push_place(places: &mut Vec<SidebarItem>, label: &str, path: PathBuf) {
@@ -166,6 +172,14 @@ pub fn build_sections(state: &AppState) -> SidebarSections {
             .iter()
             .map(|p| SidebarItem::Bookmark { path: p.clone() })
             .collect(),
+        links: state
+            .links
+            .iter()
+            .map(|l| SidebarItem::Link {
+                title: l.title.clone(),
+                url: l.url.clone(),
+            })
+            .collect(),
     }
 }
 
@@ -176,6 +190,7 @@ pub fn flatten(sections: &SidebarSections) -> Vec<SidebarItem> {
     out.extend(sections.mounts.iter().cloned());
     out.extend(sections.tags.iter().cloned());
     out.extend(sections.bookmarks.iter().cloned());
+    out.extend(sections.links.iter().cloned());
     out
 }
 

@@ -9,68 +9,186 @@ pub struct EntryView {
     pub tags: Vec<String>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum SortMode {
-    NameDirsFirst,
+/// What entries are ordered by.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum SortKey {
+    /// Natural, case-insensitive name order (`file2` before `file10`).
+    Name,
     Size,
-    SizeDesc,
     Modified,
-    ModifiedDesc,
-    NameDesc,
+    /// File category (icon kind), then name.
+    Type,
+    /// Extension, then name.
+    Extension,
 }
 
-impl SortMode {
+impl SortKey {
     pub fn label(self) -> &'static str {
         match self {
-            SortMode::NameDirsFirst => "name",
-            SortMode::Size => "size",
-            SortMode::SizeDesc => "size desc",
-            SortMode::Modified => "modified",
-            SortMode::ModifiedDesc => "modified desc",
-            SortMode::NameDesc => "name desc",
+            SortKey::Name => "name",
+            SortKey::Size => "size",
+            SortKey::Modified => "modified",
+            SortKey::Type => "type",
+            SortKey::Extension => "extension",
         }
     }
 
-    pub fn descending(self) -> bool {
-        matches!(
-            self,
-            SortMode::NameDesc | SortMode::SizeDesc | SortMode::ModifiedDesc
-        )
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "name" | "natural" | "basename" => Some(SortKey::Name),
+            "size" => Some(SortKey::Size),
+            "modified" | "time" | "date" | "mtime" => Some(SortKey::Modified),
+            "type" | "kind" => Some(SortKey::Type),
+            "extension" | "ext" => Some(SortKey::Extension),
+            _ => None,
+        }
     }
+}
+
+/// Sort order: a key plus direction. Directories always group first.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct SortMode {
+    pub key: SortKey,
+    pub desc: bool,
+}
+
+impl Default for SortMode {
+    fn default() -> Self {
+        SortMode::NAME
+    }
+}
+
+impl SortMode {
+    pub const NAME: SortMode = SortMode {
+        key: SortKey::Name,
+        desc: false,
+    };
+
+    pub const fn new(key: SortKey, desc: bool) -> Self {
+        SortMode { key, desc }
+    }
+
+    pub fn label(self) -> &'static str {
+        self.key.label()
+    }
+
+    pub fn descending(self) -> bool {
+        self.desc
+    }
+
+    pub fn reversed(self) -> Self {
+        SortMode {
+            key: self.key,
+            desc: !self.desc,
+        }
+    }
+
+    /// Parses `name`, `size-desc`, `modified-descending`, `type`, ...
+    pub fn parse(value: &str) -> Option<Self> {
+        let value = value.trim().to_ascii_lowercase();
+        let (key, desc) = if let Some(base) = value
+            .strip_suffix("-descending")
+            .or_else(|| value.strip_suffix("-desc"))
+        {
+            (base.to_string(), true)
+        } else {
+            (value, false)
+        };
+        SortKey::parse(&key).map(|key| SortMode { key, desc })
+    }
+
+    /// Stable persistence token (`size-desc`).
+    pub fn token(self) -> String {
+        if self.desc {
+            format!("{}-desc", self.key.label())
+        } else {
+            self.key.label().to_string()
+        }
+    }
+}
+
+/// Natural ordering: digit runs compare numerically, the rest
+/// case-insensitively, so `file2` sorts before `file10`.
+pub fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
+    use std::cmp::Ordering;
+    let mut ai = a.chars().peekable();
+    let mut bi = b.chars().peekable();
+    loop {
+        match (ai.peek().copied(), bi.peek().copied()) {
+            (None, None) => return Ordering::Equal,
+            (None, Some(_)) => return Ordering::Less,
+            (Some(_), None) => return Ordering::Greater,
+            (Some(x), Some(y)) if x.is_ascii_digit() && y.is_ascii_digit() => {
+                let mut na = String::new();
+                while let Some(c) = ai.peek().copied().filter(char::is_ascii_digit) {
+                    na.push(c);
+                    ai.next();
+                }
+                let mut nb = String::new();
+                while let Some(c) = bi.peek().copied().filter(char::is_ascii_digit) {
+                    nb.push(c);
+                    bi.next();
+                }
+                let ta = na.trim_start_matches('0');
+                let tb = nb.trim_start_matches('0');
+                let ord = ta.len().cmp(&tb.len()).then_with(|| ta.cmp(tb));
+                if ord != Ordering::Equal {
+                    return ord;
+                }
+            }
+            (Some(x), Some(y)) => {
+                let lx = x.to_lowercase().next().unwrap_or(x);
+                let ly = y.to_lowercase().next().unwrap_or(y);
+                if lx != ly {
+                    return lx.cmp(&ly);
+                }
+                ai.next();
+                bi.next();
+            }
+        }
+    }
+}
+
+fn extension_of(name: &str) -> String {
+    name.rsplit_once('.')
+        .filter(|(base, _)| !base.is_empty())
+        .map(|(_, ext)| ext.to_ascii_lowercase())
+        .unwrap_or_default()
+}
+
+/// True when the entry should group with directories (real directories
+/// and symlinks that resolve to one).
+pub fn is_dir_like(view: &EntryView) -> bool {
+    view.entry.kind.is_dir() || view.entry.link_dir
 }
 
 pub fn sort_entries(entries: &mut [EntryView], mode: SortMode) {
     entries.sort_by(|a, b| {
-        let dir_a = a.entry.kind.is_dir();
-        let dir_b = b.entry.kind.is_dir();
+        let dir_a = is_dir_like(a);
+        let dir_b = is_dir_like(b);
         if dir_a != dir_b {
             return dir_b.cmp(&dir_a);
         }
-        let primary = match mode {
-            SortMode::NameDirsFirst | SortMode::NameDesc => a
-                .entry
-                .name
-                .to_string_lossy()
-                .to_lowercase()
-                .cmp(&b.entry.name.to_string_lossy().to_lowercase()),
-            SortMode::Size | SortMode::SizeDesc => a.entry.size.cmp(&b.entry.size),
-            SortMode::Modified | SortMode::ModifiedDesc => a.entry.modified.cmp(&b.entry.modified),
+        let name_a = a.entry.name.to_string_lossy();
+        let name_b = b.entry.name.to_string_lossy();
+        let primary = match mode.key {
+            SortKey::Name => natural_cmp(&name_a, &name_b),
+            SortKey::Size => a.entry.size.cmp(&b.entry.size),
+            SortKey::Modified => a.entry.modified.cmp(&b.entry.modified),
+            SortKey::Type => {
+                let resolver = crate::icons::IconResolver::default();
+                let ka = format!("{:?}", resolver.resolve(&a.entry));
+                let kb = format!("{:?}", resolver.resolve(&b.entry));
+                ka.cmp(&kb)
+            }
+            SortKey::Extension => extension_of(&name_a).cmp(&extension_of(&name_b)),
         };
-        let primary = if matches!(
-            mode,
-            SortMode::NameDesc | SortMode::SizeDesc | SortMode::ModifiedDesc
-        ) {
+        let primary = if mode.desc {
             primary.reverse()
         } else {
             primary
         };
-        primary.then_with(|| {
-            a.entry
-                .name
-                .to_string_lossy()
-                .to_lowercase()
-                .cmp(&b.entry.name.to_string_lossy().to_lowercase())
-        })
+        primary.then_with(|| natural_cmp(&name_a, &name_b))
     });
 }
 
@@ -86,6 +204,15 @@ pub struct Browser {
     pub filter: Option<String>,
     pub sort_mode: SortMode,
     pub visual: bool,
+    /// Item counts for directory entries, filled in by a background pass.
+    pub child_counts: std::collections::HashMap<PathBuf, u32>,
+    /// Active incremental search (`/`): highlights matches, `n`/`N` jump.
+    pub search: Option<String>,
+    /// Visual-mode anchor (visible position where `v` started).
+    pub visual_anchor: Option<usize>,
+    /// Selection captured when visual mode started (the range is added on
+    /// top of it as the cursor moves).
+    pub visual_base: BTreeSet<PathBuf>,
 }
 
 impl Browser {
@@ -98,8 +225,12 @@ impl Browser {
             selection: BTreeSet::new(),
             show_hidden: false,
             filter: None,
-            sort_mode: SortMode::NameDirsFirst,
+            sort_mode: SortMode::NAME,
             visual: false,
+            child_counts: std::collections::HashMap::new(),
+            search: None,
+            visual_anchor: None,
+            visual_base: BTreeSet::new(),
         }
     }
 
@@ -415,6 +546,8 @@ mod tests {
                 hidden: name.starts_with('.'),
                 device: None,
                 inode: None,
+                link_target: None,
+                link_dir: false,
             },
             tags: Vec::new(),
         }
@@ -443,6 +576,23 @@ mod tests {
     }
 
     #[test]
+    fn natural_order_and_parse() {
+        use std::cmp::Ordering;
+        assert_eq!(natural_cmp("file2", "file10"), Ordering::Less);
+        assert_eq!(natural_cmp("File2", "file2"), Ordering::Equal);
+        assert_eq!(natural_cmp("a", "B"), Ordering::Less);
+        assert_eq!(
+            SortMode::parse("size-desc"),
+            Some(SortMode::new(SortKey::Size, true))
+        );
+        assert_eq!(SortMode::parse("bogus"), None);
+        assert_eq!(
+            SortMode::new(SortKey::Modified, true).token(),
+            "modified-desc"
+        );
+    }
+
+    #[test]
     fn hidden_toggle() {
         let mut b = browser();
         assert_eq!(b.visible_len(), 4);
@@ -455,17 +605,17 @@ mod tests {
     #[test]
     fn sort_mode_changes_order_without_losing_focus() {
         let mut b = browser();
-        b.set_sort_mode(SortMode::Size);
+        b.set_sort_mode(SortMode::new(SortKey::Size, false));
         let sizes: Vec<u64> = b.visible_entries().map(|(_, e)| e.entry.size).collect();
         assert!(sizes.windows(2).all(|pair| pair[0] <= pair[1]));
-        b.set_sort_mode(SortMode::Modified);
+        b.set_sort_mode(SortMode::new(SortKey::Modified, false));
         let modified: Vec<i64> = b.visible_entries().map(|(_, e)| e.entry.modified).collect();
         assert!(modified.windows(2).all(|pair| pair[0] <= pair[1]));
-        b.set_sort_mode(SortMode::SizeDesc);
+        b.set_sort_mode(SortMode::new(SortKey::Size, true));
         let descending: Vec<u64> = b.visible_entries().map(|(_, e)| e.entry.size).collect();
         assert!(descending.windows(2).all(|pair| pair[0] >= pair[1]));
         b.set_filter(Some("rs".into()));
-        b.set_sort_mode(SortMode::NameDesc);
+        b.set_sort_mode(SortMode::new(SortKey::Name, true));
         assert_eq!(b.visible_len(), 1);
     }
 

@@ -1,16 +1,16 @@
- tui-explorer /home/demo
-18 items  Sort: name (asc)
-|  docs  dir                                               |
-|  src  dir                                                |
-|  a very long file name that keeps going and going.txt  8~|
-|  app.tsx  5.0K                                           |
-|  archive.tar.gz  1.0M                                    |
-|  build.sh  256B                                          |
-|  Cargo.lock  50K                                         |
-|  Cargo.toml  734B                                        |
-|  data.json  8.0K                                         |
-|  deploy  15K                                             |
-|  index.html  1.0K                                        |
-|  main.rs  2.0K                                           |
-| e/Enter Open | X Crypt | Bsp Up | v Visual | t Tag
- BROWSER                                           5%  1/18
+ ▐/home/demo
+▌  opn docs/                                       0 items ┃
+   dir src/                                        2 items ┃
+   txt a very long file name that k…and going.txt      88B ┃
+   ts  app.tsx                                        5.0K ┃
+   zip archive.tar.gz                                 1.0M ┃
+   sh  build.sh                                       256B ┃
+   clk Cargo.lock                                      50K ┃
+   cgo Cargo.toml                                     734B ┃
+   jsn data.json                                      8.0K ┃
+   exe deploy                                          15K │
+   htm index.html                                     1.0K │
+   rs  main.rs                                        2.0K │
+   md  notes.md                                       1.5K │
+  Enter  open   Space  select   /  search   :  command
+▐ BROWSER ▌                                        5%  1/18

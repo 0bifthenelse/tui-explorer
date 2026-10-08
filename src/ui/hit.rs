@@ -1,6 +1,6 @@
 use ratatui::layout::Rect;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum LegendAction {
     Quit,
     Help,
@@ -17,11 +17,26 @@ pub enum LegendAction {
     Sidebar,
     Preview,
     Bookmarks,
+    Search,
+    Paste,
+    View,
+    Player,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum HitTarget {
     Row(usize),
+    /// A row of the Miller-columns parent pane (index into
+    /// `AppState::parent_rows`).
+    ParentRow(usize),
+    /// List column header: click sorts by that key (again to reverse).
+    SortBy(crate::browser::SortKey),
+    /// Header segmented control switching the layout.
+    ViewSwitch(crate::settings::ViewMode),
+    /// Empty part of the path bar: opens the address bar.
+    PathBar,
+    /// Header help chip.
+    HelpChip,
     /// Blank grid space between/around tiles; a left press here arms a
     /// marquee selection instead of touching any entry.
     GridBackground,
@@ -34,6 +49,19 @@ pub enum HitTarget {
     ConflictCancel,
     ConflictSkip,
     ConflictReplace,
+    ConflictKeepBoth,
+    /// Bookmarks hub: section tab (index into `HubSection::ALL`).
+    HubTab(usize),
+    /// Bookmarks hub: result row.
+    HubRow(usize),
+    /// Find / grep results row.
+    ResultRow(usize),
+    /// Open-with suggestion chip.
+    OpenWithChip(usize),
+    /// Open-with "remember for .ext" toggle.
+    OpenWithRemember,
+    /// Header tab chip.
+    Tab(usize),
     PickerItem(usize),
     PickerNew,
     PickerDelete,
@@ -48,7 +76,17 @@ pub enum HitTarget {
     MediaSeekRail,
     MediaFullscreen,
     MediaNext,
+    MediaPrev,
     MediaClose,
+    MediaMute,
+    MediaShuffle,
+    MediaRepeat,
+    /// Status-bar mini player: click expands the full player.
+    MiniPlayer,
+    /// Subtitle picker row.
+    SubRow(usize),
+    /// Queue panel row in the audio player.
+    QueueRow(usize),
     Blocker,
     Details,
 }

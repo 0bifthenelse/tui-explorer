@@ -1,36 +1,36 @@
- tui-explorer 0.1.0                             tui-explorer is awesome!                               Press ? for help
- Path: [ / ]>[ home ]>[ demo ]
-PLACES ----------------|18 items (2 dirs, 16 files)  Sort: name (asc)
- Root                  ||   ______   ||   ______   || .--------. ||+ app.tsx ---------+----. || .--------. |
-MOUNTS ----------------||  /______/_ ||  /______/_ || | .--'   | |||> Open            |'   | || | .--'   | |
-(no device mounts)     || |        | || |        | || | TXT    | |||  Open with       |    | || | SH     | |
-TAGS ------------------|| |        | || |        | || | ------ | |||  Rename          |--- | || | ------ | |
-(no tags yet)          || +--------+ || +--------+ || '--------' |||  Cut             |----' || '--------' |
-BOOKMARKS -------------|| docs       || src        || a very lon~|||  Copy            |ve.ta~|| build.sh   |
-(Ctrl-b bookmarks cwd) ||dir         ||dir         ||88B         |||  Delete          |      ||256B        |
-                       || .--------. || .--------. || .--------. |||  Tags            |----. || .--------. |
-                       || | .--'   | || | .--'   | || | .--'   | ||+------------------+'   | || | .--'   | |
-                       || | LOCK   | || | TOML   | || | JSON   | || | EXE>   | || | HTML   | || | RS     | |
-                       || | ------ | || | ------ | || | ------ | || | ------ | || | ------ | || | ------ | |
-                       || '--------' || '--------' || '--------' || '--------' || '--------' || '--------' |
-                       || Cargo.lock || Cargo.toml || data.json  || deploy     || index.html || main.rs    |
-                       ||50K         ||734B        ||8.0K        ||15K         ||1.0K        ||2.0K        |
-                       || .--------. || .--------. || .--------. || .--------. || .--------. || .--------. |
-                       || | .--'   | || | .--'   | || | .--'   | || | .--'   | || | .--'   | || | .--'   | |
-                       || | MD     | || | JSON   | || | PNG    | || | LNK>   | || | MP3    | || | CSS    | |
-                       || | ------ | || | ------ | || | ------ | || | ------ | || | ------ | || | ------ | |
-                       || '--------' || '--------' || '--------' || '--------' || '--------' || '--------' |
-                       || notes.md   || package.js~|| photo.png  || README link|| song.mp3   || style.css  |
-                       ||1.5K        ||412B        ||2.0M        ||9B          ||5.0M        ||2.5K        |
-                       |
-                       |
-                       |
-                       |
-                       |
-                       |
-                       |
-                       |
-                       |
-                       |
-| Enter choose | Esc close
- MENU                                                                                                   5.0K  22%  4/18
+ ◢◤ tui·explorer 0.1.0                                                             ≡ List  ⊞ Grid  ▥ Columns    ? help
+  /  ›  home  ›  demo                                                           18 items • 2 dirs • 8.1M • Sort: name ▲
+ PLACES                1 │       Name ▲                                                        Size  Modified Perms
+  / Root                 │   dir docs/                                                     0 items     2h ago drwxr-xr-x
+                         │   dir src/                                                      2 items     7m ago drwxr-xr-x
+ BOOKMARKS               │   txt a very long file name that keeps going and going.txt          88B    51m ago -rw-r--r--
+  Ctrl-b bookmarks this… │ ╭ app.tsx ─────────╮                                               5.0K     6m ago -rw-r--r--
+                         │ │> Open            │                                               1.0M     5h ago -rw-r--r--
+ TAGS                    │ │  Open with       │                                               256B     9m ago -rwxr-xr-x
+  T creates a tag        │ │  Rename          │                                                50K     2m ago -rw-r--r--
+                         │ │  Cut             │                                               734B     2m ago -rw-r--r--
+ DEVICES                 │ │  Copy            │                                               8.0K     9m ago -rw-r--r--
+  no device mounts       │ │  Delete          │                                                15K    17m ago -rwxr-xr-x
+                         │ │  Tags            │                                               1.0K    12m ago -rw-r--r--
+                         │ ╰──────────────────╯                                               2.0K     6m ago -rw-r--r--
+                         │   md  notes.md                                                     1.5K     1h ago -rw-r--r--
+                         │   pkg package.json                                                 412B     4m ago -rw-r--r--
+                         │   img photo.png                                                    2.0M    11h ago -rw-r--r--
+                         │   lnk README link                                                    9B    17m ago lrwxrwxrwx
+                         │   aud song.mp3                                                     5.0M     8h ago -rw-r--r--
+                         │   css style.css                                                    2.5K    12m ago -rw-r--r--
+                         │
+                         │
+                         │
+                         │
+                         │
+                         │
+                         │
+                         │
+                         │
+                         │
+                         │
+                         │
+                         │
+  Enter  choose   Esc  close
+▐ MENU ▌                                                                                                5.0K  22%  4/18

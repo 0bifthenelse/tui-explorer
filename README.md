@@ -1,116 +1,120 @@
 # tui-explorer
 
-A fast, open-source terminal file explorer for Linux with mouse support for GUI-like navigation and full Vim-style keyboard controls. Browse, open, select, move, rename, copy, delete, encrypt, tag, and manage files without leaving the terminal.
+A fast, good-looking terminal file explorer for Linux. Ranger-style keyboard power, desktop-style mouse support, three live layouts, a built-in music and video player with subtitles, web links, tabs and undo, all in a dark graphite UI with a signal-orange accent and smooth, animated feedback.
 
-![tui-explorer main interface: icon grid with folders and files, places/mounts/tags/bookmarks sidebar, details and preview panel, status and legend bars](docs/screenshots/png/overview-main.png)
+![tui-explorer: list layout with sidebar, preview panel, header layout switcher and contextual key legend](docs/screenshots/png/overview-main.png)
 
 ## What it is
 
-tui-explorer turns your terminal into a focused desktop-style file manager. Its dark ink-and-paper shell uses restrained signal orange for the current path, focused tile, mode, and primary actions. The layout scales from a compact single-panel browser to a framed three-panel workspace with places, files, and preview details. Drive it entirely with Vim-style motions or use the mouse: click to select, double-click to open, right-click for a context menu, scroll with the wheel, and click the breadcrumb to jump to any parent directory. All icons are plain ASCII art drawn by the application's own icon engine, so the interface needs no Nerd Fonts, emoji support, or desktop icon themes.
+tui-explorer turns your terminal into a focused file manager that is pleasant to use with either hand on the keyboard or the mouse. Rows glide under an orange cursor rail, hovered entries tint toward the accent, selected entries fill solid `#ff7d27`, modals ease in over a soft scrim, and folder listings cascade in. With reduced motion (`:set animations off`, `za`, or `TUI_EXPLORER_REDUCED_MOTION=1`) everything snaps instantly.
 
-Named tags (such as `[src]` or `[fav]`) can be attached to any file or directory and are stored in a local SQLite database, so they survive restarts. Files and folders can be encrypted and decrypted in place with the `age` crate's passphrase API. Image files render in the details panel with automatically detected terminal graphics, preferring Kitty when available and falling back to half-block cells when capability detection fails.
+Everything Ranger users expect is here: chords (`gg`, `yy`, `dd`, `pp`, `cw`, `gh`), counts (`5j`), marks, tabs, history, incremental search, `:find`, `:grep`, `:bulkrename`, `:chmod`, `:shell` with `%f %s %d` macros, trash with undo, and a which-key popup that lists what can follow the key you just pressed.
 
 ## Features
 
-- Responsive premium shell: clickable breadcrumb, framed ASCII icon grid, places/mounts/tags/bookmarks sidebar, metadata preview, status bar, command bar, and explicit focused, selected, and error states
-- File and folder encryption with the `age` crate's passphrase API (`X`): files become `name.ext.age`, folders are tar-archived to `name.tar.age`; masked password dialog, atomic temp-file output, no source deletion, no silent overwrites, safe archive extraction (no `..` or absolute paths, symlinks never followed)
-- Image previews in the panel (PNG, JPEG, GIF first frame, WebP, BMP) via `ratatui-image`; capability and cell-pixel detection happen before the TUI starts, Kitty graphics are used when detected, half-blocks provide the safe fallback, and image decoding stays off the render loop
-- Text and directory previews in the same panel, cached per focused entry and invalidated on mtime/size changes
-- Built-in audio and video players: audio files open straight into a media modal with transport buttons, an interactive seek rail, volume, and a 24-band logarithmic spectrum visualization (Symphonia decoders, rodio playback; the file is decoded exactly once); video plays through `mpv` with Kitty graphics
-- Directory browsing with breadcrumb, metadata columns, and symlink, executable, hidden, socket, pipe, and device distinctions
-- Full Vim-style keyboard control plus complete mouse navigation; no operation requires a mouse
-- Internal clipboard with copy/cut/paste semantics: right-click menus capture explicit targets, a background paste drops into the current directory, and a clipboard chip stays visible in the footer until pasted or replaced
-- Multi-selection with visual mode
-- Colon commands for copy, move, rename, delete, tag, and navigation
-- Original ASCII icon engine with compact, small, and large icon variants
-- Persistent named tags backed by SQLite, with a tag picker for creating, assigning, and deleting tags
-- Safe deletions: explicit confirmation, a second confirmation for recursive directory deletes, and conflict choices (cancel, skip, replace) for copy and move
-- Background workers for long operations, with live progress in the status bar
-- Responsive layout that adapts from ultrawide down to tiny terminals
-- Correct handling of non-UTF-8 Linux filenames
-- Deterministic, automatically generated screenshots and snapshot tests
+- **Three layouts, switchable live**: List (default, with size, child count, relative time and colored permissions), Grid (large or compact tiles) and Miller Columns (parent, current, preview). Switch with `zl` / `zg` / `zc`, `zv` to cycle, `:view`, or by clicking the header switcher. The layout is remembered.
+- **Ranger-grade keyboard**: chords, counts, marks (`m<key>`, `'<key>`), tabs (`gn`, `gt`, `gc`, `uq`, Alt-1…9), history (`H` / `L`, `''`), go-to chords (`gh`, `gr`, `ge`, `gD`, …), sort chords (`os`, `om`, `or`, …), inline rename (`cw`, `A`, `I`, `a`), create (`+`, a trailing `/` makes a folder, nested paths allowed), copy, cut and paste (`yy`, `dd`, `pp`, `po`, `pl` for symlinks), trash (`dT`, Delete) and permanent delete (`dD`), undo (`uu`), yank path, folder, name or stem to the system clipboard (`yp`, `yd`, `yn`, `yN`; OSC 52 plus wl-copy, xclip or xsel), and a which-key popup.
+- **Search three ways**: `/` highlights matches and jumps between them (`n` / `N`); `f` jumps as you type and opens a unique match; `Ctrl-f` / `zf` filters the listing. `:find <glob>` and `:grep <text>` search recursively on a worker thread and open a filterable results list.
+- **Command line with autocomplete**: a live suggestion dropdown with descriptions, Tab completion of command names and paths, and persisted Up/Down history.
+- **Address bar** (`Ctrl-L`, or click the path bar): edit the location in place with path completion. It accepts `~`, relative paths, `..` and `file://` URIs. A file path opens its folder with the file focused, and an `http(s)` link opens in the browser. Pasting a path or link into the browser opens the address bar pre-filled (bracketed paste).
+- **Bookmarks hub** (`B`): folders, web links, marks and frecency-ranked recent folders behind one fuzzy search, with section tabs (Tab cycles) and Delete to remove. Web links live in the sidebar's LINKS section too.
+- **URLs everywhere**: `:bookmark-url <url> [title]` saves links. Enter on a `.url` or `.webloc` shortcut opens its link. `gx` opens the URLs found in the focused file (a picker appears when there are several). URLs in text previews are underlined. Streamable links play in the built-in player when mpv is installed.
+- **Open with, remembered per extension**: the first Enter on an unknown file type asks which program to use. Suggestion chips list what is installed (zathura, evince, imv, feh, nvim, libreoffice, …) and the choice is remembered for that extension, compound ones like `.tar.gz` included. `r` always asks again. GUI programs detach, terminal programs take over the screen until they exit. Text, code and images open in **Quick Look** (`i`), a scrollable full-screen viewer with line numbers.
+- **Music player**: queue built from the folder or the selection, auto-advance, shuffle (`x`), repeat off, all or one (`r`), previous and next (`p` / `n`), speed (`[` `]`), jump to a percentage (`0`–`9`), volume up to 130 % that is remembered between sessions, mute (`m`), title, artist and album tags with embedded cover art, a smooth gradient spectrum, and a clickable "Up next" queue. Press Esc and the music keeps playing in a **status-bar mini player** with its own play, previous and next buttons; `M` brings the full player back.
+- **Video player** (mpv): plays inside the player window on Kitty or sixel terminals, in mpv's own window when a display is available (`f` toggles real fullscreen), or as truecolor text on any terminal (`:set video kitty|sixel|window|tct|auto`). **Subtitles**: `c` opens a picker that finds `.srt`, `.ass`, `.ssa`, `.vtt` and `.sub` files next to the video, in `Subs/` folders (including `Subs/<video name>/`), in the parent folder and in `~/Downloads`, ranked by name match and language. Type to filter, Enter to load. `j` cycles tracks, `v` toggles subtitles, `z` / `Z` shift the delay, `a` cycles audio tracks. Loaded subtitles survive fullscreen restarts.
+- **Shell integration**: `!` / `s` runs a shell line with `%f` (focused), `%s` (selection) and `%d` (folder) macros, shell-quoted. `S` opens an interactive shell in the current folder, `E` opens `$EDITOR`, and `:bulkrename` edits the selection's names in your editor and shows a confirmation before renaming (swaps and cycles are handled safely).
+- **Safe file operations**: freedesktop trash with undo, conflict dialogs (cancel, skip, replace, keep both), pasting into the same folder makes "name (2)" copies, nested creation, `:chmod` with octal or symbolic modes, `:symlink`, folder sizes (`du`).
+- **Encryption** with the `age` crate (`X`), **tags** backed by SQLite (`t`, `T`), image previews through Kitty, sixel or half-blocks, and mouse support throughout: click, double-click, right-click menus, marquee selection, drag-and-drop moves, wheel scrolling, clickable sort headers, tabs, breadcrumbs and sidebar.
+- **Remembers you**: layout, sort, hidden files, panels, animations, icon style, video output, volume, associations, marks, recent folders and command history persist in `session.json`.
+- Works without Nerd Fonts (`:set icons nerd` switches to Nerd glyphs), has an ASCII mode (`:set charset ascii`, `TUI_EXPLORER_ASCII=1`), maps colors to 256-color terminals automatically, measures CJK and emoji widths correctly, and handles non-UTF-8 file names.
 
 ## Screenshots
 
-All raster screenshots are real renders of the application UI at exactly 1920x1080, generated from repository code (see [Regenerating screenshots](#regenerating-screenshots)).
+Layouts: List (above), Grid and Miller Columns (`zl`, `zg`, `zc`):
 
-Image preview in the details panel (half-block protocol rendering):
+![grid layout with large tiles](docs/screenshots/png/layout-grid.png)
 
-![image preview: photo.png focused, metadata and a rendered image in the details panel](docs/screenshots/png/details-preview.png)
+![Miller columns: parent, current and preview panes](docs/screenshots/png/layout-columns.png)
 
-Tag picker and manager (`T`):
+Bookmarks hub (`B`) with folders, web links, marks and recent folders:
 
-![tag picker modal listing fav, media, src and work tags](docs/screenshots/png/tag-picker.png)
+![bookmarks hub with section tabs and fuzzy search](docs/screenshots/png/bookmarks-hub.png)
 
-Command mode (`:`):
+Music player with tags, cover art, spectrum and queue:
 
-![command mode with :copy "/mnt/backup drive" typed into the command bar](docs/screenshots/png/command-mode.png)
+![now playing: title, artist and album, cover, gradient spectrum, up next queue](docs/screenshots/png/music-player.png)
 
-Help overlay (`?`):
+Subtitle picker (`c` in the video player):
 
-![help overlay with the full key legend](docs/screenshots/png/help-overlay.png)
+![subtitle picker listing local srt files with languages](docs/screenshots/png/subtitle-picker.png)
 
-Compact layout on a small terminal (SVG, 60x16 cells):
+Which-key after pressing `g`, and `:grep` results:
 
-![compact layout at 60x16](docs/screenshots/compact.svg)
+![which-key popup listing g continuations](docs/screenshots/png/which-key.png)
 
-## Controls
+![grep results with line numbers and highlighted matches](docs/screenshots/png/grep-results.png)
 
-| Key | Action |
+Address bar with path completion (`Ctrl-L`):
+
+![address bar editing the path with a completion dropdown](docs/screenshots/png/address-bar.png)
+
+Help (`?`) is generated from the key table and is searchable as you type:
+
+![searchable help overlay](docs/screenshots/png/help-overlay.png)
+
+## Keys
+
+Press `?` for the complete, searchable list. The essentials:
+
+| Keys | Action |
 | --- | --- |
-| `j` / Down | move selection one grid row down |
-| `k` / Up | move selection one grid row up |
-| `h` / Left | move one tile left |
-| `l` / Right | move one tile right |
-| Backspace | open parent directory |
-| `F5` | refresh the current directory |
-| `e` / Enter | enter directory, or open a file (audio and video play in the media modal; other files prompt for a command) |
-| `r` | open with: prompt for a command to run on the focused entry |
-| `X` | encrypt / decrypt the focused entry (masked password dialog) |
-| `b` | toggle the sidebar |
-| `p` | toggle the preview panel |
-| `B` | open the fuzzy bookmark navigator |
-| `Ctrl-b` | bookmark / unbookmark the current directory |
-| `g g` | first entry |
-| `G` | last entry |
-| `Ctrl-u` / `Ctrl-d` | half page up / down |
-| PageUp / PageDown | full page up / down |
-| Space | toggle entry in selection |
-| `v` | enter or leave visual multi-selection mode |
-| `.` | toggle hidden files |
-| `t` | toggle the default or last-used tag |
-| `T` | open the tag picker and manager |
-| `:` | enter command mode |
-| `/` / `Ctrl-f` | quick filter: opens `:filter ` prompt for the current directory |
-| Esc | cancel the current mode, modal, or command; clear an active filename filter |
-| `?` | open the help overlay |
-| `q` | quit (when no modal or command is active) |
+| `j` `k` / arrows, `5j` | move (counts work) |
+| `h` / `l` | parent folder / open (in Grid: move between tiles) |
+| Enter, `e`, double-click | open: folders enter, media plays, text and images open in Quick Look, other files use the remembered program |
+| `gg` / `G` / `J` `K` | first / last / half page |
+| `gh` `gr` `ge` `gu` `gD` … | go to home, `/`, `/etc`, `/usr`, `~/Downloads` … |
+| `H` / `L` / `''` | history back / forward / previous folder |
+| `gn` `gt` `gT` `gc` `uq`, Alt-1…9 | tabs: new, next, previous, close, restore, jump |
+| Space / `v` / `V` / Ctrl-A / `uv` | toggle and move / visual range / invert / all / clear |
+| `yy` `dd` `pp` `po` `pl` | copy, cut, paste, paste overwriting, paste as symlinks |
+| `yp` `yd` `yn` `yN` | yank path, folder, name, name without extension |
+| `cw` F2 `A` `I` `a` | rename (inline, in the row) |
+| `+` | create (`name/` makes a folder, `a/b/c.txt` works) |
+| `dT` Delete / `dD` | trash / delete forever (confirmed) |
+| `uu` Ctrl-Z | undo the last rename, move, copy, trash or create |
+| `/` `n` `N`, `f`, Ctrl-F | search, find-as-you-type, filter |
+| `m<key>` / `'<key>` / `um<key>` | set / jump to / delete a mark |
+| `B` / Ctrl-B | bookmarks hub / bookmark this folder |
+| Ctrl-L | address bar |
+| `gx` / `gl` | open URLs in the file / follow a symlink |
+| `zl` `zg` `zc` `zv` | list, grid, columns, cycle |
+| `zh` or `.`, `zp`, `zs` or `b`, `za` | hidden files, preview, sidebar, animations |
+| `os` `om` `on` `ot` `oe` `or` | sort by size, modified, name, type, extension; reverse |
+| `i` / `r` / `E` | quick look / open with… / edit in `$EDITOR` |
+| `!` `s` / `S` | shell command / interactive shell here |
+| `du` | folder sizes |
+| `X` / `t` `T` | encrypt or decrypt / tags |
+| `M` | show the player (from the mini player) |
+| `:` `?` `q` | command line, help, quit |
 
-Mouse controls:
+Player keys:
 
-- Left click: select a tile, activate a legend action, navigate the breadcrumb or jump to a sidebar place/mount/bookmark (a single click never opens anything)
-- Double left click on the same entry: enter a directory, or prompt for a command to open a file
-- Right click on an entry: context menu. On an entry that is part of a multi-selection, the menu targets every selected entry (Bulk menu with Copy/Cut/Delete); otherwise it targets only the clicked entry (Single menu with Open/Open-with/Rename/Cut/Copy/Delete/Tags)
-- Right click on empty background: background menu offering Paste into the current directory (enabled when the clipboard holds items); the selection is untouched
-- Click empty space: deselect everything
-- Mouse wheel: scroll the list
-- Click a tag badge in the details panel: open the tag picker
-- Click outside a modal: dismiss it (only when safe, destructive confirmations always cancel)
-
-Media controls (in the media modal):
-
-| Key | Action |
+| Keys | Action |
 | --- | --- |
-| Space / Enter | play or pause |
-| Left / `h` | seek back 15 seconds |
-| Right / `l` | seek forward 15 seconds |
-| Up / Down | volume up / down in 5% steps (`+` / `-` also work) |
-| `f` | toggle fullscreen video (video only) |
-| `n` | next track in the playlist |
-| `s` | stop and restart from the beginning |
-| Esc / `q` | close the media modal |
+| Space / Enter | play / pause |
+| ← → (`h` `l`), Shift-← → (`H` `L`) | seek 15 s / 60 s |
+| `0`…`9` | jump to 0 %…90 % |
+| ↑ ↓ `+` `-` / `m` | volume (up to 130 %, remembered) / mute |
+| `n` / `p` | next / previous track |
+| `x` / `r` | shuffle / repeat off, all, one |
+| `[` `]` Backspace | slower / faster / normal speed |
+| `c` / `j` / `v` / `z` `Z` | subtitle picker / next track / on-off / delay -/+ 0.1 s |
+| `a` | next audio track |
+| `f` | fullscreen video |
+| Esc | audio: keep playing in the mini player; video: close |
+| `q` / `s` | stop and close / restart from the beginning |
 
-The modal also offers on-screen transport buttons and a clickable seek rail: click or drag the rail to scrub, release to commit the seek.
+Mouse: click selects, double-click opens, right-click opens a context menu (bulk on selections), drag on the background draws a marquee, dragging entries onto a folder moves them (Ctrl copies), the wheel scrolls, and column headers, the layout switcher, tabs, breadcrumbs, the sidebar, legend keycaps, chips and mini-player buttons are all clickable.
 
 ### Supported audio formats
 
@@ -121,13 +125,33 @@ The modal also offers on-screen transport buttons and a clickable seek rail: cli
 
 M4A files play natively for both AAC-LC and ALAC: the container's codec parameters are completed decoder-side when the demuxer leaves them unset. AIFF files are handled by a built-in parser supporting uncompressed integer PCM (`NONE`, `sowt`, `twos`) at 8, 16, 24, and 32 bits per sample plus 32-bit floats; other AIFF compressions report a typed error instead of failing silently. Every format in the native route is exercised by the deterministic fixture suite under `tests/fixtures/audio/`, which decodes, seeks within, and checks durations of real generated tones; the claims above reflect exactly what those tests cover.
 
-### Selection semantics
+## Command mode
 
-The explicit selection (Space, `v` visual mode, click-drag marquee) is authoritative for mouse menus and bulk operations. Keyboard commands and colon commands act on the selection when one exists, and fall back to the focused entry when it does not. Right-clicking an unselected entry never silently extends or collapses the selection: it opens a single-item menu for that entry while the existing selection stays intact. Left-clicking empty space clears the selection entirely.
+Press `:` and type. A dropdown suggests commands with descriptions, Tab completes command names and paths, Up/Down walks the persisted history. Quote paths with spaces: `:copy "/mnt/backup drive"`. Commands act on the selection, or on the focused entry when nothing is selected. Command input is parsed by the application and never passed to a shell (except `:shell`, which is explicit).
 
-### Status bar
-
-The left side shows the hovered filename, falling back to the single selected entry's name, then a `{n} items selected` summary. Center and right keep the existing message and indicator segments; an active error always takes precedence over the filename segment. A clipboard chip such as `COPY: 3 items` appears while items are held and disappears once pasted or replaced.
+| Command | Action |
+| --- | --- |
+| `:cd <path>` | change folder (`~`, relative, `file://`; a file path focuses the file; a web link opens it) |
+| `:copy` / `:move <dest>` (`:cp` / `:mv`) | copy / move to a folder |
+| `:rename <name>`, `:bulkrename` | rename one entry / rename the selection in `$EDITOR` |
+| `:create <name>` (`:new`), `:mkdir`, `:touch` | create files and folders (`name/` = folder, nested paths) |
+| `:delete` (`:rm`), `:trash`, `:undo` | delete (confirmed), move to trash, undo |
+| `:chmod <mode>` | `755`, `+x`, `go-w`, … |
+| `:symlink <name>` | create a symbolic link to the focused entry |
+| `:search <text>`, `:filter <text>`, `:clearfilter` | highlight matches, filter the listing |
+| `:find <glob>`, `:grep <text>` | recursive name / content search with a results list |
+| `:sort name\|size\|modified\|type\|extension[-desc]` | sort |
+| `:view list\|grid\|columns` | layout |
+| `:set <key> <value>` | `animations`, `hidden`, `charset`, `icons`, `preview`, `sidebar`, `view`, `grid`, `sort`, `video`, `subs`, `volume` |
+| `:shell <cmd>` | run a shell line; `%f` focused, `%s` selection, `%d` folder (shell-quoted) |
+| `:du` | folder sizes |
+| `:tab new\|close`, `:mark <key>` | tabs and marks |
+| `:bookmark-url <url> [title]`, `:url <url>`, `:links` | web links |
+| `:assoc [ext command]`, `:unassoc <ext>` | list, set or forget "open with" programs |
+| `:open`, `:open-with <cmd> [args]` (`:ow`) | open / run a program directly |
+| `:play`, `:pause`, `:next`, `:prev`, `:queue`, `:sub <path>` | player control |
+| `:tag <name>`, `:untag <name>`, `:tags` | tags |
+| `:selectall`, `:invert`, `:deselect`, `:refresh`, `:help`, `:quit` | misc |
 
 ## Encryption
 
@@ -140,49 +164,13 @@ Press `X` on any entry. Regular files and folders are encrypted with the maintai
 
 ## Configuration
 
-- `TUI_EXPLORER_DOUBLE_CLICK_MS`: double-click threshold in milliseconds (default 500)
-- `TUI_EXPLORER_IMAGE_PROTOCOL`: override automatic image protocol detection with `halfblocks`, `kitty`, `sixel`, or `iterm2`. Without an override, tui-explorer queries terminal capabilities and cell-pixel geometry, prefers Kitty when detected, and uses the 8x16 half-block fallback if the query fails. An invalid override also selects half-blocks.
-- Bookmarks are stored in `$XDG_DATA_HOME/tui-explorer/bookmarks.txt`, tags in `tags.sqlite3` alongside it
+Preferences are saved automatically to `$XDG_DATA_HOME/tui-explorer/session.json` (`:set` changes them live). Environment variables:
 
-## Command mode
-
-Press `:` and type a command. Paths with spaces work when quoted, for example `:copy "/mnt/backup drive"`. Commands apply to all selected entries, or to the focused entry when nothing is selected.
-
-| Command | Action |
-| --- | --- |
-| `:copy <destination>` (`:cp`) | copy targets to a directory |
-| `:move <destination>` (`:mv`) | move targets to a directory |
-| `:rename <new-name>` | rename the focused entry |
-| `:delete` (`:rm`) | delete targets (always confirmed) |
-| `:mkdir <name>` | create a directory in the current directory (parents created as needed) |
-| `:touch <name>` | create an empty file, or update its modified time if it already exists |
-| `:selectall` (`:select-all`) | select every entry in the current listing |
-| `:invert` (`:invertselection`) | invert the current selection |
-| `:deselect` (`:clearselection`) | clear the current selection |
-| `:filter <text>` (`:search`) | show only matching names in the current directory |
-| `:clearfilter` (`:clear-search`) | restore all names in the current directory |
-| `:sort name|size|modified` | sort entries by name, size, or modification time; append `-desc` for descending order |
-| `:refresh` (`:reload`) | reload the current directory |
-| `:tag <name>` | assign a tag (created if missing) |
-| `:untag <name>` | remove a tag |
-| `:tags` | open the tag picker |
-| `:open` | open the focused entry (directories enter, files prompt for a command) |
-| `:open-with <command> [args...]` (`:ow`) | run `<command> [args...] <entry>` directly, no prompt |
-| `:cd <path>` | change directory (`~` and relative paths work) |
-| `:quit` (`:q`) | quit |
-| `:help` | open the help overlay |
-
-Command input is parsed by the application itself. It is never passed to a shell, and files are always opened by spawning programs directly with argument arrays.
-
-### Open with
-
-Press `r` on a focused entry to open a small prompt asking which command to run against it, for example typing `mupdf` to run `mupdf <path>` on a focused PDF, or `mupdf -r 150` to pass flags. The command is split the same quote-aware way as the rest of command mode, so `"my viewer" --flag` works.
-
-The prompt is now the only way a file is opened: `e`/`Enter`, double-click, and `:open` all route into it, and nothing is remembered between prompts. `:open-with <command> [args...]` (alias `:ow`) skips the prompt because the command is already supplied on the line.
-
-### Bookmarks
-
-`Ctrl-b` bookmarks or unbookmarks the current directory (persisted in `bookmarks.txt`, one absolute path per line, unchanged format). `B` opens a fuzzy bookmark navigator: type to filter the bookmark list live (case-insensitive subsequence matching, basename matches ranked first), Up/Down or Ctrl-n/Ctrl-p to move the selection, Enter to navigate to the selected bookmark, Esc to close. The navigator opens even with no bookmarks and explains how to add one.
+- `TUI_EXPLORER_REDUCED_MOTION=1`: no animations
+- `TUI_EXPLORER_ASCII=1`: ASCII-only glyphs
+- `TUI_EXPLORER_IMAGE_PROTOCOL`: force `halfblocks`, `kitty`, `sixel` or `iterm2` for image previews (otherwise detected with a short, non-blocking terminal query)
+- `TUI_EXPLORER_DOUBLE_CLICK_MS`: double-click threshold (default 500)
+- `$EDITOR` / `$VISUAL`, `$SHELL`, `$BROWSER` are honored; `COLORTERM=truecolor` enables 24-bit color (otherwise the frame is mapped to 256 colors)
 
 ## Icons
 
@@ -272,15 +260,10 @@ A positional argument selects the startup directory; without one the current wor
 
 ## Configuration and data locations
 
-- Tags database: `$XDG_DATA_HOME/tui-explorer/tags.sqlite3`
-- Configuration (reserved for future options): `$XDG_CONFIG_HOME/tui-explorer/config.toml`
+- Session (preferences, associations, marks, recent folders, command history): `$XDG_DATA_HOME/tui-explorer/session.json`
+- Folder bookmarks: `bookmarks.txt`; web links: `links.tsv` (`title<TAB>url`); tags: `tags.sqlite3`, all in the same folder
+- Trash: the freedesktop trash (`$XDG_DATA_HOME/Trash`), so files trashed here show up in your desktop's trash too
 - Disposable cache and logs: `$XDG_CACHE_HOME/tui-explorer/`
-
-Opening files:
-
-- Files always open through the command prompt: `e`/`Enter`, double-click, and `:open` ask which command to run; directories always open internally
-- No environment variable or `xdg-open` fallback exists
-- The interface suspends and restores the terminal around the child process and forces a full repaint afterwards
 
 ## Safety and deletion behavior
 
@@ -296,9 +279,14 @@ Linux filenames are bytes, not text. tui-explorer keeps paths as `PathBuf` and n
 
 Single Cargo package with a library and three binaries (`tui-explorer`, the `screenshots` generator, and the `visual` dump harness):
 
-- `app`: application state, modes, the reducer, and side-effect boundaries
-- `ui`: layout tiers, rendering, and the hit-test model used by the mouse
-- `input`: key mapping, click detection, and the command parser
+- `app`: application state, modes, the reducer and side-effect boundaries; `ranger` (chords, tabs, marks, clipboard, undo, prompts), `commands`, `cmdline` (suggestions, completion, history), `hub` (bookmarks hub), `links` (URLs), `open` (associations, quick look) and `media_ctl` (queue, mini player, subtitles, volume)
+- `ui`: layout tiers and rendering (`list`, `grid`, `columns`, `chrome`, `side`, `preview`, `modals`, `overlays`, `media`), the implicit animation engine (`anim`), color math (`theme`), glyph sets, and the hit-test model used by the mouse
+- `input`: the chord binding table (also the source of the help screen), key mapping, the line editor and the command parser
+- `settings`: persisted preferences (`session.json`)
+- `search`: recursive find, grep and folder sizes
+- `urls`: URL scanning, shortcut files and the link store
+- `system`: clipboard (OSC 52), detached launches, `$EDITOR` and shell round trips
+- `media`: audio decoding and spectrum, mpv control, subtitle discovery and track tags
 - `browser`: directory state, sorting, filtering, selection, navigation
 - `filesystem`: the `FileSystem` and `MutationBackend` traits plus the real Linux backend
 - `operations`: copy, move, rename, delete jobs, validation, and conflict handling
@@ -308,7 +296,7 @@ Single Cargo package with a library and three binaries (`tui-explorer`, the `scr
 - `icons`: the ASCII icon registry and resolver
 - `tags`: the SQLite repository, schema, and migrations
 - `config`: XDG path resolution
-- `terminal`: lifecycle guard, panic hook, and suspend/resume for editors
+- `terminal`: lifecycle guard, panic hook, suspend/resume, bracketed paste, and the non-blocking graphics capability probe
 - `testing`: in-memory filesystem, recording mutation service, deterministic builders, event replay, and the SVG converter
 
 Domain state is independent of the terminal widgets, so behavior is tested without a terminal and without touching the real filesystem.
@@ -370,15 +358,15 @@ Automated tests never exercise the real mutation backend by design. The followin
 - Opening files through the command prompt on a live terminal
 - Tag database creation, permissions, and persistence across restarts on a real home directory
 - Kitty/Sixel/iTerm2 pixel output on a graphics terminal (headless tests exercise the half-block fallback only)
-- Live audio output through a real ALSA device and live mpv/Kitty video playback (automated tests use synthetic in-memory PCM and never claim device coverage)
+- Live audio output through a real ALSA device and live mpv video playback on Kitty, sixel, window and text outputs (automated tests drive the player state machine deterministically; the real-time paths were exercised manually under tmux, Xvfb and an ALSA null sink)
 
 ## Current limitations
 
 - Linux only
-- One directory pane; no tabs or dual-pane mode
-- Search is currently limited to filtering names in the open directory; recursive content search is not included
-- Display width of non-ASCII characters is approximated by character count
+- Directory listings are read on the UI thread; extremely large folders can pause briefly
+- File operations run one job at a time
 - External moves of tagged files are not followed automatically
+- Text-mode video (`tct`) gives mpv the whole terminal while playing; the controls return when paused
 
 ## Contributing
 

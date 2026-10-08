@@ -56,6 +56,7 @@ impl MpvProcess {
         cell_pixels: (u16, u16),
         session: u64,
         resume: Option<(f64, bool)>,
+        backend: super::VideoBackend,
     ) -> Result<Self, String> {
         let socket_path = open_private_socket(session)?;
 
@@ -63,12 +64,16 @@ impl MpvProcess {
         command
             .args(common_mpv_args(path, &socket_path))
             .args(resume_args(resume))
-            .args(kitty_video_args(geometry_cells, size_cells, cell_pixels))
+            .args(video_args(backend, geometry_cells, size_cells, cell_pixels))
             .stdin(Stdio::null())
-            // The Kitty video output paints through stdout; discarding it
-            // would leave audio-only playback. stderr stays piped for
-            // bounded diagnostics.
-            .stdout(Stdio::inherit())
+            // In-terminal outputs paint through stdout; discarding it
+            // would leave audio-only playback. A GUI window needs none.
+            // stderr stays piped for bounded diagnostics.
+            .stdout(if backend.in_terminal() {
+                Stdio::inherit()
+            } else {
+                Stdio::null()
+            })
             .stderr(Stdio::piped());
         finish_spawn(command, socket_path)
     }
@@ -338,6 +343,40 @@ fn kitty_video_args(
     ]
 }
 
+/// Output flags per backend.
+pub fn video_args(
+    backend: super::VideoBackend,
+    geometry_cells: (u16, u16),
+    size_cells: (u16, u16),
+    cell_pixels: (u16, u16),
+) -> Vec<String> {
+    use super::VideoBackend;
+    match backend {
+        VideoBackend::Kitty => kitty_video_args(geometry_cells, size_cells, cell_pixels),
+        VideoBackend::Sixel => kitty_video_args(geometry_cells, size_cells, cell_pixels)
+            .into_iter()
+            .map(|arg| {
+                arg.replace("vo=kitty", "vo=sixel")
+                    .replace("--vo-kitty-", "--vo-sixel-")
+            })
+            .filter(|arg| !arg.starts_with("--vo-sixel-use-shm"))
+            .collect(),
+        VideoBackend::Window => vec![
+            // Later flags override `--force-window=no` from the common set.
+            "--force-window=yes".to_string(),
+            "--keep-open=no".to_string(),
+            "--title=tui-explorer · ${filename}".to_string(),
+            "--input-default-bindings=yes".to_string(),
+        ],
+        VideoBackend::Tct => vec![
+            "--vo=tct".to_string(),
+            "--vo-tct-algo=half-blocks".to_string(),
+            format!("--vo-tct-width={}", size_cells.0.max(1)),
+            format!("--vo-tct-height={}", size_cells.1.max(1)),
+        ],
+    }
+}
+
 /// Spawns the prepared command with the pdeathsig guard, captures bounded
 /// stderr, waits briefly for the IPC socket, and wires the nonblocking
 /// stream pair. Shared tail of `spawn` and `spawn_audio`.
@@ -409,14 +448,33 @@ fn private_socket_path(session: u64) -> Result<PathBuf, String> {
                 .join(format!("mpv-{}-{session}.sock", std::process::id())));
         }
     }
-    let cache = std::env::var("XDG_CACHE_HOME").unwrap_or_default();
-    if cache.is_empty() || !Path::new(&cache).is_absolute() {
-        return Err("XDG_RUNTIME_DIR or XDG_CACHE_HOME must be an absolute path".to_string());
+    let name = format!("mpv-{}-{session}.sock", std::process::id());
+    let cache = std::env::var("XDG_CACHE_HOME")
+        .ok()
+        .filter(|c| !c.is_empty() && Path::new(c).is_absolute())
+        .map(PathBuf::from)
+        .or_else(|| {
+            std::env::var("HOME")
+                .ok()
+                .filter(|h| !h.is_empty() && Path::new(h).is_absolute())
+                .map(|h| Path::new(&h).join(".cache"))
+        });
+    if let Some(cache) = cache {
+        let path = cache.join("tui-explorer").join("run").join(&name);
+        // Unix socket paths are limited to ~108 bytes.
+        if path.as_os_str().len() < 100 {
+            return Ok(path);
+        }
     }
-    Ok(Path::new(&cache)
-        .join("tui-explorer")
-        .join("run")
-        .join(format!("mpv-{}-{session}.sock", std::process::id())))
+    // Last resort: a per-user private directory under the temp dir
+    // (`prepare_socket_dir` enforces mode 0700).
+    #[cfg(unix)]
+    let user = unsafe { libc::getuid() };
+    #[cfg(not(unix))]
+    let user = 0;
+    Ok(std::env::temp_dir()
+        .join(format!("tui-explorer-{user}"))
+        .join(name))
 }
 
 /// Creates the parent directory of `socket` with mode 0700, enforcing the

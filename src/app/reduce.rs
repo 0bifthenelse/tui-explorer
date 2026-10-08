@@ -4,40 +4,66 @@ use std::time::Instant;
 
 use crate::app::action::{Action, ConflictDecision, DirectorySnapshot, MouseKind};
 use crate::app::effects::Effect;
+use crate::app::ranger;
 use crate::app::state::{
-    AppState, BookmarkNavState, ClipMode, ClipboardState, ConfirmAction, ConfirmState,
-    ConflictState, ContextItem, ContextMenuState, ContextTarget, DragPhase, DragState, HoverState,
-    MarqueePhase, MarqueeState, MediaState, Mode, OpenWithState, OperationState, Password,
-    PasswordPurpose, PasswordState, PreviewContent, StatusMessage, TagPickerState,
+    AppState, ClipMode, ClipboardState, ConfirmAction, ConfirmState, ConflictState, ContextItem,
+    ContextMenuState, ContextTarget, DragPhase, DragState, HoverState, HubSection, MarqueePhase,
+    MarqueeState, MediaState, Mode, OperationState, Password, PasswordPurpose, PasswordState,
+    PreviewContent, StatusMessage, TagPickerState,
 };
 use crate::browser::SortMode;
 use crate::crypto::CryptoKind;
-use crate::filesystem::EntryKind;
 use crate::input::command::{self, Command};
 use crate::media::{AfterStop, MediaCommand, MediaKind, MediaPhase, classify_path};
 use crate::operations::{
     ConflictPolicy, OpOutcome, OperationKind, OperationPlan, OperationReport, validate,
     validate_rename,
 };
+use crate::settings::ViewMode;
 use crate::sidebar::SidebarItem;
 use crate::tags::validate_name;
 use crate::ui::hit::{HitTarget, LegendAction};
 
 pub fn reduce(state: &mut AppState, action: Action) -> Vec<Effect> {
     let mut effects = reduce_inner(state, action);
+    if !matches!(state.mode, Mode::Command) {
+        state.address_bar = false;
+    }
+    sync_visual(state);
     if let Some(effect) = preview_followup(state) {
         effects.push(effect);
     }
     effects
 }
 
+/// Visual mode: the selection is the base set plus every entry between the
+/// anchor and the cursor.
+fn sync_visual(state: &mut AppState) {
+    if !state.browser.visual {
+        state.browser.visual_anchor = None;
+        return;
+    }
+    let Some(anchor) = state.browser.visual_anchor else {
+        return;
+    };
+    let cursor = state.browser.selected;
+    let (lo, hi) = (anchor.min(cursor), anchor.max(cursor));
+    let mut selection = state.browser.visual_base.clone();
+    for (pos, (_, e)) in state.browser.visible_entries().enumerate() {
+        if pos >= lo && pos <= hi {
+            selection.insert(e.entry.path.clone());
+        }
+    }
+    state.browser.selection = selection;
+}
+
 /// When the preview panel is visible and the focused entry changed (or its
 /// modification metadata changed), ask for fresh preview content.
 fn preview_followup(state: &AppState) -> Option<Effect> {
-    if !crate::ui::preview_visible(state.width, state.height, state.show_preview) {
+    if !crate::ui::preview_needed(state) && !matches!(state.mode, Mode::QuickLook(_)) {
         return None;
     }
-    if state.mode.is_overlay() {
+    if state.mode.is_overlay() && !matches!(state.mode, Mode::QuickLook(_)) {
         return None;
     }
     let key = state.focused_preview_key()?;
@@ -48,21 +74,401 @@ fn preview_followup(state: &AppState) -> Option<Effect> {
     Some(Effect::LoadPreview {
         key,
         name: view.entry.display_name(),
-        is_dir: view.entry.kind.is_dir(),
+        is_dir: view.entry.is_dir_like(),
     })
 }
 
-fn reduce_inner(state: &mut AppState, action: Action) -> Vec<Effect> {
-    let was_pending_g = state.pending_g;
-    state.pending_g = false;
+pub(crate) fn reduce_inner(state: &mut AppState, action: Action) -> Vec<Effect> {
     match action {
-        Action::LoadInitial => vec![Effect::LoadDirectory(state.browser.cwd.clone())],
-        Action::KeyG => {
-            if was_pending_g {
-                state.browser.goto_first();
+        Action::LoadInitial => {
+            let mut fx = vec![Effect::LoadDirectory(state.browser.cwd.clone())];
+            fx.extend(side_listing_effect(state));
+            fx
+        }
+        Action::SetView(view) => set_view(state, view),
+        Action::CycleView => {
+            let next = state.view().next();
+            set_view(state, next)
+        }
+        Action::GridZoom(large) => {
+            state.settings.grid_size = if large {
+                crate::settings::GridSize::Large
             } else {
-                state.pending_g = true;
+                crate::settings::GridSize::Small
+            };
+            state.settings_dirty = true;
+            if state.view() != ViewMode::Grid {
+                return set_view(state, ViewMode::Grid);
             }
+            Vec::new()
+        }
+        Action::SortBy(key) => {
+            let current = state.browser.sort_mode;
+            let mode = if current.key == key {
+                current.reversed()
+            } else {
+                SortMode::new(key, false)
+            };
+            apply_sort(state, mode);
+            Vec::new()
+        }
+        Action::SideListingLoaded { path, entries } => {
+            // Keep only the listing the parent pane needs right now.
+            let wanted = state.browser.cwd.parent().map(Path::to_path_buf);
+            state
+                .side_listings
+                .retain(|p, _| Some(p) == wanted.as_ref());
+            if Some(&path) == wanted.as_ref() {
+                state.side_listings.insert(path, entries);
+            }
+            Vec::new()
+        }
+        // Legacy `g` key: the first half of the `gg` chord.
+        Action::KeyG => ranger::chord_key(state, "g".to_string()),
+        Action::ChordKey(token) => ranger::chord_key(state, token),
+        Action::Repeat(n, inner) => {
+            let mut fx = Vec::new();
+            for _ in 0..n {
+                fx.extend(reduce_inner(state, (*inner).clone()));
+            }
+            fx
+        }
+        Action::GotoIndex(i) => browser_only(state, |s| ranger::goto_index(s, i)),
+        Action::GoTo(spec) => browser_only_fx(state, |s| ranger::goto_spec(s, &spec)),
+        Action::HistoryBack => browser_only_fx(state, ranger::history_back),
+        Action::HistoryForward => browser_only_fx(state, ranger::history_forward),
+        Action::PreviousDir => browser_only_fx(state, ranger::previous_dir),
+        Action::SetMark(c) => browser_only_fx(state, |s| ranger::set_mark(s, c)),
+        Action::JumpMark(c) => browser_only_fx(state, |s| ranger::jump_mark(s, c)),
+        Action::DeleteMark(c) => browser_only_fx(state, |s| ranger::delete_mark(s, c)),
+        Action::EnterSearch => browser_only_fx(state, |s| {
+            ranger::search_start(s, crate::app::state::SearchKind::Search)
+        }),
+        Action::EnterFind => browser_only_fx(state, |s| {
+            ranger::search_start(s, crate::app::state::SearchKind::Find)
+        }),
+        Action::SearchNext => browser_only_fx(state, |s| ranger::search_step(s, true)),
+        Action::SearchPrev => browser_only_fx(state, |s| ranger::search_step(s, false)),
+        Action::SelectAll => browser_only(state, ranger::select_all),
+        Action::InvertSelection => browser_only(state, ranger::invert_selection),
+        Action::ClearSelection => browser_only(state, |s| s.browser.clear_selection()),
+        Action::CopySelection => browser_only(state, |s| ranger::copy_selection(s, ClipMode::Copy)),
+        Action::CutSelection => browser_only(state, |s| ranger::copy_selection(s, ClipMode::Cut)),
+        Action::PasteHere { overwrite } => {
+            browser_only_fx(state, |s| ranger::paste_here(s, overwrite))
+        }
+        Action::PasteSymlinks => browser_only_fx(state, ranger::paste_symlinks),
+        Action::ClearClipboard => {
+            state.clipboard = ClipboardState::default();
+            state.message = Some(StatusMessage::info("clipboard cleared"));
+            Vec::new()
+        }
+        Action::Yank(kind) => browser_only_fx(state, |s| ranger::yank(s, kind)),
+        Action::TrashSelection => browser_only_fx(state, ranger::trash_selection),
+        Action::DeleteSelection => browser_only_fx(state, ranger::delete_selection),
+        Action::Undo => browser_only_fx(state, ranger::undo),
+        Action::RenameStart(cursor) => browser_only_fx(state, |s| ranger::rename_start(s, cursor)),
+        Action::EnterCreate => {
+            if matches!(state.mode, Mode::Browser) {
+                state.mode = Mode::Command;
+                state.command_input = "create ".to_string();
+            }
+            Vec::new()
+        }
+        Action::EnterShell => {
+            if matches!(state.mode, Mode::Browser) {
+                state.mode = Mode::Command;
+                state.command_input = "shell ".to_string();
+            }
+            Vec::new()
+        }
+        Action::Subshell => browser_only_fx(state, |s| {
+            vec![
+                Effect::RunShell {
+                    command: None,
+                    cwd: s.browser.cwd.clone(),
+                },
+                Effect::LoadDirectory(s.browser.cwd.clone()),
+            ]
+        }),
+        Action::EditFocused => browser_only_fx(state, ranger::edit_focused),
+        Action::QuickLook => browser_only_fx(state, ranger::quick_look),
+        Action::QuickLookScroll(delta) => {
+            if let Mode::QuickLook(q) = &mut state.mode {
+                q.scroll = (q.scroll as isize + delta).max(0) as usize;
+            }
+            Vec::new()
+        }
+        Action::DiskUsage => browser_only_fx(state, ranger::disk_usage),
+        Action::DiskUsageReady(sizes) => {
+            let n = sizes.len();
+            state.dir_sizes.extend(sizes);
+            state.message = Some(StatusMessage::info(format!(
+                "measured {n} folder{}",
+                if n == 1 { "" } else { "s" }
+            )));
+            Vec::new()
+        }
+        Action::ChildCountsReady(counts) => {
+            state.browser.child_counts.extend(counts);
+            Vec::new()
+        }
+        Action::ToggleAnimations => {
+            ranger::toggle_animations(state);
+            Vec::new()
+        }
+        Action::TabNew => browser_only_fx(state, ranger::tab_new),
+        Action::TabNext => browser_only_fx(state, |s| ranger::tab_step(s, 1)),
+        Action::TabPrev => browser_only_fx(state, |s| ranger::tab_step(s, -1)),
+        Action::TabClose => browser_only_fx(state, ranger::tab_close),
+        Action::TabRestore => browser_only_fx(state, ranger::tab_restore),
+        Action::TabSelect(i) => browser_only_fx(state, |s| ranger::tab_select(s, i)),
+        Action::OpenUrlFromFile => browser_only_fx(state, crate::app::links::open_url_from_file),
+        Action::FollowLink => browser_only_fx(state, ranger::follow_link),
+        Action::Paste(text) => ranger::paste_text(state, text),
+        Action::LineEdit(edit) => ranger::line_edit(state, edit),
+        Action::PromptSubmit => ranger::prompt_submit(state),
+        Action::EntryCreated(path) => {
+            // Nested creations (`a/b/c`) focus and undo from the first new
+            // component inside the current folder.
+            let top = path
+                .strip_prefix(&state.browser.cwd)
+                .ok()
+                .and_then(|rel| rel.components().next())
+                .map(|first| state.browser.cwd.join(first))
+                .unwrap_or_else(|| path.clone());
+            let shown = path
+                .strip_prefix(&state.browser.cwd)
+                .map(|rel| rel.display().to_string())
+                .unwrap_or_else(|_| path.display().to_string());
+            state.message = Some(StatusMessage::info(format!("created {shown} · uu undoes")));
+            let existed_before = state.browser.entries.iter().any(|e| e.entry.path == top);
+            let undo_target = if existed_before {
+                path.clone()
+            } else {
+                top.clone()
+            };
+            state.undo.push(crate::app::state::UndoEntry {
+                label: format!("create {shown}"),
+                steps: vec![crate::app::state::UndoStep::Created(undo_target)],
+            });
+            let nested = path.parent() != Some(state.browser.cwd.as_path());
+            state.pending_focus = Some(top);
+            if nested {
+                // The handler reloads the new entry's own parent; the
+                // current folder needs its own listing to show `top`.
+                vec![Effect::LoadDirectory(state.browser.cwd.clone())]
+            } else {
+                Vec::new()
+            }
+        }
+        Action::UndoFinished { report } => operation_finished_with(state, report, false),
+        Action::SetSort(mode) => {
+            apply_sort(state, mode);
+            Vec::new()
+        }
+        Action::ReverseSort => {
+            let mode = state.browser.sort_mode.reversed();
+            apply_sort(state, mode);
+            Vec::new()
+        }
+        Action::FindResults { title, root, hits } => {
+            if hits.is_empty() {
+                state.message = Some(StatusMessage::info(format!("{title}: nothing found")));
+                return Vec::new();
+            }
+            let matches = (0..hits.len()).collect();
+            state.message = Some(StatusMessage::info(format!(
+                "{title}: {} result{}{}",
+                hits.len(),
+                if hits.len() == 1 { "" } else { "s" },
+                if hits.len() >= crate::search::MAX_HITS {
+                    " (limit reached)"
+                } else {
+                    ""
+                }
+            )));
+            state.mode = Mode::Results(Box::new(crate::app::state::ResultsState {
+                title,
+                root,
+                hits,
+                query: String::new(),
+                matches,
+                selected: 0,
+            }));
+            Vec::new()
+        }
+        Action::ResultsChar(c) => {
+            if let Mode::Results(r) = &mut state.mode {
+                r.query.push(c);
+                refilter_results(r);
+            }
+            Vec::new()
+        }
+        Action::ResultsBackspace => {
+            if let Mode::Results(r) = &mut state.mode {
+                r.query.pop();
+                refilter_results(r);
+            }
+            Vec::new()
+        }
+        Action::ResultsMove(delta) => {
+            if let Mode::Results(r) = &mut state.mode {
+                let len = r.matches.len();
+                if len > 0 {
+                    r.selected = (r.selected as isize + delta).clamp(0, len as isize - 1) as usize;
+                }
+            }
+            Vec::new()
+        }
+        Action::ResultsSubmit => {
+            let hit = match &state.mode {
+                Mode::Results(r) => r
+                    .matches
+                    .get(r.selected)
+                    .and_then(|&i| r.hits.get(i))
+                    .cloned(),
+                _ => None,
+            };
+            let Some(hit) = hit else {
+                return Vec::new();
+            };
+            state.mode = Mode::Browser;
+            let Some(parent) = hit.path.parent().map(Path::to_path_buf) else {
+                return Vec::new();
+            };
+            let fx = if parent == state.browser.cwd {
+                focus_path(state, &hit.path);
+                Vec::new()
+            } else {
+                let fx = navigate(state, parent);
+                state.pending_focus = Some(hit.path.clone());
+                fx
+            };
+            if let Some((line, _)) = hit.line {
+                state.message = Some(StatusMessage::info(format!(
+                    "match on line {line} · i quick look"
+                )));
+            }
+            fx
+        }
+        Action::BulkRenamePlan(pairs) => {
+            if pairs.is_empty() {
+                state.message = Some(StatusMessage::info("bulk rename: nothing changed"));
+                return Vec::new();
+            }
+            let detail = pairs
+                .iter()
+                .take(6)
+                .map(|(a, b)| {
+                    format!(
+                        "{} → {}",
+                        a.file_name()
+                            .map(|n| n.to_string_lossy().into_owned())
+                            .unwrap_or_default(),
+                        b.file_name()
+                            .map(|n| n.to_string_lossy().into_owned())
+                            .unwrap_or_default()
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+            let count = pairs.len();
+            state.mode = Mode::Confirm(Box::new(ConfirmState {
+                title: format!(
+                    "Rename {count} entr{}?",
+                    if count == 1 { "y" } else { "ies" }
+                ),
+                detail,
+                stage: 1,
+                recursive: false,
+                action: ConfirmAction::BulkRename { pairs },
+            }));
+            Vec::new()
+        }
+        Action::OpenWithCycle(delta) => {
+            if let Mode::OpenWith(o) = &mut state.mode
+                && !o.suggestions.is_empty()
+            {
+                let n = o.suggestions.len() as isize;
+                let next = match o.suggestion {
+                    Some(i) => (i as isize + delta).rem_euclid(n),
+                    None if delta < 0 => n - 1,
+                    None => 0,
+                } as usize;
+                o.suggestion = Some(next);
+                o.input = o.suggestions[next].clone();
+            }
+            Vec::new()
+        }
+        Action::HelpChar(c) => {
+            if matches!(state.mode, Mode::Help) {
+                state.help_query.push(c);
+                state.help_scroll = 0;
+            }
+            Vec::new()
+        }
+        Action::HelpBackspace => {
+            state.help_query.pop();
+            state.help_scroll = 0;
+            Vec::new()
+        }
+        Action::HelpScroll(delta) => {
+            state.help_scroll = (state.help_scroll as isize + delta).max(0) as usize;
+            Vec::new()
+        }
+        Action::OpenWithToggleRemember => {
+            if let Mode::OpenWith(o) = &mut state.mode {
+                o.remember = !o.remember;
+            }
+            Vec::new()
+        }
+        Action::MediaPrev => crate::app::media_ctl::prev(state),
+        Action::MediaMinimize => crate::app::media_ctl::minimize(state),
+        Action::MediaExpand => crate::app::media_ctl::expand(state),
+        Action::MediaMute => crate::app::media_ctl::toggle_mute(state),
+        Action::MediaShuffle => crate::app::media_ctl::toggle_shuffle(state),
+        Action::MediaRepeat => crate::app::media_ctl::cycle_repeat(state),
+        Action::MediaSpeed(step) => crate::app::media_ctl::speed(state, step),
+        Action::MediaSeekPercent(n) => crate::app::media_ctl::seek_percent(state, n),
+        Action::MediaCycleSub => crate::app::media_ctl::cycle_sub(state),
+        Action::MediaToggleSubs => crate::app::media_ctl::toggle_subs(state),
+        Action::MediaCycleAudio => crate::app::media_ctl::cycle_audio(state),
+        Action::MediaSubDelay(n) => crate::app::media_ctl::sub_delay(state, n),
+        Action::MediaOpenSubs => crate::app::media_ctl::open_subs(state),
+        Action::TrackInfoLoaded { session, info } => {
+            let cover = info
+                .cover
+                .as_ref()
+                .and_then(|bytes| image::load_from_memory(bytes).ok());
+            if let Some(media) = crate::app::media_ctl::media_mut(state)
+                && media.session == session
+            {
+                media.tags = Some(info.tags);
+                state.cover = cover.map(|img| crate::app::state::Cover {
+                    session,
+                    image: Box::new(state.picker.new_resize_protocol(img)),
+                });
+            }
+            Vec::new()
+        }
+        Action::SubsFound { session, files } => {
+            crate::app::media_ctl::subs_found(state, session, files)
+        }
+        Action::SubPickerChar(c) => crate::app::media_ctl::picker_char(state, c),
+        Action::SubPickerBackspace => crate::app::media_ctl::picker_backspace(state),
+        Action::SubPickerMove(d) => crate::app::media_ctl::picker_move(state, d),
+        Action::SubPickerSubmit => crate::app::media_ctl::picker_submit(state),
+        Action::SubPickerClose => crate::app::media_ctl::picker_close(state),
+        Action::MediaEnqueue => crate::app::media_ctl::enqueue(state),
+        Action::MediaAddSub(path) => crate::app::media_ctl::add_sub(state, path),
+        Action::MediaSetVolume(v) => crate::app::media_ctl::set_volume(state, v),
+        Action::CommandComplete => {
+            crate::app::cmdline::complete(state);
+            Vec::new()
+        }
+        Action::CommandHistory(delta) => {
+            crate::app::cmdline::history_step(state, delta);
             Vec::new()
         }
         Action::MoveDown => browser_only(state, |s| {
@@ -105,13 +511,7 @@ fn reduce_inner(state: &mut AppState, action: Action) -> Vec<Effect> {
             s.browser.goto_last_grid(c, r);
         }),
         Action::OpenFocused => open_focused(state),
-        Action::OpenParent => browser_only_fx(state, |s| {
-            let parent = s.browser.cwd.parent().map(Path::to_path_buf);
-            match parent {
-                Some(p) if p != s.browser.cwd => navigate(s, p),
-                _ => Vec::new(),
-            }
-        }),
+        Action::OpenParent => browser_only_fx(state, go_parent),
         Action::Refresh => {
             if matches!(state.mode, Mode::Browser) {
                 state.message = Some(StatusMessage::info("refreshing directory"));
@@ -173,26 +573,22 @@ fn reduce_inner(state: &mut AppState, action: Action) -> Vec<Effect> {
             Vec::new()
         }
         Action::OpenBookmarks => browser_only_fx(state, |s| {
-            s.mode = Mode::Bookmarks(Box::new(BookmarkNavState {
-                query: String::new(),
-                matches: Vec::new(),
-                selected: 0,
-            }));
-            refresh_bookmark_matches(s);
+            crate::app::hub::open(s);
             Vec::new()
         }),
         Action::BookmarkChar(c) => {
             if let Mode::Bookmarks(nav) = &mut state.mode {
                 nav.query.push(c);
+                nav.selected = 0;
             }
-            refresh_bookmark_matches(state);
+            crate::app::hub::refresh(state);
             Vec::new()
         }
         Action::BookmarkBackspace => {
             if let Mode::Bookmarks(nav) = &mut state.mode {
                 nav.query.pop();
             }
-            refresh_bookmark_matches(state);
+            crate::app::hub::refresh(state);
             Vec::new()
         }
         Action::BookmarkMove(delta) => {
@@ -205,20 +601,16 @@ fn reduce_inner(state: &mut AppState, action: Action) -> Vec<Effect> {
             }
             Vec::new()
         }
-        Action::BookmarkSubmit => {
-            let path = match &state.mode {
-                Mode::Bookmarks(nav) => nav.matches.get(nav.selected).cloned(),
-                _ => None,
-            };
-            let Some(path) = path else {
-                return Vec::new();
-            };
-            state.mode = Mode::Browser;
-            navigate(state, path)
+        Action::BookmarkSection(delta) => {
+            crate::app::hub::section_step(state, delta);
+            Vec::new()
         }
+        Action::BookmarkDelete => crate::app::hub::delete(state),
+        Action::BookmarkSubmit => crate::app::hub::submit(state),
         Action::BookmarksChanged { bookmarks, message } => {
             state.bookmarks = bookmarks;
             state.message = Some(StatusMessage::info(message));
+            crate::app::hub::refresh(state);
             Vec::new()
         }
         Action::EncryptToggle => encrypt_toggle(state),
@@ -281,7 +673,7 @@ fn reduce_inner(state: &mut AppState, action: Action) -> Vec<Effect> {
             Vec::new()
         }
         Action::MediaSurfaceReady { session, surface } => {
-            let Mode::Media(media) = &mut state.mode else {
+            let Some(media) = crate::app::media_ctl::media_mut(state) else {
                 return Vec::new();
             };
             if media.session != session
@@ -299,10 +691,11 @@ fn reduce_inner(state: &mut AppState, action: Action) -> Vec<Effect> {
                 surface,
                 resume_position: media.resume_position,
                 resume_paused: media.resume_paused,
+                backend: media.backend,
             }]
         }
         Action::MediaBackendReady { session } => {
-            let Mode::Media(media) = &mut state.mode else {
+            let Some(media) = crate::app::media_ctl::media_mut(state) else {
                 return Vec::new();
             };
             if media.session != session {
@@ -310,10 +703,24 @@ fn reduce_inner(state: &mut AppState, action: Action) -> Vec<Effect> {
             }
             media.error = None;
             media.phase = MediaPhase::Starting;
-            vec![Effect::MediaCommand {
+            let mut fx = vec![Effect::MediaCommand {
                 session,
                 command: MediaCommand::Load,
-            }]
+            }];
+            if media.kind == MediaKind::Audio && media.tags.is_none() {
+                fx.push(Effect::LoadTrackInfo {
+                    session,
+                    path: media.path.clone(),
+                });
+            }
+            // A fresh backend starts at defaults: re-apply volume, mute,
+            // speed and subtitles.
+            fx.extend(
+                crate::app::media_ctl::restore_commands(media)
+                    .into_iter()
+                    .map(|command| Effect::MediaCommand { session, command }),
+            );
+            fx
         }
         Action::MediaStatus {
             session,
@@ -322,14 +729,17 @@ fn reduce_inner(state: &mut AppState, action: Action) -> Vec<Effect> {
             duration,
             volume,
         } => {
-            if let Mode::Media(media) = &mut state.mode
+            if let Some(media) = crate::app::media_ctl::media_mut(state)
                 && media.session == session
                 && !matches!(media.phase, MediaPhase::Stopping | MediaPhase::Error)
             {
                 media.phase = phase;
                 media.position = position.max(0.0);
                 media.duration = duration;
-                media.volume = volume.min(100);
+                // A muted backend reports 0; keep the level to restore.
+                if !media.muted {
+                    media.volume = volume.min(crate::app::media_ctl::MAX_VOLUME);
+                }
                 if matches!(phase, MediaPhase::Playing) {
                     media.error = None;
                 }
@@ -337,7 +747,8 @@ fn reduce_inner(state: &mut AppState, action: Action) -> Vec<Effect> {
             Vec::new()
         }
         Action::MediaStopped { session } => {
-            let Mode::Media(media) = &mut state.mode else {
+            let in_mini = !matches!(state.mode, Mode::Media(_)) && state.mini.is_some();
+            let Some(media) = crate::app::media_ctl::media_mut(state) else {
                 return Vec::new();
             };
             // Only a Stopping media accepts the terminal handback; any
@@ -347,11 +758,18 @@ fn reduce_inner(state: &mut AppState, action: Action) -> Vec<Effect> {
             }
             let after_stop = media.after_stop.take().unwrap_or(AfterStop::Close);
             match after_stop {
+                AfterStop::Close if in_mini => {
+                    state.mini = None;
+                }
                 AfterStop::Close => {
                     state.mode = Mode::Browser;
                 }
                 AfterStop::Quit => {
-                    state.mode = Mode::Browser;
+                    if in_mini {
+                        state.mini = None;
+                    } else {
+                        state.mode = Mode::Browser;
+                    }
                     return vec![Effect::Quit];
                 }
                 AfterStop::RestartAfterResize { position, paused } => {
@@ -370,7 +788,7 @@ fn reduce_inner(state: &mut AppState, action: Action) -> Vec<Effect> {
             Vec::new()
         }
         Action::MediaSpectrum { session, spectrum } => {
-            if let Mode::Media(media) = &mut state.mode
+            if let Some(media) = crate::app::media_ctl::media_mut(state)
                 && media.session == session
             {
                 media.spectrum = spectrum.map(|value| value.clamp(0.0, 1.0));
@@ -378,7 +796,7 @@ fn reduce_inner(state: &mut AppState, action: Action) -> Vec<Effect> {
             Vec::new()
         }
         Action::MediaEnded { session } => {
-            let Mode::Media(media) = &mut state.mode else {
+            let Some(media) = crate::app::media_ctl::media_mut(state) else {
                 return Vec::new();
             };
             if media.session != session {
@@ -389,13 +807,22 @@ fn reduce_inner(state: &mut AppState, action: Action) -> Vec<Effect> {
                 .file_name()
                 .map(|name| name.to_string_lossy().into_owned())
                 .unwrap_or_else(|| media.path.display().to_string());
-            state.message = Some(StatusMessage::info(format!("finished {name}")));
+            // Queue auto-advance (repeat / shuffle aware).
+            if let Some(pos) = crate::app::media_ctl::after_end(media) {
+                let fx = crate::app::media_ctl::play_index(state, pos);
+                if let Some(next) = crate::app::media_ctl::media_ref(state) {
+                    let title = next.title();
+                    state.message = Some(StatusMessage::info(format!("now playing {title}")));
+                }
+                return fx;
+            }
             media.phase = MediaPhase::Stopping;
             media.after_stop = Some(AfterStop::Close);
+            state.message = Some(StatusMessage::info(format!("finished {name}")));
             vec![Effect::StopMedia { session }]
         }
         Action::MediaFailed { session, message } => {
-            let Mode::Media(media) = &mut state.mode else {
+            let Some(media) = crate::app::media_ctl::media_mut(state) else {
                 return Vec::new();
             };
             if media.session != session {
@@ -413,17 +840,7 @@ fn reduce_inner(state: &mut AppState, action: Action) -> Vec<Effect> {
         }
         Action::MediaToggleFullscreen => toggle_media_fullscreen(state),
         Action::MediaNext => next_media(state),
-        Action::MediaVolume(delta) => {
-            let Mode::Media(media) = &mut state.mode else {
-                return Vec::new();
-            };
-            let volume = (media.volume as i16 + delta as i16).clamp(0, 100) as u8;
-            media.volume = volume;
-            vec![Effect::MediaCommand {
-                session: media.session,
-                command: MediaCommand::SetVolume(volume),
-            }]
-        }
+        Action::MediaVolume(delta) => crate::app::media_ctl::change_volume(state, delta),
         Action::MediaStop => media_command(state, MediaCommand::Stop),
         Action::MediaClose => close_media(state, AfterStop::Close),
         Action::ClipboardCopy { paths } => {
@@ -447,6 +864,22 @@ fn reduce_inner(state: &mut AppState, action: Action) -> Vec<Effect> {
             if matches!(state.mode, Mode::Browser) {
                 state.mode = Mode::Command;
                 state.command_input.clear();
+                state.history_cursor = None;
+                state.completions.clear();
+                state.completion_index = None;
+            }
+            Vec::new()
+        }
+        Action::OpenAddressBar => {
+            if matches!(state.mode, Mode::Browser) {
+                state.mode = Mode::Command;
+                let mut cwd = state.browser.cwd.display().to_string();
+                if !cwd.ends_with('/') {
+                    cwd.push('/');
+                }
+                state.command_input = format!("cd {cwd}");
+                state.address_bar = true;
+                crate::app::cmdline::reset(state);
             }
             Vec::new()
         }
@@ -460,12 +893,20 @@ fn reduce_inner(state: &mut AppState, action: Action) -> Vec<Effect> {
         Action::CommandChar(c) => {
             if matches!(state.mode, Mode::Command) {
                 state.command_input.push(c);
+                state.history_cursor = None;
+                crate::app::cmdline::reset(state);
             }
             Vec::new()
         }
         Action::CommandBackspace => {
             if matches!(state.mode, Mode::Command) {
+                // The address bar never erases its hidden `cd ` prefix.
+                if state.address_bar && state.command_input.len() <= 3 {
+                    return Vec::new();
+                }
                 state.command_input.pop();
+                state.history_cursor = None;
+                crate::app::cmdline::reset(state);
             }
             Vec::new()
         }
@@ -477,6 +918,8 @@ fn reduce_inner(state: &mut AppState, action: Action) -> Vec<Effect> {
             } else {
                 Mode::Help
             };
+            state.help_query.clear();
+            state.help_scroll = 0;
             Vec::new()
         }
         Action::Quit => {
@@ -643,10 +1086,35 @@ fn reduce_inner(state: &mut AppState, action: Action) -> Vec<Effect> {
 }
 
 /// (columns, rows) of the current grid layout, as recorded by the renderer.
-fn grid_dims(state: &AppState) -> (usize, usize) {
+pub(crate) fn grid_dims(state: &AppState) -> (usize, usize) {
     let cols = state.grid_cols.max(1);
     let rows = (state.list_viewport / cols).max(1);
     (cols, rows)
+}
+
+/// Requests the Miller parent listing when the columns layout needs it.
+fn side_listing_effect(state: &AppState) -> Option<Effect> {
+    if state.view() != ViewMode::Columns {
+        return None;
+    }
+    let parent = state.browser.cwd.parent()?.to_path_buf();
+    if state.side_listings.contains_key(&parent) {
+        return None;
+    }
+    Some(Effect::LoadSideListing(parent))
+}
+
+fn set_view(state: &mut AppState, view: ViewMode) -> Vec<Effect> {
+    if state.view() == view {
+        return Vec::new();
+    }
+    state.settings.view = view;
+    state.settings_dirty = true;
+    state.hover = HoverState::default();
+    cancel_drag(state);
+    state.anim.start_cascade(state.now);
+    state.message = Some(StatusMessage::info(format!("{} layout", view.label())));
+    side_listing_effect(state).into_iter().collect()
 }
 
 /// `X` on the focused entry: encrypted outputs decrypt, everything else
@@ -729,14 +1197,14 @@ fn start_crypto(state: &mut AppState, kind: CryptoKind) -> Vec<Effect> {
     }]
 }
 
-fn browser_only(state: &mut AppState, f: impl FnOnce(&mut AppState)) -> Vec<Effect> {
+pub(crate) fn browser_only(state: &mut AppState, f: impl FnOnce(&mut AppState)) -> Vec<Effect> {
     if matches!(state.mode, Mode::Browser) {
         f(state);
     }
     Vec::new()
 }
 
-fn browser_only_fx(
+pub(crate) fn browser_only_fx(
     state: &mut AppState,
     f: impl FnOnce(&mut AppState) -> Vec<Effect>,
 ) -> Vec<Effect> {
@@ -746,38 +1214,56 @@ fn browser_only_fx(
     Vec::new()
 }
 
-fn bookmark_matches(bookmarks: &[PathBuf], query: &str) -> Vec<PathBuf> {
-    let mut scored: Vec<(i32, usize, &PathBuf)> = bookmarks
-        .iter()
-        .enumerate()
-        .filter_map(|(idx, path)| {
-            crate::app::fuzzy::score_bookmark(query, path).map(|score| (score, idx, path))
-        })
-        .collect();
-    scored.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
-    scored.into_iter().map(|(_, _, p)| p.clone()).collect()
-}
-
-fn refresh_bookmark_matches(state: &mut AppState) {
-    let bookmarks = state.bookmarks.clone();
-    if let Mode::Bookmarks(nav) = &mut state.mode {
-        nav.matches = bookmark_matches(&bookmarks, &nav.query);
-        nav.selected = nav.selected.min(nav.matches.len().saturating_sub(1));
-    }
-}
-
 fn navigate(state: &mut AppState, dir: PathBuf) -> Vec<Effect> {
+    navigate_with(state, dir, true)
+}
+
+/// Changes directory. `record` pushes the current folder onto the back
+/// history (history jumps themselves pass false).
+pub(crate) fn navigate_with(state: &mut AppState, dir: PathBuf, record: bool) -> Vec<Effect> {
+    let cwd = state.browser.cwd.clone();
+    if record && cwd != dir && !cwd.as_os_str().is_empty() {
+        state.history.back.push(cwd.clone());
+        if state.history.back.len() > 200 {
+            state.history.back.remove(0);
+        }
+        state.history.forward.clear();
+    }
+    if cwd != dir {
+        state.previous_dir = Some(cwd);
+    }
+    state.settings.record_visit(&dir, state.wall_clock);
+    state.settings_dirty = true;
     state.pending_nav = Some(state.browser.cwd.clone());
     cancel_drag(state);
     // A filename search is scoped to one directory, matching desktop file
     // managers: changing location should not hide unrelated entries.
     state.browser.set_filter(None);
+    state.browser.search = None;
     state.browser.enter(&dir);
-    vec![Effect::LoadDirectory(dir)]
+    state.hover = HoverState::default();
+    state.anim.start_cascade(state.now);
+    let mut fx = vec![Effect::LoadDirectory(dir)];
+    fx.extend(side_listing_effect(state));
+    fx
+}
+
+/// Goes to the parent directory and puts the cursor back on the child we
+/// came from (ranger behavior).
+fn go_parent(state: &mut AppState) -> Vec<Effect> {
+    let cwd = state.browser.cwd.clone();
+    match cwd.parent().map(Path::to_path_buf) {
+        Some(parent) if parent != cwd => {
+            let fx = navigate(state, parent);
+            state.pending_focus = Some(cwd);
+            fx
+        }
+        _ => Vec::new(),
+    }
 }
 
 fn media_command(state: &mut AppState, command: MediaCommand) -> Vec<Effect> {
-    let Mode::Media(media) = &state.mode else {
+    let Some(media) = crate::app::media_ctl::media_ref(state) else {
         return Vec::new();
     };
     if matches!(
@@ -793,7 +1279,7 @@ fn media_command(state: &mut AppState, command: MediaCommand) -> Vec<Effect> {
 }
 
 fn close_media(state: &mut AppState, after_stop: AfterStop) -> Vec<Effect> {
-    let Mode::Media(media) = &mut state.mode else {
+    let Some(media) = crate::app::media_ctl::media_mut(state) else {
         return Vec::new();
     };
     if media.phase == MediaPhase::Stopping {
@@ -811,6 +1297,26 @@ fn close_media(state: &mut AppState, after_stop: AfterStop) -> Vec<Effect> {
 /// Flips video fullscreen through the supervised stop/restart cycle, reusing
 /// the resize-resume machinery so position and pause state survive.
 fn toggle_media_fullscreen(state: &mut AppState) -> Vec<Effect> {
+    let Mode::Media(media) = &mut state.mode else {
+        return Vec::new();
+    };
+    if media.kind == MediaKind::Video {
+        match media.backend {
+            // The GUI window toggles in place, no restart.
+            crate::media::VideoBackend::Window => {
+                media.fullscreen = !media.fullscreen;
+                let on = media.fullscreen;
+                return media_command(state, MediaCommand::SetFullscreen(on));
+            }
+            crate::media::VideoBackend::Tct => {
+                state.message = Some(StatusMessage::info(
+                    "text video always uses the whole terminal",
+                ));
+                return Vec::new();
+            }
+            _ => {}
+        }
+    }
     let Mode::Media(media) = &state.mode else {
         return Vec::new();
     };
@@ -833,27 +1339,9 @@ fn toggle_media_fullscreen(state: &mut AppState) -> Vec<Effect> {
     close_media(state, AfterStop::RestartAfterResize { position, paused })
 }
 
-/// Advances to the next playlist entry (display order); no wrap at the end.
+/// Advances to the next queue entry (shuffle aware; wraps with repeat all).
 fn next_media(state: &mut AppState) -> Vec<Effect> {
-    let Mode::Media(media) = &state.mode else {
-        return Vec::new();
-    };
-    if matches!(media.phase, MediaPhase::Preparing | MediaPhase::Stopping) {
-        return Vec::new();
-    }
-    let Some(next_path) = media.playlist.get(media.playlist_pos + 1).cloned() else {
-        state.message = Some(StatusMessage::info("end of playlist"));
-        return Vec::new();
-    };
-    let next_pos = media.playlist_pos + 1;
-    let kind = media.kind;
-    let playlist = media.playlist.clone();
-    let session = state.next_media_session;
-    state.next_media_session = state.next_media_session.wrapping_add(1).max(1);
-    state.mode = Mode::Media(Box::new(MediaState::preparing_with_playlist(
-        session, next_path, kind, playlist, next_pos,
-    )));
-    Vec::new()
+    crate::app::media_ctl::next(state)
 }
 
 fn open_focused(state: &mut AppState) -> Vec<Effect> {
@@ -862,25 +1350,16 @@ fn open_focused(state: &mut AppState) -> Vec<Effect> {
             return Vec::new();
         };
         let path = view.entry.path.clone();
-        match &view.entry.kind {
-            EntryKind::Directory => navigate(s, path),
-            _ => {
-                if let Some(kind) = classify_path(&path) {
-                    start_media_session(s, path, kind)
-                } else {
-                    prompt_open_with(s, path);
-                    Vec::new()
-                }
-            }
+        if view.entry.is_dir_like() {
+            navigate(s, path)
+        } else {
+            crate::app::open::open_file(s, path)
         }
     })
 }
 
 fn prompt_open_with(state: &mut AppState, target: PathBuf) {
-    state.mode = Mode::OpenWith(Box::new(OpenWithState {
-        target,
-        input: String::new(),
-    }));
+    crate::app::open::prompt(state, target);
 }
 
 fn open_with_prompt(state: &mut AppState) -> Vec<Effect> {
@@ -901,6 +1380,7 @@ fn open_with_submit(state: &mut AppState) -> Vec<Effect> {
     };
     let target = dialog.target.clone();
     let input = dialog.input.clone();
+    let remember = dialog.remember;
     state.mode = Mode::Browser;
     if input.trim().is_empty() {
         state.set_error("no command entered");
@@ -908,15 +1388,28 @@ fn open_with_submit(state: &mut AppState) -> Vec<Effect> {
     }
     match command::split_words(&input) {
         Ok(words) => {
-            let Some((program, args)) = words.split_first() else {
+            if words.is_empty() {
                 state.set_error("no command entered");
                 return Vec::new();
+            }
+            let assoc = crate::settings::Association {
+                command: input.trim().to_string(),
+                detach: crate::app::open::default_detach(&input),
             };
-            vec![Effect::OpenPathWith {
-                path: target,
-                program: program.clone(),
-                args: args.to_vec(),
-            }]
+            if remember && let Some(key) = crate::settings::association_key(&target) {
+                state
+                    .settings
+                    .associations
+                    .insert(key.clone(), assoc.clone());
+                state.settings_dirty = true;
+                state.message = Some(StatusMessage::info(format!(
+                    ".{key} will open with {} (r changes it)",
+                    words[0]
+                )));
+            }
+            crate::app::open::launch(&target, &assoc)
+                .into_iter()
+                .collect()
         }
         Err(e) => {
             state.set_error(e.to_string());
@@ -1049,7 +1542,15 @@ fn picker_submit_new(state: &mut AppState) -> Vec<Effect> {
     effects
 }
 
-fn resolve_user_path(state: &AppState, input: &str) -> PathBuf {
+pub(crate) fn resolve_user_path(state: &AppState, input: &str) -> PathBuf {
+    let decoded;
+    let input = match input.trim().strip_prefix("file://") {
+        Some(rest) => {
+            decoded = crate::urls::percent_decode(rest);
+            decoded.as_str()
+        }
+        None => input.trim(),
+    };
     let expanded = if let Some(rest) = input.strip_prefix("~/") {
         state.home.join(rest)
     } else if input == "~" {
@@ -1057,11 +1558,33 @@ fn resolve_user_path(state: &AppState, input: &str) -> PathBuf {
     } else {
         PathBuf::from(input)
     };
-    if expanded.is_absolute() {
+    let joined = if expanded.is_absolute() {
         expanded
     } else {
         state.browser.cwd.join(expanded)
+    };
+    normalize_lexically(&joined)
+}
+
+/// Removes `.` and resolves `..` without touching the filesystem.
+fn normalize_lexically(path: &Path) -> PathBuf {
+    use std::path::Component;
+    let mut out = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if !out.pop() {
+                    out.push(component);
+                }
+                if out.as_os_str().is_empty() {
+                    out.push("/");
+                }
+            }
+            other => out.push(other),
+        }
     }
+    out
 }
 
 fn delete_confirm(state: &mut AppState) -> Vec<Effect> {
@@ -1070,7 +1593,7 @@ fn delete_confirm(state: &mut AppState) -> Vec<Effect> {
 
 /// Builds the recursive-delete confirmation for explicit captured targets
 /// (keyboard selection/focus or a context menu's captured paths).
-fn delete_confirm_targets(state: &mut AppState, targets: Vec<PathBuf>) -> Vec<Effect> {
+pub(crate) fn delete_confirm_targets(state: &mut AppState, targets: Vec<PathBuf>) -> Vec<Effect> {
     if targets.is_empty() {
         state.message = Some(StatusMessage::info("nothing selected"));
         return Vec::new();
@@ -1146,12 +1669,20 @@ fn submit_command(state: &mut AppState) -> Vec<Effect> {
     let input = state.command_input.clone();
     state.mode = Mode::Browser;
     state.command_input.clear();
+    state.completions.clear();
+    state.history_cursor = None;
+    state.settings.push_history(&input);
+    state.settings_dirty = true;
     let parsed = match command::parse(&input) {
         Ok(c) => c,
         Err(e) => {
             state.set_error(e.to_string());
             return Vec::new();
         }
+    };
+    let parsed = match crate::app::commands::run_or_return(state, parsed) {
+        Ok(fx) => return fx,
+        Err(cmd) => cmd,
     };
     match parsed {
         Command::Copy { dest } => start_copy_move(state, OperationKind::Copy, dest),
@@ -1219,8 +1750,32 @@ fn submit_command(state: &mut AppState) -> Vec<Effect> {
             }]
         }
         Command::Cd { path } => {
-            let dir = resolve_user_path(state, &path);
-            navigate(state, dir)
+            if crate::urls::is_web_url(path.trim()) {
+                return crate::app::links::open_url(state, path.trim());
+            }
+            let target = resolve_user_path(state, &path);
+            // A file target opens its folder with the file focused.
+            let is_file = state
+                .browser
+                .entries
+                .iter()
+                .find(|e| e.entry.path == target)
+                .map(|e| !e.entry.is_dir_like())
+                .unwrap_or_else(|| std::fs::metadata(&target).is_ok_and(|m| m.is_file()));
+            match target.parent() {
+                Some(parent) if is_file => {
+                    let parent = parent.to_path_buf();
+                    if parent == state.browser.cwd {
+                        focus_path(state, &target);
+                        Vec::new()
+                    } else {
+                        let fx = navigate(state, parent);
+                        state.pending_focus = Some(target);
+                        fx
+                    }
+                }
+                _ => navigate(state, target),
+            }
         }
         Command::Mkdir { name } => create_entry(state, name, true),
         Command::Touch { name } => create_entry(state, name, false),
@@ -1251,21 +1806,12 @@ fn submit_command(state: &mut AppState) -> Vec<Effect> {
             Vec::new()
         }
         Command::Sort { field } => {
-            let mode = match field.to_ascii_lowercase().as_str() {
-                "name" => Some(SortMode::NameDirsFirst),
-                "name-desc" | "name-descending" => Some(SortMode::NameDesc),
-                "size" => Some(SortMode::Size),
-                "size-desc" | "size-descending" => Some(SortMode::SizeDesc),
-                "modified" | "time" | "date" => Some(SortMode::Modified),
-                "modified-desc" | "time-desc" | "date-desc" => Some(SortMode::ModifiedDesc),
-                _ => None,
-            };
-            if let Some(mode) = mode {
-                let label = mode.label();
-                state.browser.set_sort_mode(mode);
-                state.message = Some(StatusMessage::info(format!("sorted by {label}")));
+            if let Some(mode) = SortMode::parse(&field) {
+                apply_sort(state, mode);
             } else {
-                state.set_error("sort expects name, size, modified, or a -desc variant");
+                state.set_error(
+                    "sort expects name, size, modified, type, extension, or a -desc variant",
+                );
             }
             Vec::new()
         }
@@ -1282,7 +1828,21 @@ fn submit_command(state: &mut AppState) -> Vec<Effect> {
             state.mode = Mode::Help;
             Vec::new()
         }
+        // Extended commands were dispatched by `commands::run_or_return`.
+        _ => Vec::new(),
     }
+}
+
+/// Applies a sort order, persists it, and reports it.
+pub fn apply_sort(state: &mut AppState, mode: SortMode) {
+    state.browser.set_sort_mode(mode);
+    state.settings.sort = mode.token();
+    state.settings_dirty = true;
+    let arrow = if mode.desc { "descending" } else { "ascending" };
+    state.message = Some(StatusMessage::info(format!(
+        "sorted by {} ({arrow})",
+        mode.label()
+    )));
 }
 
 fn start_copy_move(state: &mut AppState, kind: OperationKind, dest: String) -> Vec<Effect> {
@@ -1303,7 +1863,7 @@ fn start_copy_move(state: &mut AppState, kind: OperationKind, dest: String) -> V
     }
 }
 
-fn start_operation(state: &mut AppState, plan: OperationPlan) -> Vec<Effect> {
+pub(crate) fn start_operation(state: &mut AppState, plan: OperationPlan) -> Vec<Effect> {
     let total = plan.sources.len();
     state.operation = Some(OperationState {
         kind: plan.kind,
@@ -1329,6 +1889,14 @@ fn confirm(state: &mut AppState) -> Vec<Effect> {
     };
     match confirm_state.action {
         ConfirmAction::Delete { plan } => start_operation(state, *plan),
+        ConfirmAction::BulkRename { pairs } => {
+            state.message = Some(StatusMessage::info(format!(
+                "renaming {} entr{}",
+                pairs.len(),
+                if pairs.len() == 1 { "y" } else { "ies" }
+            )));
+            vec![Effect::MovePairs(pairs)]
+        }
     }
 }
 
@@ -1350,6 +1918,11 @@ fn conflict_choice(state: &mut AppState, decision: ConflictDecision) -> Vec<Effe
         ConflictDecision::Replace => {
             let mut plan = *conflict.plan;
             plan.policy = ConflictPolicy::Replace;
+            vec![Effect::RunOperation(Box::new(plan))]
+        }
+        ConflictDecision::KeepBoth => {
+            let mut plan = *conflict.plan;
+            plan.policy = ConflictPolicy::KeepBoth;
             vec![Effect::RunOperation(Box::new(plan))]
         }
     }
@@ -1423,23 +1996,18 @@ fn open_explicit(state: &mut AppState, path: PathBuf) -> Vec<Effect> {
         .browser
         .entries
         .iter()
-        .any(|e| e.entry.path == path && e.entry.kind.is_dir());
-    match is_dir {
-        true => navigate(state, path),
-        false => {
-            if let Some(media_kind) = classify_path(&path) {
-                start_media_session(state, path, media_kind)
-            } else {
-                prompt_open_with(state, path);
-                Vec::new()
-            }
-        }
+        .any(|e| e.entry.path == path && e.entry.is_dir_like());
+    if is_dir {
+        navigate(state, path)
+    } else {
+        focus_path(state, &path);
+        crate::app::open::open_file(state, path)
     }
 }
 
 /// Moves the navigation cursor onto `path` when visible (no selection
 /// mutation); used only where a flow is inherently focused-coupled.
-fn focus_path(state: &mut AppState, path: &Path) {
+pub(crate) fn focus_path(state: &mut AppState, path: &Path) {
     if let Some(pos) = state
         .browser
         .visible_indices()
@@ -1455,6 +2023,18 @@ fn focus_path(state: &mut AppState, path: &Path) {
 /// Builds the playlist context for media sessions: every visible entry of
 /// the same media kind in display order, with `current`'s position.
 pub fn media_playlist(state: &AppState, current: &Path, kind: MediaKind) -> (Vec<PathBuf>, usize) {
+    // Playing from a multi-selection makes the selection the queue.
+    let selected: Vec<PathBuf> = state
+        .browser
+        .visible_entries()
+        .map(|(_, e)| &e.entry.path)
+        .filter(|p| state.browser.selection.contains(*p) && classify_path(p) == Some(kind))
+        .cloned()
+        .collect();
+    if selected.len() > 1 && selected.iter().any(|p| p == current) {
+        let pos = selected.iter().position(|p| p == current).unwrap_or(0);
+        return (selected, pos);
+    }
     let playlist: Vec<PathBuf> = state
         .browser
         .visible_entries()
@@ -1471,10 +2051,60 @@ pub fn start_media_session(state: &mut AppState, path: PathBuf, kind: MediaKind)
     let session = state.next_media_session;
     state.next_media_session = state.next_media_session.wrapping_add(1).max(1);
     let (playlist, pos) = media_playlist(state, &path, kind);
-    state.mode = Mode::Media(Box::new(MediaState::preparing_with_playlist(
-        session, path, kind, playlist, pos,
-    )));
+    let mut media = MediaState::preparing_with_playlist(session, path, kind, playlist, pos);
+    media.volume = state.settings.volume.min(crate::app::media_ctl::MAX_VOLUME);
+    crate::app::media_ctl::choose_backend(state, &mut media);
+    // A new track replaces whatever plays in the background.
+    let mut fx = Vec::new();
+    if let Some(mini) = state.mini.take() {
+        fx.push(Effect::StopMedia {
+            session: mini.session,
+        });
+    }
+    state.mode = Mode::Media(Box::new(media));
+    fx
+}
+
+fn refilter_results(r: &mut crate::app::state::ResultsState) {
+    let query = r.query.to_lowercase();
+    let mut scored: Vec<(i32, usize)> = r
+        .hits
+        .iter()
+        .enumerate()
+        .filter_map(|(i, hit)| {
+            let rel = hit
+                .path
+                .strip_prefix(&r.root)
+                .unwrap_or(&hit.path)
+                .to_string_lossy()
+                .to_lowercase();
+            crate::app::fuzzy::fuzzy_score(&query, &rel).map(|s| (s, i))
+        })
+        .collect();
+    if !query.is_empty() {
+        scored.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
+    }
+    r.matches = scored.into_iter().map(|(_, i)| i).collect();
+    r.selected = r.selected.min(r.matches.len().saturating_sub(1));
+}
+
+/// Streams a URL through the media player (mpv + yt-dlp).
+pub fn start_url_media(state: &mut AppState, url: String) -> Vec<Effect> {
+    let kind = classify_path(Path::new(url.split(['?', '#']).next().unwrap_or(&url)))
+        .unwrap_or(MediaKind::Video);
+    let session = state.next_media_session;
+    state.next_media_session = state.next_media_session.wrapping_add(1).max(1);
+    let mut media =
+        MediaState::preparing_with_playlist(session, PathBuf::from(url), kind, Vec::new(), 0);
+    media.volume = state.settings.volume.min(crate::app::media_ctl::MAX_VOLUME);
+    crate::app::media_ctl::choose_backend(state, &mut media);
+    state.mode = Mode::Media(Box::new(media));
     Vec::new()
+}
+
+/// Shows a one-off picker of links (URLs found in a file).
+pub fn open_link_picker(state: &mut AppState, links: Vec<crate::urls::Link>) {
+    crate::app::hub::open_link_picker(state, links);
 }
 
 /// Starts a copy/move of every clipboard item into the current directory.
@@ -1510,6 +2140,19 @@ fn paste_from_clipboard(state: &mut AppState) -> Vec<Effect> {
 
 fn cancel(state: &mut AppState) -> Vec<Effect> {
     cancel_drag(state);
+    let had_chord = !state.pending_keys.is_empty() || state.pending_count.is_some();
+    ranger::clear_pending(state);
+    if had_chord {
+        return Vec::new();
+    }
+    if ranger::prompt_cancel(state) {
+        return Vec::new();
+    }
+    if matches!(state.mode, Mode::Help) && !state.help_query.is_empty() {
+        state.help_query.clear();
+        state.help_scroll = 0;
+        return Vec::new();
+    }
     match &state.mode {
         Mode::Media(_) => return close_media(state, AfterStop::Close),
         Mode::Command
@@ -1520,12 +2163,18 @@ fn cancel(state: &mut AppState) -> Vec<Effect> {
         | Mode::Password(_)
         | Mode::OpenWith(_)
         | Mode::Bookmarks(_)
+        | Mode::QuickLook(_)
+        | Mode::Results(_)
+        | Mode::Rename(_)
+        | Mode::Search(_)
         | Mode::Help => {
             state.mode = Mode::Browser;
             state.command_input.clear();
         }
         Mode::Browser => {
-            if state.browser.filter.is_some() {
+            if state.browser.search.is_some() {
+                state.browser.search = None;
+            } else if state.browser.filter.is_some() {
                 state.browser.set_filter(None);
             } else if !state.browser.selection.is_empty() || state.browser.visual {
                 state.browser.clear_selection();
@@ -1543,8 +2192,14 @@ fn directory_loaded(
         Ok(snapshot) => {
             // A fresh listing invalidates any in-flight band geometry.
             cancel_drag(state);
+            let mut fx = Vec::new();
             if snapshot.path == state.browser.cwd {
                 state.browser.set_entries(snapshot.entries);
+                if let Some(target) = state.pending_focus.take() {
+                    focus_path(state, &target);
+                }
+                state.browser.child_counts.clear();
+                fx.extend(ranger::child_count_effect(state));
             }
             state.tag_defs = snapshot.defs;
             state.pending_nav = None;
@@ -1554,6 +2209,7 @@ fn directory_loaded(
                     picker.selected = picker.defs.len().saturating_sub(1);
                 }
             }
+            return fx;
         }
         Err(err) => {
             if let Some(prev) = state.pending_nav.take() {
@@ -1568,7 +2224,54 @@ fn directory_loaded(
 }
 
 fn operation_finished(state: &mut AppState, report: OperationReport) -> Vec<Effect> {
+    operation_finished_with(state, report, true)
+}
+
+/// Friendly summary for a job that fully succeeded.
+fn success_message(report: &OperationReport, record_undo: bool) -> String {
+    let name = |p: &Path| {
+        p.file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| p.display().to_string())
+    };
+    let done = report.done_count();
+    let what = match report.results.first() {
+        Some(first) if done == 1 => name(&first.source),
+        _ => format!("{done} items"),
+    };
+    if !record_undo {
+        return format!("undone · {what}");
+    }
+    match report.kind {
+        Some(OperationKind::Copy) => format!("copied {what} · uu undoes"),
+        Some(OperationKind::Move) => format!("moved {what} · uu undoes"),
+        Some(OperationKind::Trash) => format!("moved {what} to the trash · uu undoes"),
+        Some(OperationKind::Symlink) => format!("linked {what} · uu undoes"),
+        Some(OperationKind::Delete) => format!("deleted {what}"),
+        Some(OperationKind::Encrypt | OperationKind::Decrypt) => format!("{done}/{done} done"),
+        None => match report.moves.as_slice() {
+            [(from, to)] => format!("renamed {} → {} · uu undoes", name(from), name(to)),
+            _ => format!("renamed {what} · uu undoes"),
+        },
+    }
+}
+
+fn operation_finished_with(
+    state: &mut AppState,
+    report: OperationReport,
+    record_undo: bool,
+) -> Vec<Effect> {
     state.operation = None;
+    if record_undo {
+        let label = match report.kind {
+            Some(OperationKind::Copy) => "copy",
+            Some(OperationKind::Move) => "move",
+            Some(OperationKind::Trash) => "trash",
+            Some(OperationKind::Symlink) => "link",
+            _ => "rename",
+        };
+        ranger::journal(state, label, &report);
+    }
     let done = report.done_count();
     let skipped = report.skipped_count();
     let failed = report.failed();
@@ -1587,6 +2290,9 @@ fn operation_finished(state: &mut AppState, report: OperationReport) -> Vec<Effe
         }
     }
     if failed.is_empty() {
+        if skipped == 0 && done > 0 {
+            text = success_message(&report, record_undo);
+        }
         state.message = Some(StatusMessage::info(text));
     } else {
         state.set_error(text);
@@ -1845,6 +2551,7 @@ fn mouse(state: &mut AppState, kind: MouseKind, x: u16, y: u16, ctrl: bool) -> V
                     | Some(SidebarItem::Mount { path, .. })
                     | Some(SidebarItem::Bookmark { path }) => navigate(state, path),
                     Some(SidebarItem::Tag { .. }) => open_picker(state),
+                    Some(SidebarItem::Link { url, .. }) => crate::app::links::open_url(state, &url),
                     None => Vec::new(),
                 }
             }
@@ -1912,6 +2619,80 @@ fn mouse(state: &mut AppState, kind: MouseKind, x: u16, y: u16, ctrl: bool) -> V
         },
         HitTarget::ConflictReplace => match kind {
             MouseKind::Left => conflict_choice(state, ConflictDecision::Replace),
+            _ => Vec::new(),
+        },
+        HitTarget::ConflictKeepBoth => match kind {
+            MouseKind::Left => conflict_choice(state, ConflictDecision::KeepBoth),
+            _ => Vec::new(),
+        },
+        HitTarget::HubTab(idx) => match kind {
+            MouseKind::Left => {
+                let current = match &state.mode {
+                    Mode::Bookmarks(nav) => HubSection::ALL.iter().position(|s| *s == nav.section),
+                    _ => None,
+                };
+                match current {
+                    Some(cur) => {
+                        crate::app::hub::section_step(state, idx as isize - cur as isize);
+                        Vec::new()
+                    }
+                    None => Vec::new(),
+                }
+            }
+            _ => Vec::new(),
+        },
+        HitTarget::HubRow(idx) => match kind {
+            MouseKind::Moved => {
+                if let Mode::Bookmarks(nav) = &mut state.mode {
+                    nav.selected = idx;
+                }
+                Vec::new()
+            }
+            MouseKind::Left => {
+                if let Mode::Bookmarks(nav) = &mut state.mode {
+                    nav.selected = idx;
+                }
+                crate::app::hub::submit(state)
+            }
+            MouseKind::ScrollUp => reduce(state, Action::BookmarkMove(-1)),
+            MouseKind::ScrollDown => reduce(state, Action::BookmarkMove(1)),
+            _ => Vec::new(),
+        },
+        HitTarget::ResultRow(idx) => match kind {
+            MouseKind::Moved => {
+                if let Mode::Results(r) = &mut state.mode {
+                    r.selected = idx;
+                }
+                Vec::new()
+            }
+            MouseKind::Left => {
+                if let Mode::Results(r) = &mut state.mode {
+                    r.selected = idx;
+                }
+                reduce(state, Action::ResultsSubmit)
+            }
+            MouseKind::ScrollUp => reduce(state, Action::ResultsMove(-1)),
+            MouseKind::ScrollDown => reduce(state, Action::ResultsMove(1)),
+            _ => Vec::new(),
+        },
+        HitTarget::OpenWithChip(idx) => match kind {
+            MouseKind::Left => {
+                if let Mode::OpenWith(o) = &mut state.mode
+                    && let Some(cmd) = o.suggestions.get(idx).cloned()
+                {
+                    o.suggestion = Some(idx);
+                    o.input = cmd;
+                }
+                Vec::new()
+            }
+            _ => Vec::new(),
+        },
+        HitTarget::OpenWithRemember => match kind {
+            MouseKind::Left => reduce(state, Action::OpenWithToggleRemember),
+            _ => Vec::new(),
+        },
+        HitTarget::Tab(idx) => match kind {
+            MouseKind::Left => reduce(state, Action::TabSelect(idx)),
             _ => Vec::new(),
         },
         HitTarget::PickerItem(idx) => match kind {
@@ -1997,6 +2778,100 @@ fn mouse(state: &mut AppState, kind: MouseKind, x: u16, y: u16, ctrl: bool) -> V
         },
         HitTarget::MediaNext => match kind {
             MouseKind::Left => reduce(state, Action::MediaNext),
+            _ => Vec::new(),
+        },
+        HitTarget::MediaPrev => match kind {
+            MouseKind::Left => reduce(state, Action::MediaPrev),
+            _ => Vec::new(),
+        },
+        HitTarget::MediaMute => match kind {
+            MouseKind::Left => reduce(state, Action::MediaMute),
+            MouseKind::ScrollUp => reduce(state, Action::MediaVolume(5)),
+            MouseKind::ScrollDown => reduce(state, Action::MediaVolume(-5)),
+            _ => Vec::new(),
+        },
+        HitTarget::MediaShuffle => match kind {
+            MouseKind::Left => reduce(state, Action::MediaShuffle),
+            _ => Vec::new(),
+        },
+        HitTarget::MediaRepeat => match kind {
+            MouseKind::Left => reduce(state, Action::MediaRepeat),
+            _ => Vec::new(),
+        },
+        HitTarget::MiniPlayer => match kind {
+            MouseKind::Left => reduce(state, Action::MediaExpand),
+            MouseKind::ScrollUp => reduce(state, Action::MediaVolume(5)),
+            MouseKind::ScrollDown => reduce(state, Action::MediaVolume(-5)),
+            _ => Vec::new(),
+        },
+        HitTarget::SubRow(idx) => match kind {
+            MouseKind::Left => {
+                if let Mode::Media(media) = &mut state.mode
+                    && let Some(picker) = &mut media.sub_picker
+                {
+                    picker.selected = idx;
+                }
+                reduce(state, Action::SubPickerSubmit)
+            }
+            MouseKind::Moved => {
+                if let Mode::Media(media) = &mut state.mode
+                    && let Some(picker) = &mut media.sub_picker
+                {
+                    picker.selected = idx;
+                }
+                Vec::new()
+            }
+            MouseKind::ScrollUp => reduce(state, Action::SubPickerMove(-1)),
+            MouseKind::ScrollDown => reduce(state, Action::SubPickerMove(1)),
+            _ => Vec::new(),
+        },
+        HitTarget::QueueRow(idx) => match kind {
+            MouseKind::Left => crate::app::media_ctl::play_index(state, idx),
+            _ => Vec::new(),
+        },
+        HitTarget::ParentRow(idx) => match kind {
+            MouseKind::Left => browser_only_fx(state, |s| {
+                let Some(path) = s.parent_rows.get(idx).cloned() else {
+                    return Vec::new();
+                };
+                if path == s.browser.cwd {
+                    return Vec::new();
+                }
+                let is_dir = s
+                    .browser
+                    .cwd
+                    .parent()
+                    .and_then(|p| s.side_listings.get(p))
+                    .and_then(|list| list.iter().find(|e| e.entry.path == path))
+                    .is_some_and(|e| e.entry.is_dir_like());
+                if is_dir {
+                    navigate(s, path)
+                } else if let Some(parent) = path.parent().map(Path::to_path_buf) {
+                    let fx = navigate(s, parent);
+                    s.pending_focus = Some(path);
+                    fx
+                } else {
+                    Vec::new()
+                }
+            }),
+            MouseKind::ScrollUp => reduce(state, Action::MoveUp),
+            MouseKind::ScrollDown => reduce(state, Action::MoveDown),
+            _ => Vec::new(),
+        },
+        HitTarget::SortBy(key) => match kind {
+            MouseKind::Left => browser_only_fx(state, |s| reduce(s, Action::SortBy(key))),
+            _ => Vec::new(),
+        },
+        HitTarget::ViewSwitch(view) => match kind {
+            MouseKind::Left => browser_only_fx(state, |s| set_view(s, view)),
+            _ => Vec::new(),
+        },
+        HitTarget::PathBar => match kind {
+            MouseKind::Left => browser_only_fx(state, |s| reduce(s, Action::OpenAddressBar)),
+            _ => Vec::new(),
+        },
+        HitTarget::HelpChip => match kind {
+            MouseKind::Left => reduce(state, Action::ToggleHelp),
             _ => Vec::new(),
         },
         HitTarget::Details => Vec::new(),
@@ -2195,10 +3070,14 @@ fn handle_drag_motion(
         MouseKind::LeftDrag => {
             let dx = x.abs_diff(drag.origin.0);
             let dy = y.abs_diff(drag.origin.1);
-            if drag.phase == DragPhase::Armed
-                && dx <= DRAG_THRESHOLD_CELLS
-                && dy <= DRAG_THRESHOLD_CELLS
-            {
+            // One-row-tall list rows: any vertical move onto another row is
+            // a deliberate drag; tall grid tiles keep the jitter allowance.
+            let dy_limit = if state.view() == ViewMode::Grid {
+                DRAG_THRESHOLD_CELLS
+            } else {
+                0
+            };
+            if drag.phase == DragPhase::Armed && dx <= DRAG_THRESHOLD_CELLS && dy <= dy_limit {
                 return Vec::new();
             }
             drag.phase = DragPhase::Dragging;
@@ -2305,6 +3184,10 @@ fn legend_action(state: &mut AppState, action: LegendAction) -> Vec<Effect> {
         LegendAction::Sidebar => reduce(state, Action::ToggleSidebar),
         LegendAction::Preview => reduce(state, Action::TogglePreview),
         LegendAction::Bookmarks => reduce(state, Action::OpenBookmarks),
+        LegendAction::Search => reduce(state, Action::EnterFilter),
+        LegendAction::Paste => reduce(state, Action::ClipboardPaste),
+        LegendAction::View => reduce(state, Action::CycleView),
+        LegendAction::Player => Vec::new(),
     }
 }
 

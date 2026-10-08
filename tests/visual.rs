@@ -203,7 +203,7 @@ fn sort_mode_is_visible_in_the_grid_header() {
     );
     let text = render(&mut state, 120, 36);
     assert!(
-        text.contains("Sort: size (asc)"),
+        text.contains("Sort: size ▲"),
         "sort indicator missing:\n{text}"
     );
 
@@ -217,7 +217,7 @@ fn sort_mode_is_visible_in_the_grid_header() {
     );
     let descending = render(&mut state, 120, 36);
     assert!(
-        descending.contains("Sort: size desc (desc)"),
+        descending.contains("Sort: size ▼"),
         "descending sort indicator missing:\n{descending}"
     );
 }
@@ -406,7 +406,8 @@ fn palette_overlay_uses_strong_frame_and_surface_interior() {
     drive(&mut state, &mut handler, [Action::ToggleHelp]);
     let terminal = rendered_terminal(&mut state, 80, 24);
     let buffer = terminal.backend().buffer();
-    assert!(cells_matching(buffer, |cell| cell.fg == BORDER_STRONG) > 0);
+    // Rounded raised frame over a SURFACE_3 interior.
+    assert!(cells_matching(buffer, |cell| cell.symbol() == "╭" && cell.bg == SURFACE_3) > 0);
     assert!(cells_matching(buffer, |cell| cell.bg == SURFACE_3) > 0);
 }
 
@@ -521,8 +522,9 @@ fn symlinks_and_executables_render() {
     let (state, _) = loaded(160, 48);
     let mut state = state;
     let text = render(&mut state, 160, 48);
-    assert!(text.contains("LNK>"), "symlink tile badge present");
-    assert!(text.contains("EXE>"), "executable tile badge present");
+    // Text badges keep types identifiable without color.
+    assert!(text.contains("lnk"), "symlink badge present");
+    assert!(text.contains("exe"), "executable badge present");
     assert!(text.contains("build.sh"));
     assert!(text.contains("README link"));
 }
@@ -786,17 +788,17 @@ fn image_preview_reports_protocol_and_keeps_content_inside_frame() {
     )));
     let terminal = rendered_terminal(&mut state, 160, 48);
     let text = buffer_text(&terminal);
-    assert!(text.contains("Preview (Halfblocks)"));
+    assert!(text.contains("Preview · Halfblocks"));
     let buffer = terminal.backend().buffer();
     let frame_origin = (0..buffer.area.height)
-        .flat_map(|y| (124..buffer.area.width).map(move |x| (x, y)))
+        .flat_map(|y| (110..buffer.area.width).map(move |x| (x, y)))
         .find(|&(x, y)| {
             let cell = &buffer[(x, y)];
-            cell.symbol() == "+" && cell.fg == BORDER_SUBTLE
+            cell.symbol() == "╭" && cell.fg == BORDER_SUBTLE
         })
         .expect("preview content frame");
     let image_cell = (0..buffer.area.height)
-        .flat_map(|y| (124..buffer.area.width).map(move |x| (x, y)))
+        .flat_map(|y| (110..buffer.area.width).map(move |x| (x, y)))
         .find(|&(x, y)| buffer[(x, y)].symbol() == "▀")
         .expect("half-block image cell");
     assert!(image_cell.0 > frame_origin.0);
@@ -873,7 +875,7 @@ fn hiding_preview_discards_protocol_state() {
     )));
     state.show_preview = Some(false);
     let text = render(&mut state, 160, 48);
-    assert!(!text.contains("Preview ("));
+    assert!(!text.contains("Preview"));
     assert!(state.preview.key.is_none());
     assert!(state.preview.content.is_none());
 }
@@ -1006,8 +1008,9 @@ fn marquee_band_renders_accent_outline_without_fill() {
     let accent_cells = cells_matching(buffer, |cell| {
         cell.fg == tui_explorer::ui::palette::ACCENT_SOFT
     });
+    // Full perimeter of the 31x15 band.
     assert!(
-        accent_cells >= 2 * (31 + 15),
+        accent_cells >= 2 * 31 + 2 * 13,
         "outline missing: {accent_cells}"
     );
 }

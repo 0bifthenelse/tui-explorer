@@ -2,27 +2,17 @@
 //! geometry shared by the renderer and the mouse hit-resolution path.
 
 use ratatui::layout::Rect;
-use ratatui::style::{Color, Modifier, Style};
-use ratatui::symbols::border;
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 
+use crate::ui::glyphs::g;
 use crate::ui::hit::{HitMap, HitTarget};
 use crate::ui::palette::{
-    ACCENT, ACCENT_HOVER, BORDER_SUBTLE, DANGER, SURFACE_2, SURFACE_3, TEXT_MUTED, TEXT_PRIMARY,
+    ACCENT, ACCENT_HOVER, BORDER_STRONG, DANGER, INK_ON_ACCENT, SURFACE_2, SURFACE_3, TEXT_MUTED,
+    TEXT_PRIMARY,
 };
-
-/// Same ASCII border set every modal in [`crate::ui`] uses.
-const ASCII_BORDERS: border::Set = border::Set {
-    top_left: "+",
-    top_right: "+",
-    bottom_left: "+",
-    bottom_right: "+",
-    vertical_left: "|",
-    vertical_right: "|",
-    horizontal_top: "-",
-    horizontal_bottom: "-",
-};
+use crate::ui::theme::mix;
 
 /// Visual state of a [`Button`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -38,7 +28,7 @@ pub enum ButtonState {
 }
 
 /// A bordered, labelled clickable region.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Button {
     pub rect: Rect,
     pub label: String,
@@ -47,6 +37,9 @@ pub struct Button {
     /// alone — wording plus confirm dialogs carry the meaning).
     pub danger: bool,
     pub state: ButtonState,
+    /// Animated hover intensity (0..1); blends the idle look toward the
+    /// hovered one so pointer feedback fades instead of snapping.
+    pub glow: f32,
 }
 
 impl Button {
@@ -57,7 +50,13 @@ impl Button {
             target,
             danger: false,
             state: ButtonState::Idle,
+            glow: 0.0,
         }
+    }
+
+    pub fn with_glow(mut self, glow: f32) -> Self {
+        self.glow = glow.clamp(0.0, 1.0);
+        self
     }
 
     pub fn danger(mut self) -> Self {
@@ -67,6 +66,9 @@ impl Button {
 
     pub fn with_state(mut self, state: ButtonState) -> Self {
         self.state = state;
+        if state == ButtonState::Hovered {
+            self.glow = self.glow.max(1.0);
+        }
         self
     }
 }
@@ -78,10 +80,19 @@ pub fn draw_button(frame: &mut ratatui::Frame, btn: &Button, hits: &mut HitMap) 
     }
 
     let (bg, border_fg, label_fg, bold) = match btn.state {
-        ButtonState::Idle => (SURFACE_2, BORDER_SUBTLE, TEXT_PRIMARY, false),
-        ButtonState::Hovered => (SURFACE_3, ACCENT_HOVER, TEXT_PRIMARY, false),
-        ButtonState::Active => (ACCENT, ACCENT_HOVER, Color::Black, true),
-        ButtonState::Disabled => (SURFACE_2, BORDER_SUBTLE, TEXT_MUTED, false),
+        ButtonState::Idle | ButtonState::Hovered => (
+            mix(SURFACE_2, mix(SURFACE_3, ACCENT, 0.18), btn.glow),
+            mix(BORDER_STRONG, ACCENT_HOVER, btn.glow),
+            TEXT_PRIMARY,
+            btn.glow > 0.5,
+        ),
+        ButtonState::Active => (
+            mix(ACCENT, ACCENT_HOVER, btn.glow),
+            ACCENT_HOVER,
+            INK_ON_ACCENT,
+            true,
+        ),
+        ButtonState::Disabled => (SURFACE_2, BORDER_STRONG, TEXT_MUTED, false),
     };
     let label_fg = if btn.danger && btn.state != ButtonState::Disabled {
         DANGER
@@ -91,8 +102,8 @@ pub fn draw_button(frame: &mut ratatui::Frame, btn: &Button, hits: &mut HitMap) 
 
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_set(ASCII_BORDERS)
-        .border_style(Style::default().fg(border_fg))
+        .border_set(g().rounded)
+        .border_style(Style::default().fg(border_fg).bg(bg))
         .style(Style::default().bg(bg));
     let inner = block.inner(btn.rect);
     frame.render_widget(block, btn.rect);
@@ -366,7 +377,9 @@ mod tests {
             target: HitTarget::MediaStop,
             danger,
             state,
-        };
+            glow: 0.0,
+        }
+        .with_state(state);
         terminal
             .draw(|frame| draw_button(frame, &btn, &mut hits))
             .expect("draw");
@@ -381,18 +394,18 @@ mod tests {
     #[test]
     fn draw_button_state_colors() {
         let idle = render_button(ButtonState::Idle, false);
-        assert_eq!(idle[(0, 0)].fg, BORDER_SUBTLE);
+        assert_eq!(idle[(0, 0)].fg, BORDER_STRONG);
         assert_eq!(idle[(1, 1)].bg, SURFACE_2);
         assert_eq!(idle[(2, 1)].fg, TEXT_PRIMARY);
         assert_eq!(idle[(2, 1)].symbol(), "O");
 
         let hovered = render_button(ButtonState::Hovered, false);
         assert_eq!(hovered[(0, 0)].fg, ACCENT_HOVER);
-        assert_eq!(hovered[(1, 1)].bg, SURFACE_3);
+        assert_eq!(hovered[(1, 1)].bg, mix(SURFACE_3, ACCENT, 0.18));
 
         let active = render_button(ButtonState::Active, false);
         assert_eq!(active[(1, 1)].bg, ACCENT);
-        assert_eq!(active[(2, 1)].fg, Color::Black);
+        assert_eq!(active[(2, 1)].fg, INK_ON_ACCENT);
         assert!(active[(2, 1)].modifier.contains(Modifier::BOLD));
 
         let disabled = render_button(ButtonState::Disabled, false);
@@ -405,7 +418,7 @@ mod tests {
         let buf = render_button(ButtonState::Idle, true);
         assert_eq!(buf[(2, 1)].fg, DANGER);
         // Border styling stays state-driven.
-        assert_eq!(buf[(0, 0)].fg, BORDER_SUBTLE);
+        assert_eq!(buf[(0, 0)].fg, BORDER_STRONG);
 
         // Disabled wins: muted label even when marked dangerous.
         let off = render_button(ButtonState::Disabled, true);

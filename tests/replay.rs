@@ -520,14 +520,22 @@ fn open_with_empty_input_reports_error() {
     assert!(matches!(state.mode, Mode::Browser));
 }
 
+/// Focuses the entry called `name` (a file without a built-in viewer
+/// when the test needs the open-with prompt).
+fn focus_named(state: &mut AppState, name: &str) {
+    let pos = state
+        .browser
+        .visible_entries()
+        .position(|(_, e)| e.entry.display_name() == name)
+        .expect("entry exists in the demo fs");
+    state.browser.selected = pos;
+}
+
 #[test]
 fn open_file_prompts_for_command() {
     let (mut state, mut handler) = loaded(120, 36);
-    drive(
-        &mut state,
-        &mut handler,
-        [Action::GotoLast, Action::OpenFocused],
-    );
+    focus_named(&mut state, "archive.tar.gz");
+    drive(&mut state, &mut handler, [Action::OpenFocused]);
     let Mode::OpenWith(dialog) = &state.mode else {
         panic!("expected open-with modal, got {:?}", state.mode.name())
     };
@@ -538,9 +546,45 @@ fn open_file_prompts_for_command() {
 }
 
 #[test]
+fn open_text_file_shows_quick_look() {
+    let (mut state, mut handler) = loaded(120, 36);
+    focus_named(&mut state, "notes.md");
+    drive(&mut state, &mut handler, [Action::OpenFocused]);
+    assert!(matches!(state.mode, Mode::QuickLook(_)));
+    assert!(handler.opened_with.is_empty());
+    drive(&mut state, &mut handler, [Action::Cancel]);
+    assert!(matches!(state.mode, Mode::Browser));
+}
+
+#[test]
+fn remembered_association_opens_without_prompt() {
+    let (mut state, mut handler) = loaded(120, 36);
+    focus_named(&mut state, "archive.tar.gz");
+    // First open asks, the answer is remembered for .tar.gz.
+    drive(&mut state, &mut handler, [Action::OpenFocused]);
+    let Mode::OpenWith(dialog) = &mut state.mode else {
+        panic!("expected open-with modal, got {:?}", state.mode.name())
+    };
+    dialog.remember = true;
+    drive(
+        &mut state,
+        &mut handler,
+        "atool -l".chars().map(Action::OpenWithChar),
+    );
+    drive(&mut state, &mut handler, [Action::OpenWithSubmit]);
+    let launches = handler.opened_with.len() + handler.detached.len();
+    assert_eq!(launches, 1, "first submit launches once");
+    assert!(state.settings.associations.contains_key("tar.gz"));
+    // Second open goes straight to the remembered program.
+    drive(&mut state, &mut handler, [Action::OpenFocused]);
+    assert!(matches!(state.mode, Mode::Browser));
+    assert_eq!(handler.opened_with.len() + handler.detached.len(), 2);
+}
+
+#[test]
 fn open_command_prompts_for_command() {
     let (mut state, mut handler) = loaded(120, 36);
-    drive(&mut state, &mut handler, [Action::GotoLast]);
+    focus_named(&mut state, "archive.tar.gz");
     drive(&mut state, &mut handler, command_actions("open"));
     let Mode::OpenWith(dialog) = &state.mode else {
         panic!("expected open-with modal, got {:?}", state.mode.name())
@@ -639,7 +683,7 @@ fn click(state: &mut AppState, handler: &mut SyncHandler, pos: usize) {
         [Action::Mouse {
             kind: MouseKind::Left,
             x: rect.x + 1,
-            y: rect.y + 1,
+            y: rect.y + rect.height / 2,
             ctrl: false,
         }],
     );
@@ -716,7 +760,7 @@ fn e_and_enter_both_open_focused() {
 }
 
 #[test]
-fn l_and_arrow_do_not_open() {
+fn l_and_arrow_open_in_list_but_move_in_grid() {
     let (mut state, _) = loaded(120, 36);
     for code in [
         crossterm::event::KeyCode::Char('l'),
@@ -725,11 +769,22 @@ fn l_and_arrow_do_not_open() {
         let key = crossterm::event::KeyEvent::new(code, crossterm::event::KeyModifiers::NONE);
         let action = tui_explorer::input::keymap::map_key(key, &state);
         assert!(
-            !matches!(action, Some(Action::OpenFocused)),
-            "{code:?} must not open"
+            matches!(action, Some(Action::OpenFocused)),
+            "{code:?} opens in the list layout (ranger)"
         );
     }
-    state.browser.selected = 0;
+    state.settings.view = tui_explorer::settings::ViewMode::Grid;
+    for code in [
+        crossterm::event::KeyCode::Char('l'),
+        crossterm::event::KeyCode::Right,
+    ] {
+        let key = crossterm::event::KeyEvent::new(code, crossterm::event::KeyModifiers::NONE);
+        let action = tui_explorer::input::keymap::map_key(key, &state);
+        assert!(
+            matches!(action, Some(Action::MoveRight)),
+            "{code:?} moves between tiles in the grid"
+        );
+    }
 }
 
 #[test]
@@ -745,13 +800,13 @@ fn open_on_empty_directory_is_safe() {
     assert_eq!(state.browser.cwd, PathBuf::from("/home/demo"));
 }
 
+/// Position of a file without a built-in viewer (so opening it prompts).
 fn first_file_pos(state: &AppState) -> usize {
     state
         .browser
-        .visible_indices()
-        .iter()
-        .position(|&i| !state.browser.entries[i].entry.kind.is_dir())
-        .expect("demo fs has files")
+        .visible_entries()
+        .position(|(_, e)| e.entry.display_name() == "archive.tar.gz")
+        .expect("demo fs has an archive")
 }
 
 #[test]
@@ -779,7 +834,7 @@ fn context_menu_open_prompts_for_command() {
         [Action::Mouse {
             kind: MouseKind::Right,
             x: rect.x + 1,
-            y: rect.y + 1,
+            y: rect.y + rect.height / 2,
             ctrl: false,
         }],
     );
@@ -815,7 +870,12 @@ fn bookmark_navigator_filters_submits_and_cancels() {
     let Mode::Bookmarks(nav) = &state.mode else {
         panic!("still in bookmarks modal")
     };
-    assert_eq!(nav.matches, vec![PathBuf::from("/home/demo/src")]);
+    assert_eq!(
+        nav.matches,
+        vec![tui_explorer::app::state::HubItem::Folder(PathBuf::from(
+            "/home/demo/src"
+        ))]
+    );
     assert_eq!(nav.selected, 0, "selection clamps to the shrunk list");
     drive(&mut state, &mut handler, [Action::BookmarkSubmit]);
     assert_eq!(state.browser.cwd, PathBuf::from("/home/demo/src"));
@@ -916,6 +976,8 @@ fn crypto_state(dir: &std::path::Path, names: &[&str]) -> (AppState, SyncHandler
                 hidden: name.starts_with('.'),
                 device: None,
                 inode: None,
+                link_target: None,
+                link_dir: false,
             },
         );
     }
@@ -1339,7 +1401,7 @@ fn drag_moves_file_to_directory_target() {
         [Action::Mouse {
             kind: MouseKind::Left,
             x: src.x + 1,
-            y: src.y + 1,
+            y: src.y + src.height / 2,
             ctrl: false,
         }],
     );
@@ -1349,7 +1411,7 @@ fn drag_moves_file_to_directory_target() {
         [Action::Mouse {
             kind: MouseKind::LeftDrag,
             x: dst.x + 1,
-            y: dst.y + 1,
+            y: dst.y + dst.height / 2,
             ctrl: false,
         }],
     );
@@ -1360,7 +1422,7 @@ fn drag_moves_file_to_directory_target() {
         [Action::Mouse {
             kind: MouseKind::LeftUp,
             x: dst.x + 1,
-            y: dst.y + 1,
+            y: dst.y + dst.height / 2,
             ctrl: false,
         }],
     );
@@ -1387,19 +1449,19 @@ fn drag_below_threshold_is_click_not_move() {
             Action::Mouse {
                 kind: MouseKind::Left,
                 x: rect.x + 1,
-                y: rect.y + 1,
+                y: rect.y + rect.height / 2,
                 ctrl: false,
             },
             Action::Mouse {
                 kind: MouseKind::LeftDrag,
                 x: rect.x + 2,
-                y: rect.y + 1,
+                y: rect.y + rect.height / 2,
                 ctrl: false,
             },
             Action::Mouse {
                 kind: MouseKind::LeftUp,
                 x: rect.x + 2,
-                y: rect.y + 1,
+                y: rect.y + rect.height / 2,
                 ctrl: false,
             },
         ],
@@ -1427,7 +1489,7 @@ fn esc_cancels_active_drag() {
         [Action::Mouse {
             kind: MouseKind::Left,
             x: src.x + 1,
-            y: src.y + 1,
+            y: src.y + src.height / 2,
             ctrl: false,
         }],
     );
@@ -1437,7 +1499,7 @@ fn esc_cancels_active_drag() {
         [Action::Mouse {
             kind: MouseKind::LeftDrag,
             x: dst.x + 1,
-            y: dst.y + 1,
+            y: dst.y + dst.height / 2,
             ctrl: false,
         }],
     );
@@ -1584,7 +1646,7 @@ fn marquee_selects_intersecting_tiles_in_both_directions() {
         [Action::Mouse {
             kind: MouseKind::LeftDrag,
             x: tile_b.x + 1,
-            y: tile_b.y + 1,
+            y: tile_b.y + tile_b.height / 2,
             ctrl: false,
         }],
     );
@@ -1594,7 +1656,7 @@ fn marquee_selects_intersecting_tiles_in_both_directions() {
         [Action::Mouse {
             kind: MouseKind::LeftUp,
             x: tile_b.x + 1,
-            y: tile_b.y + 1,
+            y: tile_b.y + tile_b.height / 2,
             ctrl: false,
         }],
     );
@@ -1740,7 +1802,7 @@ fn file_drag_motion_never_creates_a_marquee() {
         [Action::Mouse {
             kind: MouseKind::Left,
             x: src.x + 1,
-            y: src.y + 1,
+            y: src.y + src.height / 2,
             ctrl: false,
         }],
     );
@@ -1750,7 +1812,7 @@ fn file_drag_motion_never_creates_a_marquee() {
         [Action::Mouse {
             kind: MouseKind::LeftDrag,
             x: dst.x + 1,
-            y: dst.y + 1,
+            y: dst.y + dst.height / 2,
             ctrl: false,
         }],
     );
@@ -1799,7 +1861,7 @@ fn context_menu_hover_selects_without_executing() {
         [Action::Mouse {
             kind: MouseKind::Right,
             x: rect.x + 1,
-            y: rect.y + 1,
+            y: rect.y + rect.height / 2,
             ctrl: false,
         }],
     );
@@ -1871,7 +1933,7 @@ fn pointer_motion_outside_context_menu_is_inert() {
         [Action::Mouse {
             kind: MouseKind::Moved,
             x: other.x + 1,
-            y: other.y + 1,
+            y: other.y + other.height / 2,
             ctrl: false,
         }],
     );
@@ -1880,4 +1942,131 @@ fn pointer_motion_outside_context_menu_is_inert() {
         "hover never refocuses"
     );
     assert_eq!(state.browser.selected_paths_set(), &selection_before);
+}
+
+#[test]
+fn tabs_open_switch_close_and_restore() {
+    let (mut state, mut handler) = loaded(120, 36);
+    let home = state.browser.cwd.clone();
+    let docs = home.join("docs");
+    drive(&mut state, &mut handler, [Action::TabNew]);
+    assert_eq!(state.tabs.len(), 2);
+    assert_eq!(state.active_tab, 1);
+    drive(
+        &mut state,
+        &mut handler,
+        [Action::GoTo(docs.display().to_string())],
+    );
+    assert_eq!(state.browser.cwd, docs);
+    drive(&mut state, &mut handler, [Action::TabNext]);
+    assert_eq!(state.active_tab, 0);
+    assert_eq!(state.browser.cwd, home, "first tab kept its folder");
+    drive(&mut state, &mut handler, [Action::TabSelect(1)]);
+    assert_eq!(state.browser.cwd, docs);
+    drive(&mut state, &mut handler, [Action::TabClose]);
+    assert_eq!(state.tabs.len(), 1);
+    assert_eq!(state.browser.cwd, home);
+    drive(&mut state, &mut handler, [Action::TabRestore]);
+    assert_eq!(state.tabs.len(), 2);
+    assert_eq!(state.active_tab, 1);
+    assert_eq!(state.browser.cwd, docs, "restored tab comes back intact");
+    drive(&mut state, &mut handler, [Action::TabPrev]);
+    assert_eq!(state.browser.cwd, home, "the other tab was not overwritten");
+}
+
+#[test]
+fn trash_and_undo_round_trip() {
+    let (mut state, mut handler) = loaded(120, 36);
+    let pos = state
+        .browser
+        .visible_entries()
+        .position(|(_, e)| e.entry.display_name() == "notes.md")
+        .unwrap();
+    state.browser.selected = pos;
+    let path = state.browser.focused().unwrap().entry.path.clone();
+    drive(&mut state, &mut handler, [Action::TrashSelection]);
+    assert!(
+        handler
+            .mutations
+            .recorded()
+            .contains(&RecordedMutation::Trash { path: path.clone() }),
+        "moved to the trash"
+    );
+    assert_eq!(state.undo.len(), 1);
+    drive(&mut state, &mut handler, [Action::Undo]);
+    assert!(
+        handler
+            .mutations
+            .recorded()
+            .contains(&RecordedMutation::Move {
+                src: PathBuf::from("/trash/files/notes.md"),
+                dst: path.clone(),
+                replace: false,
+            }),
+        "undo moved it back: {:?}",
+        handler.mutations.recorded()
+    );
+    assert!(state.undo.is_empty());
+    assert!(
+        state
+            .message
+            .as_ref()
+            .is_some_and(|m| m.text.starts_with("undone"))
+    );
+}
+
+#[test]
+fn history_back_forward_and_previous_dir() {
+    let (mut state, mut handler) = loaded(120, 36);
+    let home = state.browser.cwd.clone();
+    let docs = home.join("docs");
+    let src = home.join("src");
+    drive(
+        &mut state,
+        &mut handler,
+        [Action::GoTo(docs.display().to_string())],
+    );
+    drive(
+        &mut state,
+        &mut handler,
+        [Action::GoTo(src.display().to_string())],
+    );
+    drive(&mut state, &mut handler, [Action::HistoryBack]);
+    assert_eq!(state.browser.cwd, docs);
+    drive(&mut state, &mut handler, [Action::HistoryBack]);
+    assert_eq!(state.browser.cwd, home);
+    drive(&mut state, &mut handler, [Action::HistoryForward]);
+    assert_eq!(state.browser.cwd, docs);
+    drive(&mut state, &mut handler, [Action::PreviousDir]);
+    assert_eq!(state.browser.cwd, home, "'' jumps to the folder before");
+}
+
+#[test]
+fn address_bar_accepts_files_urls_and_file_uris() {
+    let (mut state, mut handler) = loaded(120, 36);
+    // A file target opens its folder with the file focused.
+    drive(&mut state, &mut handler, [Action::OpenAddressBar]);
+    assert!(state.address_bar);
+    drive(
+        &mut state,
+        &mut handler,
+        "src/../notes.md".chars().map(Action::CommandChar),
+    );
+    drive(&mut state, &mut handler, [Action::CommandSubmit]);
+    assert!(!state.address_bar);
+    assert_eq!(
+        state.browser.focused().map(|v| v.entry.display_name()),
+        Some("notes.md".to_string())
+    );
+    // file:// URIs are paths.
+    drive(&mut state, &mut handler, [Action::OpenAddressBar]);
+    state.command_input = "cd file:///home/demo/docs".into();
+    drive(&mut state, &mut handler, [Action::CommandSubmit]);
+    assert_eq!(state.browser.cwd, PathBuf::from("/home/demo/docs"));
+    // Web links go to the browser.
+    drive(&mut state, &mut handler, [Action::OpenAddressBar]);
+    state.command_input = "cd https://example.com/x".into();
+    drive(&mut state, &mut handler, [Action::CommandSubmit]);
+    assert_eq!(handler.opened_urls.len(), 1);
+    assert_eq!(handler.opened_urls[0].0, "https://example.com/x");
 }

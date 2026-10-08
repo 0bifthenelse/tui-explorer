@@ -1,36 +1,36 @@
- tui-explorer 0.1.0                             tui-explorer is awesome!                               Press ? for help
- Path: [ / ]>[ home ]>[ demo ]
-PLACES ----------------|18 items (2 dirs, 16 files)  Sort: name (asc)
- Root                  ||   ______   ||   ______   || .--------. || .--------. || .--------. || .--------. |
-MOUNTS ----------------||  /______/_ ||  /______/_ || | .--'   | || | .--'   | || | .--'   | || | .--'   | |
-(no device mounts)     || |        | || |        | || | TXT    | || | TSX    | || | GZ     | || | SH     | |
-TAGS ------------------|| |      \ | || |        | || | ------ | || | ------ | || | ------ | || | ------ | |
-(no tags yet)          || +-------\+ || +--------+ || '--------' || '--------' || '--------' || '--------' |
-BOOKMARKS -------------|| docs       || src        || a very lon~|| app.tsx    || archive.ta~|| build.sh   |
-(Ctrl-b bookmarks cwd) ||dir         ||dir         ||88B         ||5.0K        ||1.0M        ||256B        |
-                       || .--------. || .--------. || .--------. || .--------. || .--------. || .--------. |
-                       || | .--'   | || | .--'   | || | .--'   | || | .--'   | || | .--'   | || | .--'   | |
-                       || | LOCK   | || | TOML   | || | JSON   | || | EXE>   | || | HTML   | || | RS     | |
-                       || | ------ | || | ------ | || | ------ | || | ------ | || | ------ | || | ------ | |
-                       || '--------' || '--------' || '--------' || '--------' || '--------' || '--------' |
-                       || Cargo.lock || Cargo.toml || data.json  || deploy     || index.html || main.rs    |
-                       ||50K         ||734B        ||8.0K        ||15K         ||1.0K        ||2.0K        |
-                       || .--------. || .--------. || .--------. || .--------. || .--------. || .--------. |
-                       || | .--'   | || | .--'   | || | .--'   | || | .--'   | || | .--'   | || | .--'   | |
-                       || | MD     | || | JSON   | || | PNG    | || | LNK>   | || | MP3    | || | CSS    | |
-                       || | ------ | || | ------ | || | ------ | || | ------ | || | ------ | || | ------ | |
-                       || '--------' || '--------' || '--------' || '--------' || '--------' || '--------' |
-                       || notes.md   || package.js~|| photo.png  || README link|| song.mp3   || style.css  |
-                       ||1.5K        ||412B        ||2.0M        ||9B          ||5.0M        ||2.5K        |
-                       |
-                       |
-                       |
-                       |
-                       |
-                       |
-                       |
-                       |
-                       |
-                       |
-| e/Enter Open | X Crypt | Bsp Up | v Visual | t Tag | : Command | ? Help | r OpenWith | b Sidebar | p Preview
- BROWSER  Copy 3/10 /home/demo/photo.png                                                                       5%  1/18
+ ◢◤ tui·explorer 0.1.0                                                             ≡ List  ⊞ Grid  ▥ Columns    ? help
+  /  ›  home  ›  demo                                                           18 items • 2 dirs • 8.1M • Sort: name ▲
+ PLACES                1 │       Name ▲                                                        Size  Modified Perms
+  / Root                 │▌  opn docs/                                                     0 items     2h ago drwxr-xr-x
+                         │   dir src/                                                      2 items     7m ago drwxr-xr-x
+ BOOKMARKS               │   txt a very long file name that keeps going and going.txt          88B    51m ago -rw-r--r--
+  Ctrl-b bookmarks this… │   ts  app.tsx                                                      5.0K     6m ago -rw-r--r--
+                         │   zip archive.tar.gz                                               1.0M     5h ago -rw-r--r--
+ TAGS                    │   sh  build.sh                                                     256B     9m ago -rwxr-xr-x
+  T creates a tag        │   clk Cargo.lock                                                    50K     2m ago -rw-r--r--
+                         │   cgo Cargo.toml                                                   734B     2m ago -rw-r--r--
+ DEVICES                 │   jsn data.json                                                    8.0K     9m ago -rw-r--r--
+  no device mounts       │   exe deploy                                                        15K    17m ago -rwxr-xr-x
+                         │   htm index.html                                                   1.0K    12m ago -rw-r--r--
+                         │   rs  main.rs                                                      2.0K     6m ago -rw-r--r--
+                         │   md  notes.md                                                     1.5K     1h ago -rw-r--r--
+                         │   pkg package.json                                                 412B     4m ago -rw-r--r--
+                         │   img photo.png                                                    2.0M    11h ago -rw-r--r--
+                         │   lnk README link                                                    9B    17m ago lrwxrwxrwx
+                         │   aud song.mp3                                                     5.0M     8h ago -rw-r--r--
+                         │   css style.css                                                    2.5K    12m ago -rw-r--r--
+                         │
+                         │
+                         │
+                         │
+                         │
+                         │
+                         │
+                         │
+                         │
+                         │
+                         │
+                         │
+                         │
+  Enter  open   Space  select   /  search   :  command   Bsp  up   zv  layout   B  bookmarks   i  quick look
+▐ BROWSER ▌ Copy 3/10 ███▋         photo.png                                                                   5%  1/18

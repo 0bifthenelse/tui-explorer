@@ -1,24 +1,24 @@
- tui-explorer 0.1.0         tui-explorer is awesome!           Press ? for help
- Path: [ / ]>[ home ]>[ demo ] [.+]
-20 items (3 dirs, 17 files)  Sort: name (asc)
-|   ______   ||   ______   ||   ______   || .--------. || .--------. |
-|  /______/_ ||  /______/_ ||  /______/_ || | .--'   | || | .--'   | |
-| | . . .  | || |        | || |        | || | FILE   | || | TXT    | |
-| | . . .  | || |        | || |        | || | ------ | || | ------ | |
-| +--------+ || +--------+ || +--------+ || '--------' || '--------' |
-| .git       || docs       || src        || .hidden    || a very lon~|
-|dir         ||dir         ||dir         ||12B         ||88B         |
-| .--------. || .--------. || .--------. || .--------. || .--------. |
-| | .--'   | || | .--'   | || | .--'   | || | .--'   | || | .--'   | |
-| | TSX    | || | GZ     | || | SH     | || | LOCK   | || | TOML   | |
-| | ------ | || | ------ | || | ------ | || | ------ | || | ------ | |
-| '--------' || '--------' || '--------' || '--------' || '--------' |
-| app.tsx    || archive.ta~|| build.sh   || Cargo.lock || Cargo.toml |
-|5.0K        ||1.0M        ||256B        ||50K         ||734B        |
-
-
-
-
-TIP  Double-click or Enter/e to open * Right-click for menu * Mouse wheel to sc~
-| e/Enter Open | X Crypt | Bsp Up | v Visual | t Tag | : Command | ? Help
- BROWSER                                                               5%  1/20
+ ◢◤ tui·explorer 0.1.0                     ≡ List  ⊞ Grid  ▥ Columns    ? help
+  /  ›  home  ›  demo              .* • 20 items • 3 dirs • 8.1M • Sort: name ▲
+       Name ▲                                         Size  Modified Perms
+▌  .dr .git/                                      0 items    14m ago drwxr-xr-x┃
+   dir docs/                                      0 items     2h ago drwxr-xr-x┃
+   dir src/                                       2 items     7m ago drwxr-xr-x┃
+    ?  .hidden                                        12B    34m ago -rw-------┃
+   txt a very long file name that …and going.txt      88B    51m ago -rw-r--r--┃
+   ts  app.tsx                                       5.0K     6m ago -rw-r--r--┃
+   zip archive.tar.gz                                1.0M     5h ago -rw-r--r--┃
+   sh  build.sh                                      256B     9m ago -rwxr-xr-x┃
+   clk Cargo.lock                                     50K     2m ago -rw-r--r--┃
+   cgo Cargo.toml                                    734B     2m ago -rw-r--r--┃
+   jsn data.json                                     8.0K     9m ago -rw-r--r--┃
+   exe deploy                                         15K    17m ago -rwxr-xr-x┃
+   htm index.html                                    1.0K    12m ago -rw-r--r--┃
+   rs  main.rs                                       2.0K     6m ago -rw-r--r--┃
+   md  notes.md                                      1.5K     1h ago -rw-r--r--┃
+   pkg package.json                                  412B     4m ago -rw-r--r--┃
+   img photo.png                                     2.0M    11h ago -rw-r--r--┃
+   lnk README link                                     9B    17m ago lrwxrwxrwx┃
+   aud song.mp3                                      5.0M     8h ago -rw-r--r--│
+  Enter  open   Space  select   /  search   :  command   Bsp  up   zv  layout
+▐ BROWSER ▌                                                            5%  1/20

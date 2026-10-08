@@ -1,9 +1,13 @@
+pub mod probe;
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct TtyFlags {
     pub raw_mode: bool,
     pub alternate_screen: bool,
     pub mouse_capture: bool,
     pub cursor_hidden: bool,
+    /// Pasted text arrives as one event instead of keystrokes.
+    pub bracketed_paste: bool,
 }
 
 impl TtyFlags {
@@ -13,6 +17,7 @@ impl TtyFlags {
             alternate_screen: true,
             mouse_capture: true,
             cursor_hidden: true,
+            bracketed_paste: true,
         }
     }
 
@@ -78,7 +83,9 @@ pub mod crossterm_driver {
     use std::io::{self, Write};
 
     use crossterm::cursor::{Hide, Show};
-    use crossterm::event::{DisableMouseCapture, EnableMouseCapture};
+    use crossterm::event::{
+        DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture,
+    };
     use crossterm::queue;
     use crossterm::terminal::{
         EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
@@ -125,6 +132,11 @@ pub mod crossterm_driver {
                 queue!(self.out, Hide)?;
             } else {
                 queue!(self.out, Show)?;
+            }
+            if flags.bracketed_paste {
+                queue!(self.out, EnableBracketedPaste)?;
+            } else {
+                queue!(self.out, DisableBracketedPaste)?;
             }
             self.out.flush()
         }

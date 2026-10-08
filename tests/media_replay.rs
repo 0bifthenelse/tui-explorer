@@ -898,3 +898,362 @@ fn keymap_f_and_n_are_wired_under_media_mode() {
     assert_eq!(current_session(&state), session, "no new session minted");
     assert_eq!(media(&state).path, demo_root().join("song.mp3"));
 }
+
+/// Opens `02-first.wav` from the mixed fixture and reports it Playing.
+fn playing_queue() -> (AppState, SyncHandler, u64) {
+    let mut state = demo_state(120, 36);
+    let mut handler = SyncHandler::new(mixed_media_fs());
+    drive(&mut state, &mut handler, [Action::LoadInitial]);
+    drive(
+        &mut state,
+        &mut handler,
+        [Action::GotoFirst, Action::MoveDown],
+    );
+    drive(&mut state, &mut handler, [Action::OpenFocused]);
+    let session = current_session(&state);
+    drive(
+        &mut state,
+        &mut handler,
+        [
+            Action::MediaSurfaceReady {
+                session,
+                surface: audio_surface(),
+            },
+            Action::MediaStatus {
+                session,
+                phase: MediaPhase::Playing,
+                position: 1.0,
+                duration: Some(60.0),
+                volume: 80,
+            },
+        ],
+    );
+    (state, handler, session)
+}
+
+#[test]
+fn eof_auto_advances_through_the_queue() {
+    let (mut state, mut handler, first) = playing_queue();
+    drive(
+        &mut state,
+        &mut handler,
+        [Action::MediaEnded { session: first }],
+    );
+    let m = media(&state);
+    assert_ne!(m.session, first, "the next track is a fresh session");
+    assert_eq!(m.path, demo_root().join("04-second.flac"));
+    assert_eq!(m.phase, MediaPhase::Preparing);
+    assert!(
+        state
+            .message
+            .as_ref()
+            .is_some_and(|msg| msg.text.contains("now playing 04-second")),
+        "{:?}",
+        state.message
+    );
+}
+
+#[test]
+fn repeat_one_replays_and_repeat_all_wraps() {
+    let (mut state, mut handler, first) = playing_queue();
+    drive(
+        &mut state,
+        &mut handler,
+        [Action::MediaRepeat, Action::MediaRepeat],
+    );
+    assert_eq!(media(&state).repeat, tui_explorer::app::state::Repeat::One);
+    drive(
+        &mut state,
+        &mut handler,
+        [Action::MediaEnded { session: first }],
+    );
+    assert_eq!(media(&state).path, demo_root().join("02-first.wav"));
+    assert_eq!(
+        media(&state).repeat,
+        tui_explorer::app::state::Repeat::One,
+        "preferences carry over"
+    );
+}
+
+#[test]
+fn minimized_audio_plays_on_in_the_mini_player() {
+    let (mut state, mut handler, first) = playing_queue();
+    drive(&mut state, &mut handler, [Action::MediaMinimize]);
+    assert!(matches!(state.mode, Mode::Browser), "browsing again");
+    let mini = state.mini.as_ref().expect("mini player");
+    assert_eq!(mini.session, first, "same session keeps playing");
+    assert!(handler.stopped_media.is_empty(), "nothing was stopped");
+
+    // Status updates reach the background session.
+    drive(
+        &mut state,
+        &mut handler,
+        [Action::MediaStatus {
+            session: first,
+            phase: MediaPhase::Playing,
+            position: 42.0,
+            duration: Some(60.0),
+            volume: 80,
+        }],
+    );
+    assert_eq!(state.mini.as_ref().unwrap().position, 42.0);
+
+    // Transport works from the browser (mini player buttons).
+    drive(&mut state, &mut handler, [Action::MediaTogglePause]);
+    assert!(
+        handler
+            .media_commands
+            .contains(&(first, MediaCommand::TogglePause))
+    );
+
+    // End of track: the next one starts straight away in the background.
+    drive(
+        &mut state,
+        &mut handler,
+        [Action::MediaEnded { session: first }],
+    );
+    let second = state.mini.as_ref().expect("still mini").session;
+    assert_ne!(second, first);
+    assert!(
+        handler.started_media.iter().any(|(s, _)| *s == second),
+        "audio needs no surface handshake in the background"
+    );
+    assert!(matches!(state.mode, Mode::Browser));
+
+    // M brings the full player back with the live session.
+    drive(&mut state, &mut handler, [Action::MediaExpand]);
+    assert_eq!(media(&state).session, second);
+    assert!(state.mini.is_none());
+}
+
+#[test]
+fn queue_end_in_background_clears_the_mini_player() {
+    let (mut state, mut handler, first) = playing_queue();
+    // Step to the last track, completing each handshake.
+    for _ in 0..2 {
+        drive(&mut state, &mut handler, [Action::MediaNext]);
+        let session = current_session(&state);
+        drive(
+            &mut state,
+            &mut handler,
+            [
+                Action::MediaSurfaceReady {
+                    session,
+                    surface: audio_surface(),
+                },
+                Action::MediaStatus {
+                    session,
+                    phase: MediaPhase::Playing,
+                    position: 1.0,
+                    duration: Some(60.0),
+                    volume: 80,
+                },
+            ],
+        );
+    }
+    let last = current_session(&state);
+    assert_ne!(last, first);
+    assert_eq!(media(&state).path, demo_root().join("05-third.mp3"));
+    drive(
+        &mut state,
+        &mut handler,
+        [
+            Action::MediaSurfaceReady {
+                session: last,
+                surface: audio_surface(),
+            },
+            Action::MediaStatus {
+                session: last,
+                phase: MediaPhase::Playing,
+                position: 1.0,
+                duration: Some(60.0),
+                volume: 80,
+            },
+            Action::MediaMinimize,
+            Action::MediaEnded { session: last },
+        ],
+    );
+    assert!(state.mini.is_none(), "nothing left to play");
+    assert!(handler.stopped_media.contains(&last));
+}
+
+#[test]
+fn volume_is_remembered_for_the_next_session() {
+    let (mut state, mut handler, session) = playing_audio(10.0, Some(90.0));
+    drive(&mut state, &mut handler, [Action::MediaVolume(-30)]);
+    assert_eq!(media(&state).volume, 50);
+    assert_eq!(state.settings.volume, 50);
+    assert!(state.settings_dirty);
+    drive(&mut state, &mut handler, [Action::MediaClose]);
+    assert!(matches!(state.mode, Mode::Browser));
+    // A new session starts at the remembered level.
+    drive(&mut state, &mut handler, [Action::OpenFocused]);
+    let next = current_session(&state);
+    assert_ne!(next, session);
+    assert_eq!(media(&state).volume, 50);
+    drive(
+        &mut state,
+        &mut handler,
+        [Action::MediaSurfaceReady {
+            session: next,
+            surface: audio_surface(),
+        }],
+    );
+    assert!(
+        handler
+            .media_commands
+            .contains(&(next, MediaCommand::SetVolume(50))),
+        "the fresh backend gets the level after Load: {:?}",
+        handler.media_commands
+    );
+}
+
+#[test]
+fn mute_keeps_the_level_and_unmute_restores_it() {
+    let (mut state, mut handler, session) = playing_audio(10.0, Some(90.0));
+    drive(&mut state, &mut handler, [Action::MediaMute]);
+    assert!(media(&state).muted);
+    // A muted backend reporting 0 does not overwrite the kept level.
+    drive(
+        &mut state,
+        &mut handler,
+        [Action::MediaStatus {
+            session,
+            phase: MediaPhase::Playing,
+            position: 11.0,
+            duration: Some(90.0),
+            volume: 0,
+        }],
+    );
+    assert_eq!(media(&state).volume, 80);
+    drive(&mut state, &mut handler, [Action::MediaMute]);
+    assert!(!media(&state).muted);
+    assert!(
+        handler
+            .media_commands
+            .contains(&(session, MediaCommand::SetVolume(80)))
+    );
+}
+
+#[test]
+fn subtitle_picker_finds_local_files_and_loads_the_choice() {
+    let (mut state, mut handler, session) = playing_video(5.0, Some(30.0));
+    drive(&mut state, &mut handler, [Action::MediaOpenSubs]);
+    assert!(
+        handler
+            .media_commands
+            .contains(&(session, MediaCommand::TogglePause)),
+        "a playing video pauses so the picker is visible"
+    );
+    let picker = media(&state).sub_picker.clone().expect("picker open");
+    assert!(!picker.searching, "discovery answered");
+    let names: Vec<String> = picker.found.iter().map(|f| f.name()).collect();
+    assert_eq!(
+        names.first().map(String::as_str),
+        Some("clip.srt"),
+        "{names:?}"
+    );
+    assert!(names.contains(&"clip.fr.forced.srt".to_string()));
+
+    // Typing filters; Enter loads the selected file and resumes.
+    drive(
+        &mut state,
+        &mut handler,
+        "french".chars().map(Action::SubPickerChar),
+    );
+    drive(&mut state, &mut handler, [Action::SubPickerSubmit]);
+    let wanted = demo_root().join("clip.fr.forced.srt");
+    assert!(
+        handler
+            .media_commands
+            .contains(&(session, MediaCommand::AddSub(wanted.clone())))
+    );
+    assert_eq!(media(&state).sub_file.as_ref(), Some(&wanted));
+    assert!(media(&state).sub_picker.is_none());
+    let pauses = handler
+        .media_commands
+        .iter()
+        .filter(|(s, c)| *s == session && *c == MediaCommand::TogglePause)
+        .count();
+    assert_eq!(pauses, 2, "paused for the picker, resumed after");
+}
+
+#[test]
+fn player_keys_reach_the_new_transport_actions() {
+    let (state, _handler, _session) = playing_video(5.0, Some(30.0));
+    let key = |code| KeyEvent::new(code, KeyModifiers::NONE);
+    assert!(matches!(
+        map_key(key(KeyCode::Char('c')), &state),
+        Some(Action::MediaOpenSubs)
+    ));
+    assert!(matches!(
+        map_key(key(KeyCode::Char('z')), &state),
+        Some(Action::MediaSubDelay(-1))
+    ));
+    assert!(matches!(
+        map_key(key(KeyCode::Char(']')), &state),
+        Some(Action::MediaSpeed(1))
+    ));
+    assert!(matches!(
+        map_key(key(KeyCode::Char('5')), &state),
+        Some(Action::MediaSeekPercent(5))
+    ));
+}
+
+#[test]
+fn window_backend_toggles_fullscreen_in_place_and_tct_is_fullscreen_only() {
+    // GUI window: fullscreen is an IPC property flip, no restart cycle.
+    let mut state = demo_state(120, 36);
+    state.settings.video_output = tui_explorer::settings::VideoOutput::Window;
+    let mut handler = SyncHandler::new(demo_fs_with_video());
+    drive(&mut state, &mut handler, [Action::LoadInitial]);
+    focus_video(&mut state, &mut handler);
+    drive(&mut state, &mut handler, [Action::OpenFocused]);
+    let session = current_session(&state);
+    assert_eq!(
+        media(&state).backend,
+        tui_explorer::media::VideoBackend::Window
+    );
+    drive(
+        &mut state,
+        &mut handler,
+        [
+            Action::MediaSurfaceReady {
+                session,
+                surface: video_surface(),
+            },
+            Action::MediaStatus {
+                session,
+                phase: MediaPhase::Playing,
+                position: 3.0,
+                duration: Some(30.0),
+                volume: 80,
+            },
+            Action::MediaToggleFullscreen,
+        ],
+    );
+    assert_eq!(current_session(&state), session, "no restart");
+    assert!(media(&state).fullscreen);
+    assert!(
+        handler
+            .media_commands
+            .contains(&(session, MediaCommand::SetFullscreen(true)))
+    );
+    assert!(
+        !state.media_owns_terminal(),
+        "a separate window never owns the terminal"
+    );
+
+    // Text output always fills the terminal.
+    let mut state = demo_state(120, 36);
+    state.settings.video_output = tui_explorer::settings::VideoOutput::Tct;
+    let mut handler = SyncHandler::new(demo_fs_with_video());
+    drive(&mut state, &mut handler, [Action::LoadInitial]);
+    focus_video(&mut state, &mut handler);
+    drive(&mut state, &mut handler, [Action::OpenFocused]);
+    assert_eq!(
+        media(&state).backend,
+        tui_explorer::media::VideoBackend::Tct
+    );
+    assert!(media(&state).fullscreen);
+}
